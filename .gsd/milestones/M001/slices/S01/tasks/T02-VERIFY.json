@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001/S01/T02",
+  "timestamp": 1774542076601,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "python -m pytest tests/test_mcp_lifecycle.py -v",
+      "exitCode": 0,
+      "durationMs": 9491,
+      "verdict": "pass"
+    }
+  ]
+}
