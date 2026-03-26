@@ -20,6 +20,9 @@ import sys
 import logging
 from typing import Any
 
+from pydantic import ValidationError
+from mcp_agent_factory.models import EchoInput, AddInput
+
 # ---------------------------------------------------------------------------
 # Logging — one JSON line per event to stderr so tests can grep/replay
 # ---------------------------------------------------------------------------
@@ -69,11 +72,14 @@ TOOLS: list[dict] = [
 def _call_tool(name: str, arguments: dict) -> dict:
     """Execute a tool and return an MCP content block."""
     if name == "echo":
-        text = arguments.get("message", "")
-        return {"type": "text", "text": text}
+        validated = EchoInput.model_validate(arguments)
+        return {"type": "text", "text": validated.message}
     if name == "add":
-        result = arguments.get("a", 0) + arguments.get("b", 0)
-        return {"type": "text", "text": str(result)}
+        validated = AddInput.model_validate(arguments)
+        result = validated.a + validated.b
+        # Return integer string when result is whole number
+        text = str(int(result)) if result == int(result) else str(result)
+        return {"type": "text", "text": text}
     raise ValueError(f"Unknown tool: {name!r}")
 
 
@@ -135,7 +141,7 @@ def _dispatch(request: dict) -> dict | None:
         try:
             content = _call_tool(tool_name, arguments)
             return _ok(req_id, {"content": [content], "isError": False})
-        except ValueError as exc:
+        except (ValueError, ValidationError) as exc:
             return _ok(
                 req_id,
                 {"content": [{"type": "text", "text": str(exc)}], "isError": True},
