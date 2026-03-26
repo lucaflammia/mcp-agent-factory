@@ -1,0 +1,2 @@
+[console_scripts]
+mcp-sim-server = mcp_agent_factory.server:main

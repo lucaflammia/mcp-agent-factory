@@ -1,0 +1,9 @@
+pyproject.toml
+src/mcp_agent_factory/__init__.py
+src/mcp_agent_factory/server.py
+src/mcp_agent_factory.egg-info/PKG-INFO
+src/mcp_agent_factory.egg-info/SOURCES.txt
+src/mcp_agent_factory.egg-info/dependency_links.txt
+src/mcp_agent_factory.egg-info/entry_points.txt
+src/mcp_agent_factory.egg-info/requires.txt
+src/mcp_agent_factory.egg-info/top_level.txt

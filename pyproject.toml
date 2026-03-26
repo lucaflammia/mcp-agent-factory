@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-agent-factory"
+version = "0.1.0"
+description = "Industrial-grade Multi-Agent Orchestrator using Model Context Protocol"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+mcp-sim-server = "mcp_agent_factory.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
