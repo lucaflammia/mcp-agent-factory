@@ -21,38 +21,38 @@ TokenFactory = Callable[[], tuple[str, int]]
 
 
 class OAuthMiddleware:
-    """
-    Injects a Bearer token into request headers.
+	"""
+	Injects a Bearer token into request headers.
 
-    Parameters
-    ----------
-    token_factory:
-        Callable ``() -> (token_str, expires_at_unix)``.
-        Called lazily; result is cached until ``expires_at - 60`` seconds.
-    """
+	Parameters
+	----------
+	token_factory:
+		Callable ``() -> (token_str, expires_at_unix)``.
+		Called lazily; result is cached until ``expires_at - 60`` seconds.
+	"""
 
-    def __init__(self, token_factory: TokenFactory) -> None:
-        self._factory = token_factory
-        self._token: str | None = None
-        self._expires_at: float = 0.0
+	def __init__(self, token_factory: TokenFactory) -> None:
+		self._factory = token_factory
+		self._token: str | None = None
+		self._expires_at: float = 0.0
 
-    def _is_valid(self) -> bool:
-        return self._token is not None and time.time() < self._expires_at - 60
+	def _is_valid(self) -> bool:
+		return self._token is not None and time.time() < self._expires_at - 60
 
-    async def get_token(self) -> str:
-        """Return a cached or freshly-fetched token."""
-        if self._is_valid():
-            logger.debug("oauth_middleware: cache hit, token still valid")
-            return self._token  # type: ignore[return-value]
+	async def get_token(self) -> str:
+		"""Return a cached or freshly-fetched token."""
+		if self._is_valid():
+			logger.debug("oauth_middleware: cache hit, token still valid")
+			return self._token  # type: ignore[return-value]
 
-        logger.debug("oauth_middleware: fetching new token")
-        token, expires_at = self._factory()
-        self._token = token
-        self._expires_at = float(expires_at)
-        logger.debug("oauth_middleware: token cached until %s", expires_at)
-        return self._token
+		logger.debug("oauth_middleware: fetching new token")
+		token, expires_at = self._factory()
+		self._token = token
+		self._expires_at = float(expires_at)
+		logger.debug("oauth_middleware: token cached until %s", expires_at)
+		return self._token
 
-    async def inject(self, headers: dict) -> dict:
-        """Return *headers* extended with an Authorization: Bearer header."""
-        token = await self.get_token()
-        return {**headers, "Authorization": f"Bearer {token}"}
+	async def inject(self, headers: dict) -> dict:
+		"""Return *headers* extended with an Authorization: Bearer header."""
+		token = await self.get_token()
+		return {**headers, "Authorization": f"Bearer {token}"}

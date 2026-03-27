@@ -54,8 +54,8 @@ session: RedisSessionManager = RedisSessionManager(_redis_client)
 
 
 def set_sampling_client(client: Any) -> None:
-    """Inject a custom SamplingClient for tests."""
-    sampling_handler.set_client(client)
+	"""Inject a custom SamplingClient for tests."""
+	sampling_handler.set_client(client)
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +74,11 @@ gateway_app.mount("/sse", sse_router)
 # ---------------------------------------------------------------------------
 
 def _ok(req_id: Any, result: Any) -> MCPResponse:
-    return MCPResponse(id=req_id, result=result)
+	return MCPResponse(id=req_id, result=result)
 
 
 def _err(req_id: Any, code: int, message: str) -> MCPResponse:
-    return MCPResponse(id=req_id, error={"code": code, "message": message})
+	return MCPResponse(id=req_id, error={"code": code, "message": message})
 
 
 # ---------------------------------------------------------------------------
@@ -87,68 +87,68 @@ def _err(req_id: Any, code: int, message: str) -> MCPResponse:
 
 @gateway_app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": "mcp-gateway"}
+	return {"status": "ok", "service": "mcp-gateway"}
 
 
 class SamplingBody(BaseModel):
-    prompt: str
+	prompt: str
 
 
 @gateway_app.post("/sampling", response_model=SamplingResult)
 async def sampling_endpoint(body: SamplingBody) -> SamplingResult:
-    return await sampling_handler.handle(body.prompt)
+	return await sampling_handler.handle(body.prompt)
 
 
 @gateway_app.post("/mcp", response_model=MCPResponse)
 async def mcp_endpoint(
-    req: MCPRequest,
-    _claims: dict = Depends(make_verify_token("tools:call")),
+	req: MCPRequest,
+	_claims: dict = Depends(make_verify_token("tools:call")),
 ) -> MCPResponse:
-    method = req.method
-    params = req.params or {}
-    req_id = req.id
+	method = req.method
+	params = req.params or {}
+	req_id = req.id
 
-    # tools/list
-    if method == "tools/list":
-        return _ok(req_id, {"tools": TOOLS})
+	# tools/list
+	if method == "tools/list":
+		return _ok(req_id, {"tools": TOOLS})
 
-    # tools/call
-    if method == "tools/call":
-        tool_name: str = params.get("name", "")
-        args: dict = params.get("arguments", {})
+	# tools/call
+	if method == "tools/call":
+		tool_name: str = params.get("name", "")
+		args: dict = params.get("arguments", {})
 
-        # Publish observability event for every tools/call
-        bus.publish("gateway.tool_calls", AgentMessage(
-            topic="gateway.tool_calls",
-            sender="gateway",
-            recipient="*",
-            content={"tool": tool_name, "args": args},
-        ))
+		# Publish observability event for every tools/call
+		bus.publish("gateway.tool_calls", AgentMessage(
+			topic="gateway.tool_calls",
+			sender="gateway",
+			recipient="*",
+			content={"tool": tool_name, "args": args},
+		))
 
-        if tool_name == "echo":
-            text = args.get("text", "")
-            return _ok(req_id, {"content": [{"type": "text", "text": text}]})
+		if tool_name == "echo":
+			text = args.get("text", "")
+			return _ok(req_id, {"content": [{"type": "text", "text": text}]})
 
-        if tool_name == "analyse_and_report":
-            task = AgentTask(
-                task_id=str(req_id or "gw"),
-                description=args.get("description", ""),
-                context=args.get("context", {}),
-            )
-            ctx = MCPContext(session_id=str(req_id or "gw"))
-            orchestrator = MultiAgentOrchestrator(session)
-            report = await orchestrator.run_pipeline(task, ctx)
-            return _ok(req_id, {"content": [{"type": "text", "text": report.summary}]})
+		if tool_name == "analyse_and_report":
+			task = AgentTask(
+				task_id=str(req_id or "gw"),
+				description=args.get("description", ""),
+				context=args.get("context", {}),
+			)
+			ctx = MCPContext(session_id=str(req_id or "gw"))
+			orchestrator = MultiAgentOrchestrator(session)
+			report = await orchestrator.run_pipeline(task, ctx)
+			return _ok(req_id, {"content": [{"type": "text", "text": report.summary}]})
 
-        if tool_name == "sampling_demo":
-            prompt = args.get("prompt", "")
-            result = await sampling_handler.handle(prompt)
-            return _ok(req_id, {"content": [{"type": "text", "text": result.completion}]})
+		if tool_name == "sampling_demo":
+			prompt = args.get("prompt", "")
+			result = await sampling_handler.handle(prompt)
+			return _ok(req_id, {"content": [{"type": "text", "text": result.completion}]})
 
-        # Unknown tool
-        return _ok(req_id, {
-            "isError": True,
-            "content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-        })
+		# Unknown tool
+		return _ok(req_id, {
+			"isError": True,
+			"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}],
+		})
 
-    return _err(req_id, -32601, f"Method not found: {method}")
+	return _err(req_id, -32601, f"Method not found: {method}")

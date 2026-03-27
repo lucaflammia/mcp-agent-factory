@@ -13,10 +13,10 @@ All adapters are schema-translation only — no live API calls are made.
 
 Usage::
 
-    from mcp_agent_factory.adapters import LLMAdapterFactory
+	from mcp_agent_factory.adapters import LLMAdapterFactory
 
-    adapter = LLMAdapterFactory.get("claude")
-    claude_tools = adapter.adapt(mcp_tools)
+	adapter = LLMAdapterFactory.get("claude")
+	claude_tools = adapter.adapt(mcp_tools)
 """
 from __future__ import annotations
 
@@ -34,14 +34,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class LLMAdapter(ABC):
-    """Translates a list of MCP tool descriptors into a provider-specific format."""
+	"""Translates a list of MCP tool descriptors into a provider-specific format."""
 
-    @abstractmethod
-    def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        ...
+	@abstractmethod
+	def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+		...
 
-    def _log(self, provider: str, result: list) -> None:
-        logger.debug(json.dumps({"event": "adapter_output", "provider": provider, "count": len(result)}))
+	def _log(self, provider: str, result: list) -> None:
+		logger.debug(json.dumps({"event": "adapter_output", "provider": provider, "count": len(result)}))
 
 
 # ---------------------------------------------------------------------------
@@ -49,33 +49,33 @@ class LLMAdapter(ABC):
 # ---------------------------------------------------------------------------
 
 class ClaudeAdapter(LLMAdapter):
-    """
-    Anthropic Claude function-calling schema.
+	"""
+	Anthropic Claude function-calling schema.
 
-    Output shape::
+	Output shape::
 
-        {
-            "name": "echo",
-            "description": "...",
-            "input_schema": {
-                "type": "object",
-                "properties": {...},
-                "required": [...]
-            }
-        }
-    """
+		{
+			"name": "echo",
+			"description": "...",
+			"input_schema": {
+				"type": "object",
+				"properties": {...},
+				"required": [...]
+			}
+		}
+	"""
 
-    def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        result = []
-        for tool in tools:
-            schema = copy.deepcopy(tool.get("inputSchema", {}))
-            result.append({
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "input_schema": schema,
-            })
-        self._log("claude", result)
-        return result
+	def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+		result = []
+		for tool in tools:
+			schema = copy.deepcopy(tool.get("inputSchema", {}))
+			result.append({
+				"name": tool["name"],
+				"description": tool.get("description", ""),
+				"input_schema": schema,
+			})
+		self._log("claude", result)
+		return result
 
 
 # ---------------------------------------------------------------------------
@@ -83,39 +83,39 @@ class ClaudeAdapter(LLMAdapter):
 # ---------------------------------------------------------------------------
 
 class OpenAIAdapter(LLMAdapter):
-    """
-    OpenAI function-calling schema (tools format).
+	"""
+	OpenAI function-calling schema (tools format).
 
-    Output shape::
+	Output shape::
 
-        {
-            "type": "function",
-            "function": {
-                "name": "echo",
-                "description": "...",
-                "parameters": {
-                    "type": "object",
-                    "properties": {...},
-                    "required": [...]
-                }
-            }
-        }
-    """
+		{
+			"type": "function",
+			"function": {
+				"name": "echo",
+				"description": "...",
+				"parameters": {
+					"type": "object",
+					"properties": {...},
+					"required": [...]
+				}
+			}
+		}
+	"""
 
-    def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        result = []
-        for tool in tools:
-            schema = copy.deepcopy(tool.get("inputSchema", {}))
-            result.append({
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": schema,
-                },
-            })
-        self._log("openai", result)
-        return result
+	def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+		result = []
+		for tool in tools:
+			schema = copy.deepcopy(tool.get("inputSchema", {}))
+			result.append({
+				"type": "function",
+				"function": {
+					"name": tool["name"],
+					"description": tool.get("description", ""),
+					"parameters": schema,
+				},
+			})
+		self._log("openai", result)
+		return result
 
 
 # ---------------------------------------------------------------------------
@@ -123,61 +123,61 @@ class OpenAIAdapter(LLMAdapter):
 # ---------------------------------------------------------------------------
 
 class GeminiAdapter(LLMAdapter):
-    """
-    Google Gemini function declarations schema.
+	"""
+	Google Gemini function declarations schema.
 
-    Key difference from OpenAI/Claude: type field uses uppercase 'OBJECT',
-    property types use uppercase ('STRING', 'NUMBER', etc.).
+	Key difference from OpenAI/Claude: type field uses uppercase 'OBJECT',
+	property types use uppercase ('STRING', 'NUMBER', etc.).
 
-    Output shape::
+	Output shape::
 
-        {
-            "name": "echo",
-            "description": "...",
-            "parameters": {
-                "type": "OBJECT",
-                "properties": {
-                    "message": {"type": "STRING", "description": "..."}
-                },
-                "required": ["message"]
-            }
-        }
-    """
+		{
+			"name": "echo",
+			"description": "...",
+			"parameters": {
+				"type": "OBJECT",
+				"properties": {
+					"message": {"type": "STRING", "description": "..."}
+				},
+				"required": ["message"]
+			}
+		}
+	"""
 
-    _TYPE_MAP = {
-        "string": "STRING",
-        "number": "NUMBER",
-        "integer": "INTEGER",
-        "boolean": "BOOLEAN",
-        "array": "ARRAY",
-        "object": "OBJECT",
-    }
+	_TYPE_MAP = {
+		"string": "STRING",
+		"number": "NUMBER",
+		"integer": "INTEGER",
+		"boolean": "BOOLEAN",
+		"array": "ARRAY",
+		"object": "OBJECT",
+	}
 
-    def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        result = []
-        for tool in tools:
-            schema = copy.deepcopy(tool.get("inputSchema", {}))
-            result.append({
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": self._convert_schema(schema),
-            })
-        self._log("gemini", result)
-        return result
+	def adapt(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+		result = []
+		for tool in tools:
+			schema = copy.deepcopy(tool.get("inputSchema", {}))
+			result.append({
+				"name": tool["name"],
+				"description": tool.get("description", ""),
+				"parameters": self._convert_schema(schema),
+			})
+		self._log("gemini", result)
+		return result
 
-    def _convert_schema(self, schema: dict) -> dict:
-        """Recursively convert JSON Schema types to Gemini uppercase format."""
-        converted = {}
-        for key, value in schema.items():
-            if key == "type" and isinstance(value, str):
-                converted[key] = self._TYPE_MAP.get(value.lower(), value.upper())
-            elif key == "properties" and isinstance(value, dict):
-                converted[key] = {
-                    k: self._convert_schema(v) for k, v in value.items()
-                }
-            else:
-                converted[key] = value
-        return converted
+	def _convert_schema(self, schema: dict) -> dict:
+		"""Recursively convert JSON Schema types to Gemini uppercase format."""
+		converted = {}
+		for key, value in schema.items():
+			if key == "type" and isinstance(value, str):
+				converted[key] = self._TYPE_MAP.get(value.lower(), value.upper())
+			elif key == "properties" and isinstance(value, dict):
+				converted[key] = {
+					k: self._convert_schema(v) for k, v in value.items()
+				}
+			else:
+				converted[key] = value
+		return converted
 
 
 # ---------------------------------------------------------------------------
@@ -185,25 +185,25 @@ class GeminiAdapter(LLMAdapter):
 # ---------------------------------------------------------------------------
 
 class LLMAdapterFactory:
-    """Returns the appropriate adapter for a given LLM provider name."""
+	"""Returns the appropriate adapter for a given LLM provider name."""
 
-    _REGISTRY: dict[str, type[LLMAdapter]] = {
-        "claude": ClaudeAdapter,
-        "openai": OpenAIAdapter,
-        "gemini": GeminiAdapter,
-    }
+	_REGISTRY: dict[str, type[LLMAdapter]] = {
+		"claude": ClaudeAdapter,
+		"openai": OpenAIAdapter,
+		"gemini": GeminiAdapter,
+	}
 
-    @classmethod
-    def get(cls, provider: str) -> LLMAdapter:
-        """
-        Return an adapter instance for *provider*.
+	@classmethod
+	def get(cls, provider: str) -> LLMAdapter:
+		"""
+		Return an adapter instance for *provider*.
 
-        Raises ValueError for unknown providers.
-        """
-        provider_key = provider.lower()
-        if provider_key not in cls._REGISTRY:
-            raise ValueError(
-                f"Unknown LLM provider: {provider!r}. "
-                f"Supported: {sorted(cls._REGISTRY)}"
-            )
-        return cls._REGISTRY[provider_key]()
+		Raises ValueError for unknown providers.
+		"""
+		provider_key = provider.lower()
+		if provider_key not in cls._REGISTRY:
+			raise ValueError(
+				f"Unknown LLM provider: {provider!r}. "
+				f"Supported: {sorted(cls._REGISTRY)}"
+			)
+		return cls._REGISTRY[provider_key]()

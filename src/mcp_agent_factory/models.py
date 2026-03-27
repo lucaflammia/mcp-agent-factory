@@ -3,17 +3,17 @@ from pydantic import BaseModel
 
 
 class EchoInput(BaseModel):
-    message: str
+	message: str
 
 
 class EchoOutput(BaseModel):
-    text: str
+	text: str
 
 
 class AddInput(BaseModel):
-    a: float
-    b: float
+	a: float
+	b: float
 
 
 class AddOutput(BaseModel):
-    result: float
+	result: float
