@@ -6,29 +6,33 @@ An industrial-grade Multi-Agent Orchestrator using the Model Context Protocol (M
 
 ## Core Value
 
-A production-grade async MCP orchestration engine where agents can discover and call tools over a real network transport, protected by OAuth 2.1 / PKCE with confused deputy safeguards — directly proving the Fargin Curriculum's theory in executable, testable code.
+A distributed multi-agent ecosystem where specialized agents collaborate and compete economically over a production-grade async transport, protected by OAuth 2.1 / PKCE — all accessible to external clients via an MCP API Gateway.
 
 ## Current State
 
-M001 and M002 complete. The full stack is implemented and proven by 100 passing pytest tests:
+M001 and M002 complete (100 passing tests). Full stack implemented:
+- **STDIO MCP server** — JSON-RPC 2.0 over subprocess STDIO
+- **ReActAgent** — synchronous Perception→Reasoning→Action loop
+- **AsyncTaskScheduler** — asyncio-native autonomous agent loop with priority queue and retry
+- **FastAPI HTTP MCP Server** — MCP protocol over TCP/IP HTTP
+- **LLM Adapters** — Claude/OpenAI/Gemini function-calling schema translation
+- **OAuth 2.1 Auth Server** — PKCE S256, scopes, one-time codes, JWT issuance
+- **Resource Server middleware** — audience binding (confused deputy), scope enforcement
+- **Session module** — user-bound non-deterministic session IDs
 
-- **STDIO MCP server** (M001) — JSON-RPC 2.0 over subprocess STDIO, echo + add tools
-- **ReActAgent** (M001) — synchronous Perception→Reasoning→Action loop
-- **AsyncTaskScheduler** (M002) — asyncio-native autonomous agent loop with priority queue and retry
-- **FastAPI HTTP MCP Server** (M002) — same MCP protocol over TCP/IP HTTP
-- **LLM Adapters** (M002) — Claude/OpenAI/Gemini function-calling schema translation
-- **OAuth 2.1 Auth Server** (M002) — PKCE S256, scopes, one-time codes, JWT issuance
-- **Resource Server middleware** (M002) — audience binding (confused deputy protection), scope enforcement
-- **Session module** (M002) — user-bound non-deterministic session IDs
+M003 in progress: specialized agent roles, economic task allocation, async message bus, MCP API Gateway, sampling, and LangChain bridge.
 
 ## Architecture / Key Patterns
 
-- **Transport:** STDIO (M001, local/subprocess) + HTTP via FastAPI (M002, networked)
-- **Agent loop:** ReActAgent (sync, M001) + TaskScheduler (async asyncio, M002)
+- **Transport:** STDIO (M001) + HTTP FastAPI (M002) + SSE async bus (M003)
+- **Agent roles:** ReActAgent (generic) + AnalystAgent + WriterAgent (specialized, M003)
+- **Agent loop:** TaskScheduler (asyncio) + Orchestrator (multi-agent coordinator, M003)
+- **Economics:** Utility functions + auction bidding for task allocation (M003)
 - **Validation:** Pydantic v2 at all tool dispatch boundaries
-- **Auth:** OAuth 2.1 + PKCE, audience-bound tokens, scope enforcement (M002)
-- **Privacy:** PrivacyConfig with local_only / allow_egress defaults + assert_no_egress() guard
-- **LLM adapters:** Schema translation only (Claude/OpenAI/Gemini) — no live API calls
+- **Auth:** OAuth 2.1 + PKCE, audience-bound tokens, scope enforcement
+- **Session state:** Redis Session Manager for cross-agent state (M003)
+- **Observability:** MCP Context primitive per-tool + structured JSON logs
+- **LangChain:** MultiServerMCPClient + OAuth 2.1 security middleware (M003)
 
 ## Capability Contract
 
@@ -38,3 +42,4 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 
 - [x] M001: Core Orchestrator and MCP Foundation — STDIO MCP lifecycle, ReAct loop, schema validation, privacy-first config; proven by 31 tests.
 - [x] M002: Autonomous Orchestrator & Production Security — Async TaskScheduler, FastAPI HTTP MCP server, LLM adapters, OAuth 2.1 + PKCE auth server; proven by 69 new tests (100 total).
+- [ ] M003: Multi-Agent Ecosystem & Distributed Context Management — Specialized agent pipeline, economic task allocation, async message bus, MCP API Gateway, sampling, LangChain bridge.

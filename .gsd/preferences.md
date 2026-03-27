@@ -9,14 +9,12 @@ models:
 skill_staleness_days: 0
 uat_dispatch: false
 unique_milestone_ids: false
-notifications:
 cmux:
   enabled: false
   notifications: false
   sidebar: false
   splits: false
   browser: false
-remote_questions:
 git:
   main_branch: main
   isolation: worktree
