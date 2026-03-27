@@ -1,2 +1,0 @@
-{"ts":"2026-03-26T15:41:32.896Z","ok":true,"errors":0,"warnings":0,"fixes":0,"codes":[],"summary":"Clean"}
-{"ts":"2026-03-26T15:46:42.063Z","ok":true,"errors":0,"warnings":1,"fixes":0,"codes":["state_file_missing","orphaned_project_state"],"issues":[{"severity":"warning","code":"state_file_missing","message":"STATE.md is missing — state display will not work","unitId":"project"}],"summary":"Clean · STATE.md is missing — state display will not work"}

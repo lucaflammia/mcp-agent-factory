@@ -51,3 +51,27 @@ When auto-mode runs on the main branch (no integration branch), `git diff --stat
 
 ### 31 tests across three layers confirm end-to-end coherence
 The milestone's three slices exercise the same code path from different angles: lifecycle tests (raw STDIO protocol), ReAct unit tests (StubOrchestrator), ReAct e2e tests (live subprocess), and schema tests (validation edge cases). Running the full suite in one command (`pytest tests/ -v`) is sufficient to confirm all layers integrate.
+
+| K001 | M001 | "1. Use 1-tab spacing for the entire codebase 2. Use real DB for integration tests" | — | manual |
+
+---
+
+## M002: Autonomous Orchestrator & Production Security
+
+### Direct _dispatch loop for retry testing
+Drive `TaskScheduler._dispatch(item, handler)` in a loop (`for _ in range(max_retries + 1)`) to test retry logic. Avoids `asyncio.wait_for` timing sensitivity. After `max_retries + 1` calls, item.state == FAILED.
+
+### autouse shared_key fixture with store cleanup for auth integration tests
+When testing stateful auth components (in-memory `_clients`, `_codes`), use an `autouse` fixture that: (1) generates a fresh OctKey, (2) injects it into both auth server and resource server via `set_jwt_key`, (3) clears all in-memory stores in teardown. Without per-test cleanup, test ordering matters and produces false failures.
+
+### make_verify_token factory for per-endpoint scope requirements
+`auth/resource.py` exports `make_verify_token(required_scope)` — a factory returning a FastAPI dependency. This is cleaner than a single `verify_token` when endpoints need different minimum scopes (e.g., `/mcp` needs `tools:call`, a hypothetical `/tools/list` might only need `tools:list`).
+
+### Authlib OctKey symmetric JWT — replace with RS256 before multi-service production
+`OctKey.generate_key(256)` + HS256 works for single-service setups where the secret is shared. For multi-service deployments, switch to RS256 + JWKS endpoint so each service can validate tokens without knowing the signing secret.
+
+### FastAPI lifespan for startup validation
+Startup-time assertions (`PrivacyConfig.assert_no_egress()`, JWT key generation) belong in the FastAPI `lifespan` async context manager — not per-request middleware. This catches misconfigurations at startup, not during live traffic.
+
+### Reuse _dispatch and lifespan across server variants
+`server_http_secured.py` imports `_dispatch` and `lifespan` from `server_http.py` rather than duplicating them. This ensures both the unauthenticated and secured server variants stay in sync when the MCP protocol handling changes.

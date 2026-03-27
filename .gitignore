@@ -25,3 +25,17 @@ vendor/
 coverage/
 .cache/
 tmp/
+
+# ── GSD runtime (system-managed, do not commit) ──
+.gsd/gsd.db
+.gsd/gsd.db-shm
+.gsd/gsd.db-wal
+.gsd/activity/
+.gsd/journal/
+.gsd/metrics.json
+.gsd/doctor-history.jsonl
+.gsd/runtime/
+.gsd/worktrees/
+.gsd/event-log.jsonl
+.gsd/state-manifest.json
+.gsd/STATE.md
