@@ -224,22 +224,28 @@ def test_code_is_one_time_use(auth_client):
 # ---------------------------------------------------------------------------
 
 def test_gateway_no_auth_returns_401(gateway_client):
+	# tools/call without token → MCP-layer auth error (HTTP 200 with JSON-RPC error code)
 	resp = gateway_client.post(
 		"/mcp",
-		json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+		json={"jsonrpc": "2.0", "method": "tools/call",
+		      "params": {"name": "echo", "arguments": {"text": "hi"}}, "id": 1},
 	)
-	assert resp.status_code == 401
+	assert resp.status_code == 200
+	assert resp.json()["error"]["code"] == -32001
 
 
 def test_gateway_expired_token_returns_401(gateway_client, shared_key):
-	"""An expired JWT must be rejected."""
+	"""An expired JWT must be rejected for tools/call."""
 	token = _make_token(shared_key, exp_offset=-1)  # already expired
 	resp = gateway_client.post(
 		"/mcp",
-		json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+		json={"jsonrpc": "2.0", "method": "tools/call",
+		      "params": {"name": "echo", "arguments": {"text": "hi"}}, "id": 1},
 		headers={"Authorization": f"Bearer {token}"},
 	)
-	assert resp.status_code == 401
+	# optional=True returns None for invalid token → MCP-layer auth error
+	assert resp.status_code == 200
+	assert resp.json()["error"]["code"] == -32001
 
 
 def test_gateway_wrong_audience_returns_401(gateway_client, shared_key):
@@ -254,13 +260,15 @@ def test_gateway_wrong_audience_returns_401(gateway_client, shared_key):
 
 
 def test_gateway_malformed_token_returns_401(gateway_client):
-	"""A non-JWT string in Authorization header must return 401."""
+	"""A non-JWT string in Authorization header must reject tools/call."""
 	resp = gateway_client.post(
 		"/mcp",
-		json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+		json={"jsonrpc": "2.0", "method": "tools/call",
+		      "params": {"name": "echo", "arguments": {"text": "hi"}}, "id": 1},
 		headers={"Authorization": "Bearer not.a.jwt"},
 	)
-	assert resp.status_code == 401
+	assert resp.status_code == 200
+	assert resp.json()["error"]["code"] == -32001
 
 
 def test_gateway_valid_token_returns_200(gateway_client, shared_key):

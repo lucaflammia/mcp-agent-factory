@@ -53,9 +53,13 @@ def set_jwt_key(key: OctKey) -> None:
 # Token verification dependency
 # ---------------------------------------------------------------------------
 
-def make_verify_token(required_scope: str):
+def make_verify_token(required_scope: str, optional: bool = False):
 	"""
 	Factory returning a FastAPI dependency that validates a Bearer JWT.
+
+	When *optional* is True, a missing or invalid token returns None instead
+	of raising HTTP 401 — useful for endpoints that handle auth internally
+	(e.g. allowing public discovery methods while protecting tool calls).
 
 	Usage::
 
@@ -63,8 +67,10 @@ def make_verify_token(required_scope: str):
 		async def endpoint(claims = Depends(make_verify_token("tools:call"))):
 			...
 	"""
-	async def verify_token(authorization: str | None = Header(None)) -> dict[str, Any]:
+	async def verify_token(authorization: str | None = Header(None)) -> dict[str, Any] | None:
 		if authorization is None or not authorization.lower().startswith("bearer "):
+			if optional:
+				return None
 			raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
 
 		raw_token = authorization.split(" ", 1)[1].strip()
@@ -75,6 +81,8 @@ def make_verify_token(required_scope: str):
 			claims.validate()
 		except (JoseError, RuntimeError, Exception) as exc:
 			logger.warning(json.dumps({"event": "token_invalid", "reason": str(exc)}))
+			if optional:
+				return None
 			raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
 
 		# Confused deputy protection: reject tokens intended for other audiences

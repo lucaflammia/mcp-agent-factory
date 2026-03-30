@@ -1,0 +1,7 @@
+{
+	"mcpServers": {
+		"agent-factory": {
+			"url": "http://localhost:8000"
+		}
+	}
+}

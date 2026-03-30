@@ -67,8 +67,19 @@ def test_health_unauthenticated(client):
 
 
 def test_mcp_no_auth_returns_401(client):
-	resp = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
-	assert resp.status_code == 401
+	# tools/call without a token should be rejected
+	resp = client.post("/mcp", json={
+		"jsonrpc": "2.0",
+		"method": "tools/call",
+		"params": {"name": "echo", "arguments": {"text": "hi"}},
+		"id": 1,
+	})
+	# Returns a JSON-RPC error (200 body with error code) rather than HTTP 401
+	# because auth is now handled at the MCP layer for public-discovery compatibility
+	assert resp.status_code == 200
+	body = resp.json()
+	assert body["error"] is not None
+	assert body["error"]["code"] == -32001
 
 
 def test_tools_list_authenticated(client, shared_key):

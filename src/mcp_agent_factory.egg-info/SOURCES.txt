@@ -25,6 +25,7 @@ src/mcp_agent_factory/auth/resource.py
 src/mcp_agent_factory/auth/server.py
 src/mcp_agent_factory/auth/session.py
 src/mcp_agent_factory/bridge/__init__.py
+src/mcp_agent_factory/bridge/__main__.py
 src/mcp_agent_factory/bridge/gateway_client.py
 src/mcp_agent_factory/bridge/oauth_middleware.py
 src/mcp_agent_factory/config/__init__.py
@@ -34,10 +35,12 @@ src/mcp_agent_factory/economics/auction.py
 src/mcp_agent_factory/economics/utility.py
 src/mcp_agent_factory/gateway/__init__.py
 src/mcp_agent_factory/gateway/app.py
+src/mcp_agent_factory/gateway/run.py
 src/mcp_agent_factory/gateway/sampling.py
 src/mcp_agent_factory/messaging/__init__.py
 src/mcp_agent_factory/messaging/bus.py
 src/mcp_agent_factory/messaging/sse_router.py
+src/mcp_agent_factory/messaging/sse_v1_router.py
 src/mcp_agent_factory/session/__init__.py
 src/mcp_agent_factory/session/manager.py
 tests/test_adapters.py
@@ -47,6 +50,9 @@ tests/test_economics.py
 tests/test_gateway.py
 tests/test_integration.py
 tests/test_langchain_bridge.py
+tests/test_m004_auth_pkce.py
+tests/test_m004_client_bridge.py
+tests/test_m004_sse.py
 tests/test_mcp_lifecycle.py
 tests/test_message_bus.py
 tests/test_pipeline.py

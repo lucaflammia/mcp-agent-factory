@@ -104,21 +104,42 @@ async def sampling_endpoint(body: SamplingBody) -> SamplingResult:
 	return await sampling_handler.handle(body.prompt)
 
 
-@gateway_app.post("/mcp", response_model=MCPResponse)
+@gateway_app.post("/mcp")
+@gateway_app.post("/sse/v1")
 async def mcp_endpoint(
 	req: MCPRequest,
-	_claims: dict = Depends(make_verify_token("tools:call")),
-) -> MCPResponse:
+	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
+) -> Any:
+	from fastapi.responses import JSONResponse
+	resp = await _mcp_dispatch(req, _claims)
+	# Emit only non-None fields so strict MCP clients don't reject null result/error
+	return JSONResponse(content=resp.model_dump(exclude_none=True))
+
+
+async def _mcp_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
 	method = req.method
 	params = req.params or {}
 	req_id = req.id
 
-	# tools/list
+	# Discovery methods — no auth required
+	if method == "initialize":
+		return _ok(req_id, {
+			"protocolVersion": "2024-11-05",
+			"capabilities": {"tools": {}},
+			"serverInfo": {"name": "mcp-agent-factory", "version": "1.0.0"},
+		})
+
+	if method == "notifications/initialized":
+		return _ok(req_id, {})
+
+	# tools/list — public (read-only discovery)
 	if method == "tools/list":
 		return _ok(req_id, {"tools": TOOLS})
 
-	# tools/call
+	# tools/call — requires valid Bearer token
 	if method == "tools/call":
+		if _claims is None:
+			return _err(req_id, -32001, "Authentication required for tools/call")
 		tool_name: str = params.get("name", "")
 		args: dict = params.get("arguments", {})
 
