@@ -6,7 +6,9 @@ is injected via the ``transport`` parameter.
 """
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -53,6 +55,7 @@ class MCPGatewayClient:
 
 	async def list_tools(self) -> list[dict]:
 		"""Return the list of tools exposed by the gateway."""
+		logger.debug("bridge.list_tools base_url=%s", self._base_url)
 		body = await self._post_mcp({
 			"jsonrpc": "2.0",
 			"method": "tools/list",
@@ -62,6 +65,7 @@ class MCPGatewayClient:
 
 	async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 		"""Call a named tool and return the result dict."""
+		logger.debug("bridge.call_tool name=%s base_url=%s", name, self._base_url)
 		body = await self._post_mcp({
 			"jsonrpc": "2.0",
 			"method": "tools/call",
@@ -69,3 +73,48 @@ class MCPGatewayClient:
 			"id": 2,
 		})
 		return body["result"]
+
+	async def stream_events(
+		self,
+		topic: str = "agent.events",
+		*,
+		max_events: int | None = None,
+	) -> AsyncIterator[dict[str, Any]]:
+		"""
+		Async generator that streams SSE events from /sse/v1/events.
+
+		Yields parsed event data dicts (JSON-decoded ``data:`` lines).
+		Stops after *max_events* events when specified, otherwise runs until
+		the caller breaks or the server closes the connection.
+
+		Parameters
+		----------
+		topic:
+			Bus topic to subscribe to (passed as query param).
+		max_events:
+			Maximum number of data events to yield before stopping.
+		"""
+		headers = await self._middleware.inject({})
+		count = 0
+		async with httpx.AsyncClient(
+			base_url=self._base_url,
+			transport=self._transport,
+		) as client:
+			async with client.stream(
+				"GET",
+				f"/sse/v1/events?topic={topic}",
+				headers=headers,
+			) as resp:
+				resp.raise_for_status()
+				async for line in resp.aiter_lines():
+					line = line.strip()
+					if line.startswith("data:"):
+						raw = line[len("data:"):].strip()
+						if raw:
+							try:
+								yield json.loads(raw)
+								count += 1
+								if max_events is not None and count >= max_events:
+									return
+							except json.JSONDecodeError:
+								logger.warning("bridge.stream_events: bad JSON: %r", raw)

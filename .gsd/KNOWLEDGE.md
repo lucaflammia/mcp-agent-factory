@@ -75,3 +75,19 @@ Startup-time assertions (`PrivacyConfig.assert_no_egress()`, JWT key generation)
 
 ### Reuse _dispatch and lifespan across server variants
 `server_http_secured.py` imports `_dispatch` and `lifespan` from `server_http.py` rather than duplicating them. This ensures both the unauthenticated and secured server variants stay in sync when the MCP protocol handling changes.
+
+---
+
+## M004: Production-Ready Client Connectivity
+
+### FastAPI Mount prefix-matches and intercepts nested include_router paths
+A `gateway_app.mount("/sse", sub_app)` intercepts ALL paths starting with `/sse`, including `/sse/v1/*`. If you need both a mounted sub-app and direct `include_router` routes under the same prefix, rename the mount to a distinct path (e.g. `/sse/legacy`) so the include_router routes are reachable.
+
+### SSE generator tests cannot use ASGITransport streaming in sync mode
+`EventSourceResponse` with an infinite async generator blocks the httpx `aiter_lines()` call when using `ASGITransport` — the generator never yields control in the ASGI test loop. Test SSE by: (1) testing the generator logic directly, (2) testing bus publish/subscribe independently, and (3) testing route registration and POST endpoints with `TestClient`. Do not attempt full SSE streaming via `ASGITransport` without real async concurrency (e.g. background tasks + `anyio.move_on_after`).
+
+### pytest-asyncio required for async test functions
+`asyncio.Queue.get()` and other async operations in test functions require `pytest-asyncio` (or `anyio`). Without it, async test functions report "not natively supported" and silently fail. Add to `pyproject.toml` dependencies.
+
+### mcp.json auth server and gateway run on separate ports
+`mcp.json` separates the OAuth 2.1 auth server (`:8001`) from the MCP gateway (`:8000`). This matches the real deployment topology where auth and resource servers are separate processes. Token verification uses the shared JWT key.

@@ -1,29 +1,36 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, and OAuth 2.1 security — built across three progressive milestones.
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, and external client connectivity — built across four progressive milestones.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  External Clients                    │
-│           MCPGatewayClient + OAuthMiddleware         │
-└─────────────────────┬───────────────────────────────┘
-                      │ Bearer JWT (OAuth 2.1)
-┌─────────────────────▼───────────────────────────────┐
-│              MCP API Gateway (FastAPI)               │
-│  POST /mcp   POST /sampling   GET /health  /sse/*   │
-└──────┬──────────────┬──────────────┬────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     External Clients                         │
+│   Cursor / Claude Desktop / MCPGatewayClient + mcp.json      │
+└────────────────────────┬─────────────────────────────────────┘
+                         │ Bearer JWT (OAuth 2.1 / PKCE S256)
+┌────────────────────────▼─────────────────────────────────────┐
+│                 MCP API Gateway (FastAPI :8000)               │
+│  POST /mcp   POST /sampling   GET /health                     │
+│  GET  /sse/v1/events          POST /sse/v1/messages           │
+└──────┬──────────────┬──────────────┬────────────────────────-┘
        │              │              │
-┌──────▼──────┐ ┌─────▼─────┐ ┌─────▼──────────────┐
-│  Analyst→   │ │  Auction  │ │    MessageBus +     │
-│  Writer     │ │  (econ)   │ │    SSE Transport    │
-│  Pipeline   │ └───────────┘ └────────────────────-┘
+┌──────▼──────┐ ┌─────▼─────┐ ┌─────▼──────────────────┐
+│  Analyst→   │ │  Auction  │ │    MessageBus +         │
+│  Writer     │ │  (econ)   │ │    SSE v1 Transport     │
+│  Pipeline   │ └───────────┘ └────────────────────────-┘
 └─────────────┘
        │
-┌──────▼──────────────────────────────────────────────┐
-│            Redis Session Manager (fakeredis)         │
-└─────────────────────────────────────────────────────┘
+┌──────▼─────────────────────────────────────────────────┐
+│            Redis Session Manager (fakeredis)            │
+└────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│              OAuth 2.1 Auth Server (:8001)                   │
+│   POST /register   GET /authorize   POST /token              │
+│   PKCE S256 only · one-time codes · audience-bound JWTs      │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Features
@@ -37,10 +44,11 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Agent Pipeline** | `agents/` | `AnalystAgent` → `WriterAgent` coordinated by `MultiAgentOrchestrator` |
 | **Session State** | `session/manager.py` | Redis-backed key/value store for cross-agent handoffs |
 | **Economics** | `economics/` | Utility scoring + sealed-bid auction for task allocation |
-| **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE router for streaming |
-| **Gateway** | `gateway/` | Authenticated MCP API gateway; stub sampling/createMessage handler |
-| **Auth (OAuth 2.1)** | `auth/` | PKCE auth server, JWT resource middleware, session tokens |
-| **Bridge** | `bridge/` | `OAuthMiddleware` (token caching) + `MCPGatewayClient` for external callers |
+| **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router with `connected` event |
+| **Gateway** | `gateway/` | Authenticated MCP API gateway; SSE /v1 endpoints; stub sampling handler |
+| **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding |
+| **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream |
+| **External Config** | `mcp.json` | IDE config for Cursor / Claude Desktop pointing at localhost gateway |
 
 ## Quick Start
 
@@ -56,19 +64,50 @@ uvicorn mcp_agent_factory.server_http:app --reload
 # HTTP server (OAuth-secured)
 uvicorn mcp_agent_factory.server_http_secured:secured_app --reload
 
-# MCP API Gateway (full stack)
-uvicorn mcp_agent_factory.gateway.app:gateway_app --reload
+# MCP API Gateway (full stack, port 8000)
+python -m mcp_agent_factory.gateway.run
+
+# Python client bridge CLI demo
+python -m mcp_agent_factory.bridge
 ```
+
+## External Client Integration (M004)
+
+The gateway is ready for Cursor, Claude Desktop, or any MCP-compatible client:
+
+1. **Start the gateway** on port 8000:
+   ```bash
+   python -m mcp_agent_factory.gateway.run
+   ```
+
+2. **Start the auth server** on port 8001 (for real token issuance):
+   ```bash
+   uvicorn mcp_agent_factory.auth.server:auth_app --port 8001
+   ```
+
+3. **Point your IDE** at `mcp.json` — it contains the server URL, PKCE auth config, and full tool schemas.
+
+4. **SSE stream** (stays open, first event is `connected`):
+   ```bash
+   curl -N http://localhost:8000/sse/v1/events?topic=agent.events
+   ```
+
+5. **Health check**:
+   ```bash
+   curl http://localhost:8000/health
+   # {"status": "ok", "service": "mcp-gateway"}
+   ```
 
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # all 157 tests
-pytest tests/test_pipeline.py       # agent pipeline
-pytest tests/test_economics.py      # utility + auction
-pytest tests/test_message_bus.py    # MessageBus + SSE
-pytest tests/test_gateway.py        # API gateway
-pytest tests/test_langchain_bridge.py  # OAuth bridge
+pytest tests/ -v          # all 198 tests
+
+# By milestone
+pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
+pytest tests/test_scheduler.py tests/test_auth.py tests/test_server_http.py             # M002
+pytest tests/test_pipeline.py tests/test_economics.py tests/test_message_bus.py tests/test_gateway.py tests/test_langchain_bridge.py  # M003
+pytest tests/test_m004_sse.py tests/test_m004_auth_pkce.py tests/test_m004_client_bridge.py  # M004
 ```
 
 ## Code Style
@@ -78,55 +117,71 @@ All Python source files use **tab indentation** (1 tab = 1 indent level).
 ## Project Layout
 
 ```
+mcp.json                            # External IDE config (Cursor / Claude Desktop)
 src/mcp_agent_factory/
-├── server.py                   # STDIO MCP server
-├── server_http.py              # FastAPI HTTP MCP server
-├── server_http_secured.py      # OAuth-secured variant
-├── models.py                   # Pydantic tool input models
-├── adapters.py                 # LLM adapter layer
-├── react_loop.py               # ReAct agent loop
-├── scheduler.py                # Task scheduler + priority queue
-├── orchestrator.py             # MCP orchestrator client
-├── config/privacy.py           # PrivacyConfig + egress guard
-├── agents/                     # Multi-agent pipeline
-│   ├── models.py               # AgentTask, MCPContext, shared models
-│   ├── analyst.py              # AnalystAgent
-│   ├── writer.py               # WriterAgent
+├── server.py                       # STDIO MCP server
+├── server_http.py                  # FastAPI HTTP MCP server
+├── server_http_secured.py          # OAuth-secured variant
+├── models.py                       # Pydantic tool input models
+├── adapters.py                     # LLM adapter layer
+├── react_loop.py                   # ReAct agent loop
+├── scheduler.py                    # Task scheduler + priority queue
+├── orchestrator.py                 # MCP orchestrator client
+├── config/privacy.py               # PrivacyConfig + egress guard
+├── agents/                         # Multi-agent pipeline
+│   ├── models.py                   # AgentTask, MCPContext, shared models
+│   ├── analyst.py                  # AnalystAgent
+│   ├── writer.py                   # WriterAgent
 │   └── pipeline_orchestrator.py
-├── session/manager.py          # Redis session manager
+├── session/manager.py              # Redis session manager
 ├── economics/
-│   ├── utility.py              # Utility function scoring
-│   └── auction.py              # Sealed-bid auction
+│   ├── utility.py                  # Utility function scoring
+│   └── auction.py                  # Sealed-bid auction
 ├── messaging/
-│   ├── bus.py                  # Async MessageBus (topic fan-out)
-│   └── sse_router.py           # FastAPI SSE event stream
+│   ├── bus.py                      # Async MessageBus (topic fan-out)
+│   ├── sse_router.py               # Legacy SSE router (/sse/legacy)
+│   └── sse_v1_router.py            # SSE v1 router (/sse/v1/events + /messages)
 ├── gateway/
-│   ├── app.py                  # MCP API Gateway FastAPI app
-│   └── sampling.py             # Sampling/createMessage handler
+│   ├── app.py                      # MCP API Gateway FastAPI app
+│   ├── run.py                      # Production uvicorn entrypoint
+│   └── sampling.py                 # Sampling/createMessage handler
 ├── auth/
-│   ├── server.py               # OAuth 2.1 auth server (PKCE)
-│   ├── resource.py             # JWT Bearer middleware
-│   └── session.py              # Session ID utilities
+│   ├── server.py                   # OAuth 2.1 auth server (PKCE S256)
+│   ├── resource.py                 # JWT Bearer middleware
+│   └── session.py                  # Session ID utilities
 └── bridge/
-    ├── oauth_middleware.py     # Token-caching OAuth middleware
-    └── gateway_client.py       # MCPGatewayClient (httpx)
+    ├── __main__.py                 # CLI demo entrypoint
+    ├── oauth_middleware.py         # Token-caching OAuth middleware
+    └── gateway_client.py           # MCPGatewayClient (httpx + SSE stream)
 
 tests/
-├── test_mcp_lifecycle.py       # STDIO protocol lifecycle
-├── test_react_loop.py          # ReAct loop unit tests
-├── test_e2e_routing.py         # End-to-end routing
-├── test_scheduler.py           # Scheduler + retry logic
-├── test_adapters.py            # LLM adapter normalisation
-├── test_server_http.py         # HTTP server endpoints
-├── test_schema_validation.py   # Pydantic validation + privacy
-├── test_auth.py                # OAuth 2.1 full flow
-├── test_integration.py         # Scheduler ↔ HTTP integration
-├── test_pipeline.py            # Analyst→Writer pipeline
-├── test_economics.py           # Utility + auction
-├── test_message_bus.py         # MessageBus + SSE
-├── test_gateway.py             # API Gateway
-└── test_langchain_bridge.py    # OAuth bridge + client
+├── test_mcp_lifecycle.py           # M001: STDIO protocol lifecycle
+├── test_react_loop.py              # M001: ReAct loop unit tests
+├── test_e2e_routing.py             # M001: End-to-end routing
+├── test_schema_validation.py       # M001: Pydantic validation + privacy
+├── test_scheduler.py               # M002: Scheduler + retry logic
+├── test_adapters.py                # M002: LLM adapter normalisation
+├── test_server_http.py             # M002: HTTP server endpoints
+├── test_auth.py                    # M002: OAuth 2.1 full flow
+├── test_integration.py             # M002: Scheduler ↔ HTTP integration
+├── test_pipeline.py                # M003: Analyst→Writer pipeline
+├── test_economics.py               # M003: Utility + auction
+├── test_message_bus.py             # M003: MessageBus + SSE
+├── test_gateway.py                 # M003: API Gateway
+├── test_langchain_bridge.py        # M003: OAuth bridge + client
+├── test_m004_sse.py                # M004: SSE /v1 endpoints
+├── test_m004_auth_pkce.py          # M004: PKCE hardening + 401 enforcement
+└── test_m004_client_bridge.py      # M004: MCPGatewayClient lifecycle
 ```
+
+## Milestone History
+
+| Milestone | Focus | Tests |
+|-----------|-------|-------|
+| M001 | STDIO MCP lifecycle, ReAct loop, schema validation, privacy config | 31 |
+| M002 | Async TaskScheduler, FastAPI HTTP server, LLM adapters, OAuth 2.1 + PKCE | +69 (100) |
+| M003 | Multi-agent pipeline, economic allocation, async message bus, API gateway, LangChain bridge | +61 (161) |
+| M004 | SSE /v1 streaming, PKCE hardening, client bridge with token cache, mcp.json IDE config | +37 (198) |
 
 ## Security Notes
 
@@ -134,3 +189,4 @@ tests/
 - `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls — checked at startup via FastAPI lifespan.
 - PKCE S256 enforced on all authorization code exchanges; codes are single-use.
 - Audience binding (`aud: mcp-server`) prevents confused-deputy attacks.
+- Gateway rejects all requests without a valid, non-expired Bearer JWT — 401 on missing/expired/wrong-audience tokens.

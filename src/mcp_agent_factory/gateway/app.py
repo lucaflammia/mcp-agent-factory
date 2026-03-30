@@ -31,6 +31,7 @@ from mcp_agent_factory.auth.resource import make_verify_token
 from mcp_agent_factory.economics.auction import Auction
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
+from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS, lifespan
 from mcp_agent_factory.session.manager import RedisSessionManager
 
@@ -64,9 +65,13 @@ def set_sampling_client(client: Any) -> None:
 
 gateway_app = FastAPI(lifespan=lifespan, title="MCP API Gateway")
 
-# Mount SSE router
+# Mount SSE router (legacy /sse/events)
 sse_router = create_sse_router(bus)
-gateway_app.mount("/sse", sse_router)
+gateway_app.mount("/sse/legacy", sse_router)
+
+# Mount SSE v1 router (/sse/v1/events, /sse/v1/messages)
+sse_v1_router = create_sse_v1_router(bus)
+gateway_app.include_router(sse_v1_router, prefix="/sse/v1")
 
 
 # ---------------------------------------------------------------------------

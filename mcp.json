@@ -1,0 +1,72 @@
+{
+  "mcpServers": {
+    "mcp-agent-factory": {
+      "comment": "MCP Agent Factory — HTTP/SSE Gateway. Requires a running gateway (python -m mcp_agent_factory.gateway.run).",
+      "serverUrl": "http://localhost:8000",
+      "transport": "http",
+      "auth": {
+        "type": "oauth2",
+        "authorizationUrl": "http://localhost:8001/authorize",
+        "tokenUrl": "http://localhost:8001/token",
+        "registrationUrl": "http://localhost:8001/register",
+        "pkce": true,
+        "codeChallengeMethod": "S256",
+        "scopes": ["tools:call"]
+      },
+      "endpoints": {
+        "tools": "POST http://localhost:8000/mcp",
+        "sse": "GET  http://localhost:8000/sse/v1/events",
+        "health": "GET  http://localhost:8000/health",
+        "sampling": "POST http://localhost:8000/sampling"
+      },
+      "tools": [
+        {
+          "name": "echo",
+          "description": "Echo input text back to the caller",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {"type": "string", "description": "Text to echo"}
+            },
+            "required": ["text"]
+          }
+        },
+        {
+          "name": "add",
+          "description": "Add two numbers",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "a": {"type": "number"},
+              "b": {"type": "number"}
+            },
+            "required": ["a", "b"]
+          }
+        },
+        {
+          "name": "analyse_and_report",
+          "description": "Run the full AnalystAgent → WriterAgent pipeline and return a structured report",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "description": {"type": "string", "description": "Task description for the analyst"},
+              "context": {"type": "object", "description": "Optional key-value context payload"}
+            },
+            "required": ["description"]
+          }
+        },
+        {
+          "name": "sampling_demo",
+          "description": "Demonstrate the sampling/createMessage flow with a stub LLM completion",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prompt": {"type": "string", "description": "Prompt to send to the sampling client"}
+            },
+            "required": ["prompt"]
+          }
+        }
+      ]
+    }
+  }
+}
