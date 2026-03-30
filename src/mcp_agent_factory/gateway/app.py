@@ -18,6 +18,7 @@ GET  /health         — Liveness probe (unauthenticated)
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from typing import Any
 
@@ -39,6 +40,13 @@ from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format="%(message)s")
 logger = logging.getLogger("mcp_gateway")
+
+# ---------------------------------------------------------------------------
+# Dev mode — set MCP_DEV_MODE=1 to bypass JWT auth for local testing.
+# Never use in production.
+# ---------------------------------------------------------------------------
+DEV_MODE: bool = os.getenv("MCP_DEV_MODE", "0") == "1"
+
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (replaced in tests via set_* helpers)
@@ -136,9 +144,9 @@ async def _mcp_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
 	if method == "tools/list":
 		return _ok(req_id, {"tools": TOOLS})
 
-	# tools/call — requires valid Bearer token
+	# tools/call — requires valid Bearer token (bypassed in DEV_MODE)
 	if method == "tools/call":
-		if _claims is None:
+		if _claims is None and not DEV_MODE:
 			return _err(req_id, -32001, "Authentication required for tools/call")
 		tool_name: str = params.get("name", "")
 		args: dict = params.get("arguments", {})
@@ -153,6 +161,13 @@ async def _mcp_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
 
 		if tool_name == "echo":
 			text = args.get("text", "")
+			return _ok(req_id, {"content": [{"type": "text", "text": text}]})
+
+		if tool_name == "add":
+			from mcp_agent_factory.models import AddInput
+			inp = AddInput(**args)
+			result = inp.a + inp.b
+			text = str(int(result)) if result == int(result) else str(result)
 			return _ok(req_id, {"content": [{"type": "text", "text": text}]})
 
 		if tool_name == "analyse_and_report":
