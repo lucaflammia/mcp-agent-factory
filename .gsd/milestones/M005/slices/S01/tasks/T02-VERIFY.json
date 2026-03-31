@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M005/S01/T02",
+  "timestamp": 1774941373975,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "pytest tests/test_vector_store.py -v",
+      "exitCode": 2,
+      "durationMs": 4485,
+      "verdict": "fail"
+    },
+    {
+      "command": "pytest tests/ -v --ignore=tests/test_vector_store.py",
+      "exitCode": 0,
+      "durationMs": 26333,
+      "verdict": "pass"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

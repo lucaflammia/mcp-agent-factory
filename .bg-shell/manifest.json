@@ -1,16 +1,1 @@
-[
-  {
-    "id": "88c72db5",
-    "label": "mcp-gateway-dev",
-    "command": "cd /home/luca/Documents/Misc/mcp-agent-factory && MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run 2>&1",
-    "cwd": "/home/luca/Documents/Misc/mcp-agent-factory",
-    "ownerSessionFile": "/home/luca/.gsd/sessions/--home-luca-Documents-Misc-mcp-agent-factory--/2026-03-27T11-16-21-874Z_96d99b18-b32b-4477-92a9-b79b9faff214.jsonl",
-    "persistAcrossSessions": false,
-    "startedAt": 1774878657788,
-    "processType": "server",
-    "group": null,
-    "readyPattern": null,
-    "readyPort": 8000,
-    "pid": 248249
-  }
-]
+[]

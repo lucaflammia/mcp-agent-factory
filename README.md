@@ -1,6 +1,6 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, and external client connectivity — built across four progressive milestones.
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, and a vector-backed RAG layer — built across five progressive milestones.
 
 ## Architecture
 
@@ -16,15 +16,22 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 │  GET  /sse/v1/events          POST /sse/v1/messages           │
 └──────┬──────────────┬──────────────┬────────────────────────-┘
        │              │              │
-┌──────▼──────┐ ┌─────▼─────┐ ┌─────▼──────────────────┐
-│  Analyst→   │ │  Auction  │ │    MessageBus +         │
-│  Writer     │ │  (econ)   │ │    SSE v1 Transport     │
-│  Pipeline   │ └───────────┘ └────────────────────────-┘
-└─────────────┘
+┌──────▼──────┐ ┌─────▼──────────┐ ┌▼────────────────────────┐
+│  Analyst→   │ │  Knowledge-    │ │    MessageBus +          │
+│  Writer     │ │  Augmented     │ │    SSE v1 Transport      │
+│  Pipeline   │ │  Auction       │ └─────────────────────────-┘
+└──────┬──────┘ └────────────────┘
+       │ auto-ingest
+┌──────▼──────────────────────────────────────────────────────┐
+│         Knowledge Layer (M005)                               │
+│  InMemoryVectorStore · StubEmbedder · IngestionWorker        │
+│  LibrarianAgent · query_knowledge_base tool                  │
+│  knowledge.retrieved SSE event                               │
+└─────────────────────────────────────────────────────────────┘
        │
-┌──────▼─────────────────────────────────────────────────┐
-│            Redis Session Manager (fakeredis)            │
-└────────────────────────────────────────────────────────┘
+┌──────▼─────────────────────────────────────────────────────┐
+│            Redis Session Manager (fakeredis)                │
+└────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
 │              OAuth 2.1 Auth Server (:8001)                   │
@@ -37,15 +44,16 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 
 | Layer | Module | What it does |
 |-------|--------|--------------|
-| **MCP Protocol** | `server.py` (STDIO), `server_http.py` (HTTP) | JSON-RPC 2.0 over STDIO and FastAPI; echo + add tools |
+| **MCP Protocol** | `server.py` (STDIO), `server_http.py` (HTTP) | JSON-RPC 2.0 over STDIO and FastAPI; echo + add + query_knowledge_base tools |
 | **Task Scheduler** | `scheduler.py` | Priority queue, retry logic, structured state-transition logging |
 | **LLM Adapters** | `adapters.py` | Normalises tool schemas for Claude, OpenAI, and Gemini |
 | **ReAct Loop** | `react_loop.py` | Perception → Reasoning → Action agent loop |
-| **Agent Pipeline** | `agents/` | `AnalystAgent` → `WriterAgent` coordinated by `MultiAgentOrchestrator` |
+| **Agent Pipeline** | `agents/` | `AnalystAgent` → `WriterAgent` coordinated by `MultiAgentOrchestrator`; `LibrarianAgent` for RAG retrieval |
 | **Session State** | `session/manager.py` | Redis-backed key/value store for cross-agent handoffs |
-| **Economics** | `economics/` | Utility scoring + sealed-bid auction for task allocation |
-| **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router with `connected` event |
-| **Gateway** | `gateway/` | Authenticated MCP API gateway; SSE /v1 endpoints; stub sampling handler |
+| **Economics** | `economics/` | Utility scoring + knowledge-augmented sealed-bid auction |
+| **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
+| **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
+| **Gateway** | `gateway/` | Authenticated MCP API gateway; SSE /v1 endpoints; stub sampling handler; RAG tool dispatch |
 | **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding |
 | **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream |
 | **External Config** | `mcp.json` | IDE config for Cursor / Claude Desktop pointing at localhost gateway |
@@ -98,16 +106,45 @@ The gateway is ready for Cursor, Claude Desktop, or any MCP-compatible client:
    # {"status": "ok", "service": "mcp-gateway"}
    ```
 
+## RAG Knowledge Base (M005)
+
+The `query_knowledge_base` tool is registered on the gateway and callable from any MCP client:
+
+```python
+# Via gateway (dev mode — no auth required)
+MCP_DEV_MODE=1 python -c "
+import httpx, json
+resp = httpx.post('http://localhost:8000/mcp', json={
+    'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+    'params': {'name': 'query_knowledge_base', 'arguments': {'query': 'climate analysis', 'top_k': 3}}
+})
+print(resp.json())
+"
+```
+
+Every call emits a `knowledge.retrieved` SSE event with `owner_id`, `chunk_count`, and `source` — observable via `/sse/v1/events`. Data is namespace-isolated by JWT `sub` claim so one user's chunks are never visible to another.
+
+```python
+# Direct Python usage
+from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder, query_knowledge_base
+
+store, embedder = InMemoryVectorStore(), StubEmbedder()
+store.upsert("alice", "prior climate analysis", embedder.embed("prior climate analysis"))
+chunks = query_knowledge_base("climate", "alice", store, embedder, top_k=3)
+# [{"text": "prior climate analysis", "score": 0.99...}]
+```
+
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # all 198 tests
+pytest tests/ -v          # all tests
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
 pytest tests/test_scheduler.py tests/test_auth.py tests/test_server_http.py             # M002
 pytest tests/test_pipeline.py tests/test_economics.py tests/test_message_bus.py tests/test_gateway.py tests/test_langchain_bridge.py  # M003
 pytest tests/test_m004_sse.py tests/test_m004_auth_pkce.py tests/test_m004_client_bridge.py  # M004
+pytest tests/test_vector_store.py tests/test_ingest.py tests/test_knowledge_auction.py tests/test_s04.py  # M005
 ```
 
 ## Code Style
@@ -129,14 +166,21 @@ src/mcp_agent_factory/
 ├── orchestrator.py                 # MCP orchestrator client
 ├── config/privacy.py               # PrivacyConfig + egress guard
 ├── agents/                         # Multi-agent pipeline
-│   ├── models.py                   # AgentTask, MCPContext, shared models
+│   ├── models.py                   # AgentTask, MCPContext, RetrievalResult, shared models
 │   ├── analyst.py                  # AnalystAgent
 │   ├── writer.py                   # WriterAgent
+│   ├── librarian.py                # LibrarianAgent (RAG retrieval synthesis)
 │   └── pipeline_orchestrator.py
 ├── session/manager.py              # Redis session manager
 ├── economics/
 │   ├── utility.py                  # Utility function scoring
-│   └── auction.py                  # Sealed-bid auction
+│   └── auction.py                  # Knowledge-augmented sealed-bid auction
+├── knowledge/                      # RAG layer (M005)
+│   ├── __init__.py                 # Public re-exports
+│   ├── vector_store.py             # InMemoryVectorStore (cosine, multi-tenant)
+│   ├── embedder.py                 # Embedder protocol + StubEmbedder
+│   ├── ingest.py                   # IngestionWorker
+│   └── tools.py                   # query_knowledge_base function
 ├── messaging/
 │   ├── bus.py                      # Async MessageBus (topic fan-out)
 │   ├── sse_router.py               # Legacy SSE router (/sse/legacy)
@@ -171,7 +215,11 @@ tests/
 ├── test_langchain_bridge.py        # M003: OAuth bridge + client
 ├── test_m004_sse.py                # M004: SSE /v1 endpoints
 ├── test_m004_auth_pkce.py          # M004: PKCE hardening + 401 enforcement
-└── test_m004_client_bridge.py      # M004: MCPGatewayClient lifecycle
+├── test_m004_client_bridge.py      # M004: MCPGatewayClient lifecycle
+├── test_vector_store.py            # M005: VectorStore cosine search + isolation
+├── test_ingest.py                  # M005: IngestionWorker lifecycle
+├── test_knowledge_auction.py       # M005: Knowledge-augmented auction
+└── test_s04.py                     # M005: LibrarianAgent + gateway tool + SSE event
 ```
 
 ## Milestone History
@@ -182,6 +230,7 @@ tests/
 | M002 | Async TaskScheduler, FastAPI HTTP server, LLM adapters, OAuth 2.1 + PKCE | +69 (100) |
 | M003 | Multi-agent pipeline, economic allocation, async message bus, API gateway, LangChain bridge | +61 (161) |
 | M004 | SSE /v1 streaming, PKCE hardening, client bridge with token cache, mcp.json IDE config | +37 (198) |
+| M005 | Vector RAG layer, multi-tenant isolation, async ingestion, knowledge-augmented auction, LibrarianAgent, SSE events | +7 (205+) |
 
 ## Security Notes
 
@@ -190,3 +239,4 @@ tests/
 - PKCE S256 enforced on all authorization code exchanges; codes are single-use.
 - Audience binding (`aud: mcp-server`) prevents confused-deputy attacks.
 - Gateway rejects all requests without a valid, non-expired Bearer JWT — 401 on missing/expired/wrong-audience tokens.
+- RAG vector store is namespace-isolated by `owner_id` (bound to JWT `sub`) — cross-tenant queries return empty results by design.
