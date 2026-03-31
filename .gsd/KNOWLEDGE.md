@@ -91,3 +91,10 @@ A `gateway_app.mount("/sse", sub_app)` intercepts ALL paths starting with `/sse`
 
 ### mcp.json auth server and gateway run on separate ports
 `mcp.json` separates the OAuth 2.1 auth server (`:8001`) from the MCP gateway (`:8000`). This matches the real deployment topology where auth and resource servers are separate processes. Token verification uses the shared JWT key.
+
+---
+
+## S03: Knowledge-Augmented Auction
+
+### VectorStore.search() takes query_vector (np.ndarray), not a string query
+The S03 plan described `store.search(query=task.name)` with a string argument. The actual `VectorStore.search()` protocol (from S01) takes `query_vector: np.ndarray`. `Auction.run()` was extended with a `query_vector` parameter — callers must embed the query before passing it to the auction. S04 (LibrarianAgent / gateway) will need to embed `task.name` (or task description) through an `Embedder` before calling `Auction.run()` if it wants the +20% boost to fire in end-to-end flows.

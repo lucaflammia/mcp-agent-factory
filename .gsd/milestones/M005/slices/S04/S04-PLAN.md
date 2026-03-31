@@ -4,7 +4,7 @@
 **Demo:** After this: mcp_call(server='agent-factory', tool='query_knowledge_base', args={...}) returns chunks; SSE stream shows knowledge_retrieved event
 
 ## Tasks
-- [x] **T01: Added RAG query_knowledge_base tool, LibrarianAgent, RetrievalResult model, and wired them into the gateway with SSE event emission** — Create all new production code for S04:
+- [ ] **T01: Implement knowledge/tools.py, LibrarianAgent, and gateway wiring** — Create all new production code for S04:
 
 1. **`src/mcp_agent_factory/knowledge/tools.py`** — define `query_knowledge_base(query: str, owner_id: str, store: VectorStore, embedder: Embedder, top_k: int = 5) -> list[dict]`. Embed via `embedder.embed(query)`, call `store.search(query_vector, owner_id, top_k)`, return list of dicts with `text` and `score` keys from each (chunk_id, text, score) tuple returned by search. Use tab indentation.
 
@@ -20,7 +20,7 @@
   - Estimate: 45m
   - Files: src/mcp_agent_factory/knowledge/tools.py, src/mcp_agent_factory/knowledge/__init__.py, src/mcp_agent_factory/agents/models.py, src/mcp_agent_factory/agents/librarian.py, src/mcp_agent_factory/server_http.py, src/mcp_agent_factory/gateway/app.py
   - Verify: PYTHONPATH=src python -c "from mcp_agent_factory.knowledge import query_knowledge_base; from mcp_agent_factory.agents.librarian import LibrarianAgent; from mcp_agent_factory.agents.models import RetrievalResult; from mcp_agent_factory.gateway.app import set_vector_store, set_embedder; print('imports ok')"
-- [x] **T02: Created tests/test_s04.py with 7 passing tests covering the full S04 RAG surface** — Create `tests/test_s04.py` with the following 7 test cases. Use `StubEmbedder` and `InMemoryVectorStore` throughout.
+- [ ] **T02: Write and verify tests/test_s04.py — 7 cases covering all new surface** — Create `tests/test_s04.py` with the following 7 test cases. Use `StubEmbedder` and `InMemoryVectorStore` throughout.
 
 **Imports needed:** `pytest`, `asyncio`, `mcp_agent_factory.knowledge` (InMemoryVectorStore, StubEmbedder, IngestionWorker, query_knowledge_base), `mcp_agent_factory.agents.librarian` (LibrarianAgent), `mcp_agent_factory.agents.models` (AgentTask, MCPContext, RetrievalResult), `mcp_agent_factory.server_http` (TOOLS), `mcp_agent_factory.gateway.app` (gateway_app, set_vector_store, set_embedder, bus), `mcp_agent_factory.messaging.bus` (AgentMessage), `fastapi.testclient` (TestClient).
 

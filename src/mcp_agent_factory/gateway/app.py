@@ -30,6 +30,7 @@ from mcp_agent_factory.agents.models import AgentTask, MCPContext
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
 from mcp_agent_factory.auth.resource import make_verify_token
 from mcp_agent_factory.economics.auction import Auction
+from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder, query_knowledge_base
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
 from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
@@ -56,6 +57,8 @@ bus: MessageBus = MessageBus()
 sampling_handler: SamplingHandler = SamplingHandler(StubSamplingClient())
 _redis_client = aioredis.FakeRedis()
 session: RedisSessionManager = RedisSessionManager(_redis_client)
+_vector_store: InMemoryVectorStore = InMemoryVectorStore()
+_embedder: StubEmbedder = StubEmbedder()
 
 # ---------------------------------------------------------------------------
 # Test-injection helpers
@@ -65,6 +68,18 @@ session: RedisSessionManager = RedisSessionManager(_redis_client)
 def set_sampling_client(client: Any) -> None:
 	"""Inject a custom SamplingClient for tests."""
 	sampling_handler.set_client(client)
+
+
+def set_vector_store(store: Any) -> None:
+	"""Inject a custom VectorStore for tests."""
+	global _vector_store
+	_vector_store = store
+
+
+def set_embedder(embedder: Any) -> None:
+	"""Inject a custom Embedder for tests."""
+	global _embedder
+	_embedder = embedder
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +200,17 @@ async def _mcp_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
 			prompt = args.get("prompt", "")
 			result = await sampling_handler.handle(prompt)
 			return _ok(req_id, {"content": [{"type": "text", "text": result.completion}]})
+
+		if tool_name == "query_knowledge_base":
+			owner_id = _claims['sub'] if _claims else 'dev'
+			chunks = query_knowledge_base(args.get('query', ''), owner_id, _vector_store, _embedder, args.get('top_k', 5))
+			bus.publish('knowledge.retrieved', AgentMessage(
+				topic='knowledge.retrieved',
+				sender='gateway',
+				recipient='*',
+				content={'owner_id': owner_id, 'chunk_count': len(chunks), 'source': 'vector_store'},
+			))
+			return _ok(req_id, {'content': [{'type': 'text', 'text': str(chunks)}]})
 
 		# Unknown tool
 		return _ok(req_id, {

@@ -17,9 +17,15 @@ class WriterAgent:
 
 	The report includes: an executive summary, a metrics table, and
 	trend observations — deterministic formatting, no LLM needed.
+
+	If *bus* is provided, publishes an ``agent.output.final`` message after
+	each report so downstream workers (e.g. IngestionWorker) can process it.
 	"""
 
-	async def run(self, analysis: AnalysisResult, ctx: MCPContext) -> ReportResult:
+	def __init__(self, bus=None) -> None:
+		self._bus = bus
+
+	async def run(self, analysis: AnalysisResult, ctx: MCPContext, *, owner_id: str = "") -> ReportResult:
 		ctx.log(f"writer: generating report for session '{analysis.session_key}'")
 
 		trace: list[str] = []
@@ -55,6 +61,21 @@ class WriterAgent:
 
 		report_text = "\n".join(lines)
 		ctx.log(f"writer: report complete ({len(report_text)} chars)")
+
+		if self._bus is not None:
+			from mcp_agent_factory.messaging.bus import AgentMessage
+			self._bus.publish(
+				"agent.output.final",
+				AgentMessage(
+					topic="agent.output.final",
+					sender="writer-agent",
+					content={
+						"text": report_text,
+						"owner_id": owner_id,
+						"session_key": analysis.session_key,
+					},
+				),
+			)
 
 		return ReportResult(
 			session_key=analysis.session_key,

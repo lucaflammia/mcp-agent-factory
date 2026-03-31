@@ -48,9 +48,12 @@ class UtilityFunction:
 	Higher score = agent prefers to take this task.
 	"""
 
-	def score(self, task: AgentTask, profile: AgentProfile) -> float:
+	def score(self, task: AgentTask, profile: AgentProfile, knowledge_boost: bool = False) -> float:
 		"""
 		Compute and return the utility score in [0.0, 1.0].
+
+		If *knowledge_boost* is True and the profile has ``'knowledge_retrieval'``
+		in its capabilities, the raw score is multiplied by 1.2 before clamping.
 		"""
 		expertise_match = (
 			EXPERTISE_MATCH_FULL
@@ -62,6 +65,8 @@ class UtilityFunction:
 			- COMPLEXITY_PENALTY * task.complexity
 			- COST_FACTOR * profile.cost_per_unit
 		)
+		if knowledge_boost and "knowledge_retrieval" in profile.capabilities:
+			raw = raw * 1.2
 		result = max(0.0, min(1.0, raw))
 
 		logger.debug(json.dumps({

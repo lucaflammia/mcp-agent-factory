@@ -79,6 +79,18 @@ TOOLS: list[dict] = [
 			"required": ["a", "b"],
 		},
 	},
+	{
+		"name": "query_knowledge_base",
+		"description": "Query the vector knowledge base for relevant prior context.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"query": {"type": "string", "description": "Natural language query"},
+				"top_k": {"type": "integer", "default": 5, "description": "Number of results"},
+			},
+			"required": ["query"],
+		},
+	},
 ]
 
 

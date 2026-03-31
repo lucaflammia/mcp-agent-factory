@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
+import numpy as np
 from pydantic import BaseModel
 
 from mcp_agent_factory.agents.models import AgentTask
 from mcp_agent_factory.economics.utility import AgentProfile, UtilityFunction
+from mcp_agent_factory.knowledge.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +43,33 @@ class Auction:
 	def __init__(self) -> None:
 		self._utility = UtilityFunction()
 
-	def run(self, task: AgentTask, profiles: list[AgentProfile]) -> BidResult:
+	def run(
+		self,
+		task: AgentTask,
+		profiles: list[AgentProfile],
+		store: VectorStore | None = None,
+		query_vector: np.ndarray | None = None,
+		owner_id: str = "",
+	) -> BidResult:
 		"""
 		Run the auction and return the winner.
+
+		If *store* and *query_vector* are provided, a vector probe is executed
+		before scoring. If the probe returns any results, agents with
+		``'knowledge_retrieval'`` capability receive a +20 % utility boost.
 
 		Raises ValueError if *profiles* is empty.
 		"""
 		if not profiles:
 			raise ValueError("Auction requires at least one agent profile")
 
+		knowledge_boost = False
+		if store is not None and query_vector is not None:
+			results = store.search(owner_id=owner_id, query_vector=query_vector, top_k=1)
+			knowledge_boost = len(results) > 0
+
 		bids: dict[str, float] = {
-			profile.agent_id: self._utility.score(task, profile)
+			profile.agent_id: self._utility.score(task, profile, knowledge_boost=knowledge_boost)
 			for profile in profiles
 		}
 

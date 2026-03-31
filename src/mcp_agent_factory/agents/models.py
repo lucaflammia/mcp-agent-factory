@@ -47,6 +47,13 @@ class ReportResult(BaseModel):
 	agent_trace: list[str] = Field(default_factory=list)
 
 
+class RetrievalResult(BaseModel):
+	"""Structured output from LibrarianAgent — RAG retrieval result."""
+	session_key: str
+	chunks: list[dict] = Field(default_factory=list)
+	summary: str = ""
+
+
 # ---------------------------------------------------------------------------
 # MCP Context primitive
 # ---------------------------------------------------------------------------
