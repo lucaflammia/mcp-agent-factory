@@ -52,7 +52,9 @@ def shared_key():
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+	import mcp_agent_factory.gateway.app as _app
+	monkeypatch.setattr(_app, "DEV_MODE", False)
 	return TestClient(gateway_app)
 
 

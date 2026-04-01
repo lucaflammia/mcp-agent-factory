@@ -24,7 +24,7 @@ from typing import Any
 
 import fakeredis.aioredis as aioredis
 from fastapi import Depends, FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from mcp_agent_factory.agents.models import AgentTask, MCPContext
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
@@ -38,6 +38,7 @@ from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS, lifesp
 from mcp_agent_factory.session.manager import RedisSessionManager
 
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
+from .service_layer import InternalServiceLayer
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format="%(message)s")
 logger = logging.getLogger("mcp_gateway")
@@ -60,6 +61,10 @@ session: RedisSessionManager = RedisSessionManager(_redis_client)
 _vector_store: InMemoryVectorStore = InMemoryVectorStore()
 _embedder: StubEmbedder = StubEmbedder()
 
+_service_layer: InternalServiceLayer = InternalServiceLayer(
+	bus, session, sampling_handler, _vector_store, _embedder
+)
+
 # ---------------------------------------------------------------------------
 # Test-injection helpers
 # ---------------------------------------------------------------------------
@@ -74,12 +79,14 @@ def set_vector_store(store: Any) -> None:
 	"""Inject a custom VectorStore for tests."""
 	global _vector_store
 	_vector_store = store
+	_service_layer._vector_store = store
 
 
 def set_embedder(embedder: Any) -> None:
 	"""Inject a custom Embedder for tests."""
 	global _embedder
 	_embedder = embedder
+	_service_layer._embedder = embedder
 
 
 # ---------------------------------------------------------------------------
@@ -174,48 +181,12 @@ async def _mcp_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
 			content={"tool": tool_name, "args": args},
 		))
 
-		if tool_name == "echo":
-			text = args.get("text", "")
-			return _ok(req_id, {"content": [{"type": "text", "text": text}]})
-
-		if tool_name == "add":
-			from mcp_agent_factory.models import AddInput
-			inp = AddInput(**args)
-			result = inp.a + inp.b
-			text = str(int(result)) if result == int(result) else str(result)
-			return _ok(req_id, {"content": [{"type": "text", "text": text}]})
-
-		if tool_name == "analyse_and_report":
-			task = AgentTask(
-				task_id=str(req_id or "gw"),
-				description=args.get("description", ""),
-				context=args.get("context", {}),
-			)
-			ctx = MCPContext(session_id=str(req_id or "gw"))
-			orchestrator = MultiAgentOrchestrator(session)
-			report = await orchestrator.run_pipeline(task, ctx)
-			return _ok(req_id, {"content": [{"type": "text", "text": report.summary}]})
-
-		if tool_name == "sampling_demo":
-			prompt = args.get("prompt", "")
-			result = await sampling_handler.handle(prompt)
-			return _ok(req_id, {"content": [{"type": "text", "text": result.completion}]})
-
-		if tool_name == "query_knowledge_base":
-			owner_id = _claims['sub'] if _claims else 'dev'
-			chunks = query_knowledge_base(args.get('query', ''), owner_id, _vector_store, _embedder, args.get('top_k', 5))
-			bus.publish('knowledge.retrieved', AgentMessage(
-				topic='knowledge.retrieved',
-				sender='gateway',
-				recipient='*',
-				content={'owner_id': owner_id, 'chunk_count': len(chunks), 'source': 'vector_store'},
-			))
-			return _ok(req_id, {'content': [{'type': 'text', 'text': str(chunks)}]})
-
-		# Unknown tool
-		return _ok(req_id, {
-			"isError": True,
-			"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-		})
+		try:
+			result = await _service_layer.handle(tool_name, args, _claims)
+			return _ok(req_id, result)
+		except (ValidationError, ValueError) as e:
+			return _ok(req_id, {"isError": True, "content": [{"type": "text", "text": str(e)}]})
+		except Exception as e:
+			return _err(req_id, -32603, str(e))
 
 	return _err(req_id, -32601, f"Method not found: {method}")

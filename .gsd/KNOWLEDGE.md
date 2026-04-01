@@ -1,4 +1,14 @@
 
+## M006/S01: Redis Streams Worker
+
+### xreadgroup streams argument must be a keyword dict with fakeredis 2.34.1
+`fakeredis.FakeRedis().xreadgroup(group, consumer, {stream: ">"}, count=1)` raises `TypeError` — streams must be passed as a keyword argument: `xreadgroup(group, consumer, streams={stream: ">"}, count=1)`. Real redis-py accepts both forms, so this also works in production.
+
+### StreamWorker.ensure_group must guard against BUSYGROUP ResponseError
+`xgroup_create` raises `redis.exceptions.ResponseError: BUSYGROUP Consumer Group name already exists` if called twice. Catch `ResponseError` and check `"BUSYGROUP" in str(e)` to make `ensure_group` idempotent — safe to call at startup regardless of whether the group already exists.
+
+---
+
 ## S03: Schema Validation and Privacy-First Config
 
 ### Catch both ValueError and ValidationError in _dispatch
@@ -98,3 +108,19 @@ A `gateway_app.mount("/sse", sub_app)` intercepts ALL paths starting with `/sse`
 
 ### VectorStore.search() takes query_vector (np.ndarray), not a string query
 The S03 plan described `store.search(query=task.name)` with a string argument. The actual `VectorStore.search()` protocol (from S01) takes `query_vector: np.ndarray`. `Auction.run()` was extended with a `query_vector` parameter — callers must embed the query before passing it to the auction. S04 (LibrarianAgent / gateway) will need to embed `task.name` (or task description) through an `Embedder` before calling `Auction.run()` if it wants the +20% boost to fire in end-to-end flows.
+
+---
+
+## S03 (M006): DEV_MODE isolation when running tests with MCP_DEV_MODE=1
+
+When the pytest invocation includes `MCP_DEV_MODE=1` in the environment, `DEV_MODE` is baked as `True` at module import time. Any test that relies on auth being *enabled* (e.g. `test_mcp_no_auth_returns_401`) will silently receive a `result` key instead of an `error` key and fail with `KeyError`. Fix: in the `client` fixture, monkeypatch the module attribute directly:
+
+```python
+@pytest.fixture
+def client(monkeypatch):
+    import mcp_agent_factory.gateway.app as _app
+    monkeypatch.setattr(_app, "DEV_MODE", False)
+    return TestClient(gateway_app)
+```
+
+This restores the correct auth behavior for that test without affecting other tests that need dev mode enabled.
