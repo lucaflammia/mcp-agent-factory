@@ -1,10 +1,12 @@
 # Codebase Map
 
-Generated: 2026-04-18T12:13:33Z | Files: 91 | Described: 0/91
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-18T12:13:33Z","fingerprint":"a798a967686784bdb39728770bb528d7bc1ba5cb","fileCount":91,"truncated":false} -->
+Generated: 2026-04-18T13:47:25Z | Files: 98 | Described: 0/98
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-18T13:47:25Z","fingerprint":"ef50d2931af471bb512c23fe75a970e064934d06","fileCount":98,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
+- `.mcp.json`
+- `docker-compose.yml`
 - `mcp.json`
 - `pyproject.toml`
 - `README.md`
@@ -94,7 +96,8 @@ Generated: 2026-04-18T12:13:33Z | Files: 91 | Described: 0/91
 - `src/mcp_agent_factory/streams/eventlog.py`
 - `src/mcp_agent_factory/streams/idempotency.py`
 - `src/mcp_agent_factory/streams/kafka_adapter.py`
+- `src/mcp_agent_factory/streams/redlock.py`
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(28 files: 28 .py)*
+- *(32 files: 32 .py)*
