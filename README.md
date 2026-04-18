@@ -1,6 +1,6 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline — built across six progressive milestones.
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure — built across seven progressive milestones.
 
 ## Architecture
 
@@ -35,11 +35,18 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 │  StreamWorker (XREADGROUP/ACK/PEL)                          │
 │  IdempotencyGuard · DistributedLock · OutboxRelay           │
 │  CircuitBreaker (CLOSED→OPEN→HALF_OPEN)                     │
-│  EventLog Protocol · InProcessEventLog · KafkaEventLog stub │
+│  EventLog Protocol · InProcessEventLog · KafkaEventLog      │
 └──────┬─────────────────────────────────────────────────────┘
        │
+┌──────▼──────────────────────────────────────────────────────┐
+│      Real Infrastructure Layer (M007)                        │
+│  docker-compose: Kafka + Zookeeper + 4 Redis nodes           │
+│  RedlockClient — 3-node quorum acquire / release             │
+│  Multi-process StreamWorker — horizontal scaling + PEL rec.  │
+└──────┬──────────────────────────────────────────────────────┘
+       │
 ┌──────▼─────────────────────────────────────────────────────┐
-│            Redis Session Manager (fakeredis)                │
+│            Redis Session Manager (fakeredis / real)         │
 └────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
@@ -65,7 +72,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; SSE /v1 endpoints |
 | **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding |
 | **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream |
-| **Streams ** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` stub |
+| **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
+| **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **External Config** | `mcp.json` | IDE config for Cursor / Claude Desktop pointing at localhost gateway |
 
 ## Quick Start
@@ -87,6 +95,11 @@ python -m mcp_agent_factory.gateway.run
 
 # Python client bridge CLI demo
 python -m mcp_agent_factory.bridge
+
+# Real infrastructure (Kafka + Redis cluster) — M007
+docker-compose up -d
+pip install -e ".[infra]"          # aiokafka + redis extras
+pytest -m integration -v           # 8 integration tests against live services
 ```
 
 ## External Client Integration 
@@ -213,7 +226,7 @@ if not guard.already_seen(task.id):        # Skip if already processed
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # all 231 tests for Milestones M###
+pytest tests/ -v          # 246 unit tests — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -222,12 +235,17 @@ pytest tests/test_pipeline.py tests/test_economics.py tests/test_message_bus.py 
 pytest tests/test_m004_sse.py tests/test_m004_auth_pkce.py tests/test_m004_client_bridge.py  # M004
 pytest tests/test_vector_store.py tests/test_ingest.py tests/test_knowledge_auction.py tests/test_s04.py  # M005
 pytest tests/test_m006_streams.py tests/test_m006_eventlog.py tests/test_m006_gateway.py tests/test_m006_reliability.py tests/test_m006_integration.py  # M006
+pytest tests/test_m007_kafka.py tests/test_m007_redlock.py tests/test_m007_scaling.py   # M007 (unit)
+
+# Integration tests — requires docker-compose up -d
+pytest -m integration -v  # 8 tests: KafkaEventLog, Redlock quorum, multi-process scaling
 ```
 
 ## Project Layout
 
 ```
 mcp.json                            # External IDE config (Cursor / Claude Desktop)
+docker-compose.yml                  # Real infrastructure: Kafka + Zookeeper + 4× Redis
 src/mcp_agent_factory/
 ├── server.py                       # STDIO MCP server
 ├── server_http.py                  # FastAPI HTTP MCP server
@@ -264,13 +282,14 @@ src/mcp_agent_factory/
 │   ├── service_layer.py            # InternalServiceLayer (tool dispatch)
 │   ├── run.py                      # Production uvicorn entrypoint
 │   └── sampling.py                 # Sampling/createMessage handler
-├── streams/                        # Fault-tolerant streaming layer (M006)
-│   ├── __init__.py                 # Public re-exports
+├── streams/                        # Fault-tolerant streaming layer (M006–M007)
+│   ├── __init__.py                 # Public re-exports (incl. RedlockClient)
 │   ├── worker.py                   # StreamWorker (XREADGROUP/ACK/PEL)
 │   ├── eventlog.py                 # EventLog protocol + InProcessEventLog
-│   ├── kafka_adapter.py            # KafkaEventLog stub (aiokafka swap-in)
+│   ├── kafka_adapter.py            # KafkaEventLog (aiokafka, real Kafka)
 │   ├── idempotency.py              # IdempotencyGuard, DistributedLock, OutboxRelay
-│   └── circuit_breaker.py         # CircuitBreaker (CLOSED→OPEN→HALF_OPEN)
+│   ├── circuit_breaker.py         # CircuitBreaker (CLOSED→OPEN→HALF_OPEN)
+│   └── redlock.py                  # RedlockClient — 3-node quorum acquire/release
 ├── auth/
 │   ├── server.py                   # OAuth 2.1 auth server (PKCE S256)
 │   ├── resource.py                 # JWT Bearer middleware
@@ -306,7 +325,11 @@ tests/
 ├── test_m006_eventlog.py           # M006: EventLog protocol + topic routing
 ├── test_m006_gateway.py            # M006: ValidationGate + InternalServiceLayer
 ├── test_m006_reliability.py        # M006: Idempotency + CircuitBreaker (R008–R014)
-└── test_m006_integration.py        # M006: End-to-end pipeline integration
+├── test_m006_integration.py        # M006: End-to-end pipeline integration
+├── test_m007_kafka.py              # M007: KafkaEventLog integration (real Kafka)
+├── test_m007_redlock.py            # M007: RedlockClient 3-node quorum
+├── test_m007_scaling.py            # M007: Multi-process StreamWorker scaling
+└── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
 ```
 
 ## Milestone History
@@ -318,7 +341,8 @@ tests/
 | M003 | Multi-agent pipeline, economic allocation, async message bus, API gateway, LangChain bridge | +61 (161) |
 | M004 | SSE /v1 streaming, PKCE hardening, client bridge with token cache, mcp.json IDE config | +37 (198) |
 | M005 | Vector RAG layer, multi-tenant isolation, async ingestion, knowledge-augmented auction, LibrarianAgent, SSE events | +7 (205) |
-| M006 | Redis Streams consumer groups, EventLog + Kafka stub, ValidationGate, IdempotencyGuard, DistributedLock, OutboxRelay, CircuitBreaker | +26 (231) |
+| M006 | Redis Streams consumer groups, EventLog + KafkaEventLog, ValidationGate, IdempotencyGuard, DistributedLock, OutboxRelay, CircuitBreaker | +26 (231) |
+| M007 | docker-compose stack, real KafkaEventLog integration tests, RedlockClient 3-node quorum, multi-process StreamWorker scaling | +15 unit / +8 integration (246 unit) |
 
 ## Security Notes
 

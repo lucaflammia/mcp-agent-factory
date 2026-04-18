@@ -3,6 +3,7 @@ Shared pytest fixtures for mcp-agent-factory tests.
 """
 from __future__ import annotations
 
+import socket
 import subprocess
 import sys
 import json
@@ -74,3 +75,54 @@ def mcp_server() -> Generator[MCPServerProcess, None, None]:
 	wrapper = MCPServerProcess(proc)
 	yield wrapper
 	wrapper.close()
+
+
+# ---------------------------------------------------------------------------
+# Integration fixtures (require live Docker stack — skip otherwise)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def real_redis():
+	"""Single Redis client on port 6379. Skips if not reachable."""
+	import redis as redis_lib
+	client = redis_lib.Redis(host="localhost", port=6379, decode_responses=False)
+	try:
+		client.ping()
+	except Exception:
+		pytest.skip("Redis not available — run: docker-compose up -d redis")
+	yield client
+	client.close()
+
+
+@pytest.fixture
+def real_redis_cluster():
+	"""3 independent Redis clients on ports 6381-6383. Skips if any is unreachable."""
+	import redis as redis_lib
+	ports = [6381, 6382, 6383]
+	clients = []
+	for port in ports:
+		c = redis_lib.Redis(host="localhost", port=port, decode_responses=False)
+		try:
+			c.ping()
+		except Exception:
+			pytest.skip(
+				f"Redis node on port {port} not available — "
+				"run: docker-compose up -d redis-node-1 redis-node-2 redis-node-3"
+			)
+		clients.append(c)
+	yield clients
+	for c in clients:
+		c.close()
+
+
+@pytest.fixture
+def real_kafka_bootstrap():
+	"""Returns 'localhost:9092' when Kafka is reachable; skips otherwise."""
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.settimeout(2)
+	try:
+		s.connect(("localhost", 9092))
+		s.close()
+	except (ConnectionRefusedError, OSError):
+		pytest.skip("Kafka not available — run: docker-compose up -d kafka")
+	return "localhost:9092"

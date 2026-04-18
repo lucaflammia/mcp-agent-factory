@@ -39,3 +39,7 @@ tmp/
 .gsd/event-log.jsonl
 .gsd/state-manifest.json
 .gsd/STATE.md
+
+# ── GSD baseline (auto-generated) ──
+.gsd-id
+.bg-shell/

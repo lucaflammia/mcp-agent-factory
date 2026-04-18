@@ -1,12 +1,12 @@
 ---
 id: M006
-title: "Redis Streams, EventLog, Validation Gate, Idempotency &amp; Circuit Breakers"
+title: "Redis Streams, EventLog, Validation Gate, Idempotency & Circuit Breakers"
 status: complete
-completed_at: 2026-04-01T20:17:20.767Z
+completed_at: 2026-04-18T12:27:20.462Z
 key_decisions:
-  - StreamWorker and MessageBus coexist — MessageBus handles in-process SSE fan-out, StreamWorker handles cross-process task intake (D011)
-  - Single-node SET NX EX locking behind DistributedLock protocol (D010)
-  - EventLog Protocol + InProcessEventLog pattern for test-time broker-free operation (D009)
+  - StreamWorker and MessageBus coexist — MessageBus handles in-process SSE fan-out, StreamWorker handles cross-process task intake
+  - Single-node SET NX EX locking behind DistributedLock protocol
+  - EventLog Protocol + InProcessEventLog pattern for test-time broker-free operation
   - DistributedLock keys must use a namespace prefix (lock:) to avoid SET NX collision with IdempotencyGuard keys in shared Redis
 key_files:
   - src/mcp_agent_factory/streams/worker.py
@@ -16,7 +16,6 @@ key_files:
   - src/mcp_agent_factory/streams/circuit_breaker.py
   - src/mcp_agent_factory/gateway/validation.py
   - src/mcp_agent_factory/gateway/service_layer.py
-  - src/mcp_agent_factory/gateway/app.py
   - tests/test_m006_streams.py
   - tests/test_m006_eventlog.py
   - tests/test_m006_gateway.py
@@ -24,11 +23,11 @@ key_files:
   - tests/test_m006_integration.py
 lessons_learned:
   - DistributedLock and IdempotencyGuard both use SET NX on the same Redis — always namespace lock keys with a prefix to prevent collision
-  - Module-level singletons (InternalServiceLayer) capture dependency references at construction time; test injection helpers must also patch the singleton's attributes, not just the module-level variables
+  - Module-level singletons capture dependency references at construction time; test injection helpers must also patch the singleton's attributes
   - InProcessEventLog.read returns (msg_id, event) tuples — document this clearly for test authors
 ---
 
-# M006: Redis Streams, EventLog, Validation Gate, Idempotency &amp; Circuit Breakers
+# M006: Redis Streams, EventLog, Validation Gate, Idempotency & Circuit Breakers
 
 **Redis Streams, EventLog, ValidationGate, IdempotencyGuard, and CircuitBreaker all shipped and integrated — 231 tests green, R001–R015 validated.**
 
@@ -42,7 +41,7 @@ All per-slice verification commands passed. Final full-suite run: 231 passed in 
 
 ## Definition of Done Results
 
-- All 5 slices complete with passing tests ✅\n- 231 tests green, zero regressions ✅\n- All 15 active requirements validated ✅\n- Integration test exercising all M006 components end-to-end ✅\n- No external processes required (fakeredis throughout) ✅
+All 5 slices complete with passing tests. 231 tests green, zero regressions. All 15 active requirements validated. Integration test exercising all M006 components end-to-end. No external processes required (fakeredis throughout).
 
 ## Requirement Outcomes
 
@@ -50,7 +49,7 @@ R001–R002: StreamWorker XREADGROUP/ACK/PEL validated. R003–R005: EventLog Pr
 
 ## Deviations
 
-set_vector_store/set_embedder in gateway/app.py needed a fix to propagate to the _service_layer singleton — this was a pre-existing bug exposed by test_s04.py. Fixed in S05.
+set_vector_store/set_embedder in gateway/app.py needed a fix to propagate to the _service_layer singleton — pre-existing bug exposed by test_s04.py, fixed in S05.
 
 ## Follow-ups
 

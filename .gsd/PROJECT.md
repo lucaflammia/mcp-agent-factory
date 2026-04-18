@@ -20,7 +20,7 @@ Five milestones complete. The ecosystem has:
 - Vector RAG layer (InMemoryVectorStore, StubEmbedder, IngestionWorker, LibrarianAgent)
 - MCP API Gateway with sampling handler, SSE /v1 endpoints, query_knowledge_base tool
 
-Active work: M006 — replacing in-process communication with Redis Streams and adding production fault-tolerance patterns.
+All 7 milestones complete. The full stack — from STDIO MCP protocol through distributed fault-tolerant infrastructure — is implemented, tested, and documented.
 
 ## Architecture / Key Patterns
 
@@ -43,4 +43,5 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [x] M003: Multi-Agent Pipeline & Economic Allocation — Analyst/Writer pipeline, auction, message bus, gateway
 - [x] M004: Production-Ready Client Connectivity — SSE /v1, PKCE hardening, MCPGatewayClient, mcp.json
 - [x] M005: RAG Layer — vector store, ingestion, knowledge-augmented auction, LibrarianAgent
-- [ ] M006: Distributed Orchestration & Monolith Refactoring — Redis Streams workers, event log, validation gate, idempotency, circuit breakers
+- [x] M006: Distributed Orchestration & Monolith Refactoring — Redis Streams workers, event log, validation gate, idempotency, circuit breakers
+- [x] M007: Real Infrastructure — docker-compose stack, Kafka integration, Redlock 3-node quorum, multi-process horizontal scaling

@@ -14,6 +14,7 @@ mcp-sim-server = "mcp_agent_factory.server:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+infra = ["aiokafka>=0.10", "redis>=5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -21,3 +22,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+	"integration: marks tests as requiring a live Docker stack (deselect with '-m not integration')",
+]

@@ -8,6 +8,7 @@ from .eventlog import (
 )
 from .idempotency import IdempotencyGuard, DistributedLock, OutboxRelay
 from .circuit_breaker import CircuitBreaker
+from .redlock import RedlockClient
 
 __all__ = [
 	"StreamWorker",
@@ -19,4 +20,5 @@ __all__ = [
 	"DistributedLock",
 	"OutboxRelay",
 	"CircuitBreaker",
+	"RedlockClient",
 ]

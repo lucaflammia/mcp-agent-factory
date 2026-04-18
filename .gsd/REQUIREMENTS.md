@@ -173,36 +173,36 @@ This file is the explicit capability and coverage contract for the project.
 
 ### R016 — Multi-instance horizontal scaling (stateless workers)
 - Class: operability
-- Status: deferred
+- Status: active
 - Description: Multiple StreamWorker processes running in parallel, each in a separate OS process, with correct consumer group semantics across process boundaries
 - Why it matters: The real scaling story; single-process testing proves the contract but not the multi-process behaviour
 - Source: inferred
-- Primary owning slice: none
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Deferred until real Redis deployment is in place (R017)
+- Primary owning slice: M007/S04
+- Supporting slices: M007/S05
+- Validation: mapped
+- Notes: StreamWorker already stateless; test harness uses multiprocessing against real Redis
 
 ### R017 — Real Kafka broker + docker-compose
 - Class: operability
-- Status: deferred
+- Status: active
 - Description: A docker-compose.yml that starts a real Kafka broker and Redis instance for integration testing
 - Why it matters: Required before the event log abstraction can be exercised end-to-end with a real broker
 - Source: inferred
-- Primary owning slice: none
-- Supporting slices: none
-- Validation: unmapped
-- Notes: aiokafka not yet installed; EventLog protocol is the bridge
+- Primary owning slice: M007/S01
+- Supporting slices: M007/S02, M007/S05
+- Validation: mapped
+- Notes: aiokafka added to optional-dependencies; KafkaEventLog already implements EventLog protocol
 
 ### R018 — Redlock across 3+ Redis nodes
 - Class: reliability
-- Status: deferred
+- Status: active
 - Description: True Redlock quorum locking using at least 3 independent Redis nodes
 - Why it matters: Single-node SET NX can fail split-brain; quorum Redlock is the production-safe version
 - Source: user
-- Primary owning slice: none
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Supersedes R009 when multi-node Redis is available
+- Primary owning slice: M007/S03
+- Supporting slices: M007/S04, M007/S05
+- Validation: mapped
+- Notes: Supersedes D010 (single-node); 3 standalone Redis containers in docker-compose
 
 ## Out of Scope
 
@@ -236,14 +236,14 @@ This file is the explicit capability and coverage contract for the project.
 | R013 | reliability | active | M006/S04 | none | mapped |
 | R014 | reliability | active | M006/S04 | none | mapped |
 | R015 | quality-attribute | active | M006/S05 | none | mapped |
-| R016 | operability | deferred | none | none | unmapped |
-| R017 | operability | deferred | none | none | unmapped |
-| R018 | reliability | deferred | none | none | unmapped |
+| R016 | operability | active | M007/S04 | M007/S05 | mapped |
+| R017 | operability | active | M007/S01 | M007/S02, M007/S05 | mapped |
+| R018 | reliability | active | M007/S03 | M007/S04, M007/S05 | mapped |
 | R019 | constraint | out-of-scope | none | none | n/a |
 
 ## Coverage Summary
 
-- Active requirements: 15
-- Mapped to slices: 15
-- Validated: 0
+- Active requirements: 18
+- Mapped to slices: 18
+- Validated: 15 (R001–R015)
 - Unmapped active requirements: 0
