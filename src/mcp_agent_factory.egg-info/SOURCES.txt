@@ -38,6 +38,8 @@ src/mcp_agent_factory/gateway/__init__.py
 src/mcp_agent_factory/gateway/app.py
 src/mcp_agent_factory/gateway/run.py
 src/mcp_agent_factory/gateway/sampling.py
+src/mcp_agent_factory/gateway/service_layer.py
+src/mcp_agent_factory/gateway/validation.py
 src/mcp_agent_factory/knowledge/__init__.py
 src/mcp_agent_factory/knowledge/embedder.py
 src/mcp_agent_factory/knowledge/ingest.py
@@ -50,6 +52,11 @@ src/mcp_agent_factory/messaging/sse_v1_router.py
 src/mcp_agent_factory/session/__init__.py
 src/mcp_agent_factory/session/manager.py
 src/mcp_agent_factory/streams/__init__.py
+src/mcp_agent_factory/streams/circuit_breaker.py
+src/mcp_agent_factory/streams/eventlog.py
+src/mcp_agent_factory/streams/idempotency.py
+src/mcp_agent_factory/streams/kafka_adapter.py
+src/mcp_agent_factory/streams/redlock.py
 src/mcp_agent_factory/streams/worker.py
 tests/test_adapters.py
 tests/test_auth.py
@@ -63,7 +70,14 @@ tests/test_langchain_bridge.py
 tests/test_m004_auth_pkce.py
 tests/test_m004_client_bridge.py
 tests/test_m004_sse.py
+tests/test_m006_eventlog.py
+tests/test_m006_gateway.py
+tests/test_m006_integration.py
+tests/test_m006_reliability.py
 tests/test_m006_streams.py
+tests/test_m007_kafka.py
+tests/test_m007_redlock.py
+tests/test_m007_scaling.py
 tests/test_mcp_lifecycle.py
 tests/test_message_bus.py
 tests/test_pipeline.py

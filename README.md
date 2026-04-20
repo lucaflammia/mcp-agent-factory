@@ -1,6 +1,6 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure — built across seven progressive milestones.
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure — built across eight progressive milestones (M008 in progress).
 
 ## Architecture
 
@@ -74,12 +74,13 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream |
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
+| **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
 | **External Config** | `mcp.json` | IDE config for Cursor / Claude Desktop pointing at localhost gateway |
 
 ## Quick Start
 
 ```bash
-pip install -e .
+pip install -e .          # redis>=5 is now a core dependency
 
 # STDIO server
 python -m mcp_agent_factory.server
@@ -96,9 +97,12 @@ python -m mcp_agent_factory.gateway.run
 # Python client bridge CLI demo
 python -m mcp_agent_factory.bridge
 
+# Gateway with real Redis (M008)
+REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
+
 # Real infrastructure (Kafka + Redis cluster) — M007
 docker-compose up -d
-pip install -e ".[infra]"          # aiokafka + redis extras
+pip install -e ".[infra]"          # aiokafka extra
 pytest -m integration -v           # 8 integration tests against live services
 ```
 
@@ -343,6 +347,7 @@ tests/
 | M005 | Vector RAG layer, multi-tenant isolation, async ingestion, knowledge-augmented auction, LibrarianAgent, SSE events | +7 (205) |
 | M006 | Redis Streams consumer groups, EventLog + KafkaEventLog, ValidationGate, IdempotencyGuard, DistributedLock, OutboxRelay, CircuitBreaker | +26 (231) |
 | M007 | docker-compose stack, real KafkaEventLog integration tests, RedlockClient 3-node quorum, multi-process StreamWorker scaling | +15 unit / +8 integration (246 unit) |
+| M008 *(in progress)* | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | — |
 
 ## Security Notes
 

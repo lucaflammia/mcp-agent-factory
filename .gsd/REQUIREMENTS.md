@@ -290,6 +290,76 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: tests/test_langchain_bridge.py — MultiServerMCPClient loads tools from gateway; OAuthMiddleware injects Bearer tokens; full enterprise integration verified
 - Notes: langchain-mcp-adapters 1.2.7 already installed. OAuth middleware is hand-rolled on top of the library.
 
+## Active
+
+### R027 — Gateway Redis client is env-driven
+- Class: operability
+- Status: active
+- Description: `gateway/app.py` uses `redis.asyncio.from_url(REDIS_URL)` when `REDIS_URL` is set; falls back to `FakeRedis()` when unset.
+- Why it matters: Production deployments must not use a fake in-memory client — session state must survive restarts.
+- Source: user
+- Primary owning slice: M008/S01
+- Supporting slices: none
+- Validation: unmapped
+- Notes: FakeRedis fallback preserves test isolation with no test changes.
+
+### R028 — OAuth state persists across server restarts
+- Class: compliance/security
+- Status: active
+- Description: `_clients` and `_codes` in `auth/server.py` are backed by Redis hashes when `REDIS_URL` is set; authorization codes carry TTL.
+- Why it matters: In-memory dict state is lost on every restart — OAuth clients must re-register after each deploy, which is unusable in production.
+- Source: user
+- Primary owning slice: M008/S02
+- Supporting slices: none
+- Validation: unmapped
+- Notes: Dict fallback when REDIS_URL unset preserves existing test suite.
+
+### R029 — Tool calls are durably logged via EventLog
+- Class: failure-visibility
+- Status: active
+- Description: `InternalServiceLayer` appends a structured event to `EventLog` on every tool call. Backend is `KafkaEventLog` when `KAFKA_BOOTSTRAP_SERVERS` is set, else `InProcessEventLog`.
+- Why it matters: Without a durable event log, there is no audit trail for tool invocations — debugging production failures requires reconstruction from ephemeral logs.
+- Source: user
+- Primary owning slice: M008/S03
+- Supporting slices: none
+- Validation: unmapped
+- Notes: InProcessEventLog fallback keeps tests hermetic.
+
+### R030 — `redis>=5` is a core dependency
+- Class: constraint
+- Status: active
+- Description: `redis>=5` must be listed in `[project].dependencies` in `pyproject.toml`, not gated behind `[infra]` extras.
+- Why it matters: Gateway and session manager both depend on redis; shipping a package that silently falls back to FakeRedis in production because the dep wasn't installed is a reliability hazard.
+- Source: inferred
+- Primary owning slice: M008/S01
+- Supporting slices: none
+- Validation: unmapped
+- Notes: `aiokafka` stays as an optional extra since Kafka is not required for all deployments.
+
+### R031 — System passes integration tests against docker-compose stack
+- Class: operability
+- Status: active
+- Description: `pytest -m integration` passes with the full docker-compose stack running (Redis, Kafka, 3 Redlock nodes); all 32 existing non-integration tests also pass.
+- Why it matters: Proves the env-driven wiring actually works against real infrastructure, not just in test isolation.
+- Source: user
+- Primary owning slice: M008/S04
+- Supporting slices: M008/S01, M008/S02, M008/S03
+- Validation: unmapped
+- Notes: None.
+
+## Deferred
+
+### R032 — Auth server uses RS256 + JWKS for multi-service JWT
+- Class: compliance/security
+- Status: deferred
+- Description: Replace HS256 OctKey symmetric JWT with RS256 + JWKS endpoint for multi-service deployments.
+- Why it matters: HS256 requires sharing the signing secret across services — a security liability at scale.
+- Source: research
+- Primary owning slice: none
+- Supporting slices: none
+- Validation: unmapped
+- Notes: Deferred — HS256 is safe for single-service setups. Revisit if multi-service deployment is targeted.
+
 ## Traceability
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
@@ -320,10 +390,17 @@ This file is the explicit capability and coverage contract for the project.
 | R024 | core-capability | validated | M003/S04 | none | tests/test_gateway.py — MCP API Gateway routes tools/call to InternalServiceLayer; sampling/createMessage exposed on POST /sampling |
 | R025 | core-capability | validated | M003/S04 | none | tests/test_gateway.py — sampling/createMessage handler verified; client response stubbed in tests; real client exercises in production |
 | R026 | integration | validated | M003/S05 | none | tests/test_langchain_bridge.py — MultiServerMCPClient loads tools from gateway; OAuthMiddleware injects Bearer tokens; full enterprise integration verified |
+| R027 | operability | active | M008/S01 | none | unmapped |
+| R028 | compliance/security | active | M008/S02 | none | unmapped |
+| R029 | failure-visibility | active | M008/S03 | none | unmapped |
+| R030 | constraint | active | M008/S01 | none | unmapped |
+| R031 | operability | active | M008/S04 | M008/S01, M008/S02, M008/S03 | unmapped |
+| R032 | compliance/security | deferred | none | none | unmapped |
 
 ## Coverage Summary
 
-- Active requirements: 0
-- Mapped to slices: 0
-- Validated: 26 (R001, R002, R003, R004, R005, R006, R007, R008, R009, R010, R011, R012, R013, R014, R015, R016, R017, R018, R019, R020, R021, R022, R023, R024, R025, R026)
+- Active requirements: 5 (R027–R031)
+- Mapped to slices: 5
+- Validated: 26 (R001–R026)
+- Deferred: 1 (R032)
 - Unmapped active requirements: 0

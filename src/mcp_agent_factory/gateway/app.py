@@ -17,24 +17,26 @@ GET  /health         — Liveness probe (unauthenticated)
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import Any
 
-import fakeredis.aioredis as aioredis
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel, ValidationError
 
 from mcp_agent_factory.agents.models import AgentTask, MCPContext
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
 from mcp_agent_factory.auth.resource import make_verify_token
+from mcp_agent_factory.config.privacy import PrivacyConfig
 from mcp_agent_factory.economics.auction import Auction
 from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder, query_knowledge_base
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
 from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
-from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS, lifespan
+from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS
 from mcp_agent_factory.session.manager import RedisSessionManager
 
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
@@ -51,12 +53,44 @@ DEV_MODE: bool = os.getenv("MCP_DEV_MODE", "0") == "1"
 
 
 # ---------------------------------------------------------------------------
+# Redis factory — real client when REDIS_URL is set, FakeRedis otherwise
+# ---------------------------------------------------------------------------
+
+def _make_redis_client():
+	url = os.getenv("REDIS_URL")
+	if url:
+		import redis.asyncio as _real_redis
+		return _real_redis.from_url(url, decode_responses=False)
+	import fakeredis.aioredis as _fakeredis
+	return _fakeredis.FakeRedis()
+
+
+# ---------------------------------------------------------------------------
+# Gateway lifespan — privacy check + Redis liveness gate
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def _gateway_lifespan(app: FastAPI):
+	PrivacyConfig().assert_no_egress()
+	if os.getenv("REDIS_URL"):
+		try:
+			await _redis_client.ping()
+		except Exception as exc:
+			raise RuntimeError(
+				f"Redis unreachable at {os.getenv('REDIS_URL')!r}: {exc}"
+			) from exc
+	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
+	yield
+	logger.debug(json.dumps({"event": "shutdown"}))
+
+
+# ---------------------------------------------------------------------------
 # Module-level singletons (replaced in tests via set_* helpers)
 # ---------------------------------------------------------------------------
 
 bus: MessageBus = MessageBus()
 sampling_handler: SamplingHandler = SamplingHandler(StubSamplingClient())
-_redis_client = aioredis.FakeRedis()
+_redis_client = _make_redis_client()
 session: RedisSessionManager = RedisSessionManager(_redis_client)
 _vector_store: InMemoryVectorStore = InMemoryVectorStore()
 _embedder: StubEmbedder = StubEmbedder()
@@ -93,7 +127,7 @@ def set_embedder(embedder: Any) -> None:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-gateway_app = FastAPI(lifespan=lifespan, title="MCP API Gateway")
+gateway_app = FastAPI(lifespan=_gateway_lifespan, title="MCP API Gateway")
 
 # Mount SSE router (legacy /sse/events)
 sse_router = create_sse_router(bus)
