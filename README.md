@@ -1,6 +1,6 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure — built across eight progressive milestones (M008 in progress).
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure — built across eight progressive milestones.
 
 ## Architecture
 
@@ -230,7 +230,7 @@ if not guard.already_seen(task.id):        # Skip if already processed
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 246 unit tests — no external services required
+pytest tests/ -v          # 236 unit tests (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -240,6 +240,7 @@ pytest tests/test_m004_sse.py tests/test_m004_auth_pkce.py tests/test_m004_clien
 pytest tests/test_vector_store.py tests/test_ingest.py tests/test_knowledge_auction.py tests/test_s04.py  # M005
 pytest tests/test_m006_streams.py tests/test_m006_eventlog.py tests/test_m006_gateway.py tests/test_m006_reliability.py tests/test_m006_integration.py  # M006
 pytest tests/test_m007_kafka.py tests/test_m007_redlock.py tests/test_m007_scaling.py   # M007 (unit)
+pytest tests/test_m008_integration.py                                                   # M008
 
 # Integration tests — requires docker-compose up -d
 pytest -m integration -v  # 8 tests: KafkaEventLog, Redlock quorum, multi-process scaling
@@ -347,7 +348,7 @@ tests/
 | M005 | Vector RAG layer, multi-tenant isolation, async ingestion, knowledge-augmented auction, LibrarianAgent, SSE events | +7 (205) |
 | M006 | Redis Streams consumer groups, EventLog + KafkaEventLog, ValidationGate, IdempotencyGuard, DistributedLock, OutboxRelay, CircuitBreaker | +26 (231) |
 | M007 | docker-compose stack, real KafkaEventLog integration tests, RedlockClient 3-node quorum, multi-process StreamWorker scaling | +15 unit / +8 integration (246 unit) |
-| M008 *(in progress)* | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | — |
+| M008 | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | +5 (236 unit) |
 
 ## Security Notes
 

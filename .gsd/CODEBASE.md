@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-04-21T09:07:57Z | Files: 98 | Described: 0/98
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-21T09:07:57Z","fingerprint":"ef50d2931af471bb512c23fe75a970e064934d06","fileCount":98,"truncated":false} -->
+Generated: 2026-04-21T09:21:54Z | Files: 99 | Described: 0/99
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-21T09:21:54Z","fingerprint":"e0184e0dc0f210c189130a0e2e7d807b23a40e6b","fileCount":99,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -100,4 +100,4 @@ Generated: 2026-04-21T09:07:57Z | Files: 98 | Described: 0/98
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(32 files: 32 .py)*
+- *(33 files: 33 .py)*
