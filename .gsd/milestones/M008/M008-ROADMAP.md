@@ -48,24 +48,24 @@ This milestone is complete only when all are true:
 
 ## Slices
 
-- [ ] **S01: Env-driven Redis wiring** `risk:medium` `depends:[]`
+- [x] **S01: Env-driven Redis wiring** `risk:medium` `depends:[]`
   > After this: `REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run` starts and `/health` returns ok; existing 32 tests pass with no `REDIS_URL` set (FakeRedis fallback active).
 
-- [ ] **S02: Redis-backed OAuth state** `risk:medium` `depends:[S01]`
+- [x] **S02: Redis-backed OAuth state** `risk:medium` `depends:[S01]`
   > After this: Register an OAuth client, restart the auth server — the client registration is still there. Full PKCE flow completes against Redis-backed state.
 
-- [ ] **S03: EventLog gateway wiring** `risk:low` `depends:[S01]`
+- [x] **S03: EventLog gateway wiring** `risk:low` `depends:[S01]`
   > After this: With `KAFKA_BOOTSTRAP_SERVERS=localhost:9092` set, a `tools/call` request produces a Kafka event; without it, `InProcessEventLog` is used and tests are unaffected.
 
-- [ ] **S04: Integration proof** `risk:low` `depends:[S02,S03]`
+- [x] **S04: Integration proof** `risk:low` `depends:[S02,S03]`
   > After this: `docker-compose up` + `pytest -m integration` passes; all 32+ existing unit tests also pass. The assembled system is proven against real infrastructure.
 
 ## Horizontal Checklist
 
-- [ ] Every active R027–R031 re-read against new code — still fully satisfied?
-- [ ] FakeRedis fallback verified in `pytest tests/` (no docker)
-- [ ] Auth boundary documented — Redis keys namespaced to avoid cross-tenant collisions
-- [ ] Graceful startup failure when `REDIS_URL` is set but Redis unreachable (fail fast, no silent fallback)
+- [x] Every active R027–R031 re-read against new code — still fully satisfied?
+- [x] FakeRedis fallback verified in `pytest tests/` (no docker)
+- [x] Auth boundary documented — Redis keys namespaced to avoid cross-tenant collisions
+- [x] Graceful startup failure when `REDIS_URL` is set but Redis unreachable (fail fast, no silent fallback)
 
 ## Boundary Map
 

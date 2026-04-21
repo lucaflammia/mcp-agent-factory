@@ -12,9 +12,10 @@ import pytest
 from authlib.jose import OctKey, jwt
 from fastapi.testclient import TestClient
 
+import fakeredis as _fakeredis_mod
+
 from mcp_agent_factory.auth.server import (
-	_clients,
-	_codes,
+	_set_auth_redis,
 	auth_app,
 	get_jwt_key,
 	set_jwt_key as auth_set_key,
@@ -70,10 +71,11 @@ def shared_key():
 	key = OctKey.generate_key(256, is_private=True)
 	auth_set_key(key)
 	resource_set_key(key)
+	# Fresh FakeRedis per test isolates all auth state
+	fresh_redis = _fakeredis_mod.FakeRedis(decode_responses=True)
+	_set_auth_redis(fresh_redis)
 	yield key
-	# Clean up in-memory stores between tests
-	_clients.clear()
-	_codes.clear()
+	_set_auth_redis(_fakeredis_mod.FakeRedis(decode_responses=True))
 
 
 @pytest.fixture

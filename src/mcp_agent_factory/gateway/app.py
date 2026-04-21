@@ -66,6 +66,19 @@ def _make_redis_client():
 
 
 # ---------------------------------------------------------------------------
+# EventLog factory — Kafka when KAFKA_BOOTSTRAP_SERVERS is set, InProcess otherwise
+# ---------------------------------------------------------------------------
+
+def _make_event_log():
+	bootstrap = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+	if bootstrap:
+		from mcp_agent_factory.streams.kafka_adapter import KafkaEventLog
+		return KafkaEventLog(bootstrap_servers=bootstrap)
+	from mcp_agent_factory.streams.eventlog import InProcessEventLog
+	return InProcessEventLog()
+
+
+# ---------------------------------------------------------------------------
 # Gateway lifespan — privacy check + Redis liveness gate
 # ---------------------------------------------------------------------------
 
@@ -79,8 +92,13 @@ async def _gateway_lifespan(app: FastAPI):
 			raise RuntimeError(
 				f"Redis unreachable at {os.getenv('REDIS_URL')!r}: {exc}"
 			) from exc
+	# Start Kafka producer if configured
+	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "start"):
+		await _event_log.start()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
+	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "stop"):
+		await _event_log.stop()
 	logger.debug(json.dumps({"event": "shutdown"}))
 
 
@@ -94,9 +112,10 @@ _redis_client = _make_redis_client()
 session: RedisSessionManager = RedisSessionManager(_redis_client)
 _vector_store: InMemoryVectorStore = InMemoryVectorStore()
 _embedder: StubEmbedder = StubEmbedder()
+_event_log = _make_event_log()
 
 _service_layer: InternalServiceLayer = InternalServiceLayer(
-	bus, session, sampling_handler, _vector_store, _embedder
+	bus, session, sampling_handler, _vector_store, _embedder, _event_log
 )
 
 # ---------------------------------------------------------------------------

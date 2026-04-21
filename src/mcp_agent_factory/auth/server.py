@@ -17,8 +17,10 @@ Scope definitions:
   tools:call  — may call tools/call
   tools:all   — shorthand for both (expanded at issuance)
 
-In-memory stores (acceptable for tests; replace with Redis in production —
-documented in docs/security_audit.md).
+State backend:
+  When AUTH_REDIS_URL is set, client registrations and auth codes are stored
+  in Redis (codes with a 600-second TTL, registrations with no expiry).
+  When AUTH_REDIS_URL is unset, FakeRedis is used for test isolation.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -59,11 +62,56 @@ def expand_scope(scope: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# In-memory stores (replace with Redis in production)
+# Redis factory — real client when AUTH_REDIS_URL is set, FakeRedis otherwise
 # ---------------------------------------------------------------------------
 
-_clients: dict[str, dict] = {}   # client_id → {client_secret, redirect_uri, scope}
-_codes: dict[str, dict] = {}     # code → {code_challenge, user_id, scope, client_id}
+# Namespace prefix keeps auth keys isolated from gateway session keys.
+_KEY_PREFIX_CLIENT = "auth:client:"
+_KEY_PREFIX_CODE = "auth:code:"
+_CODE_TTL_SECONDS = 600  # 10 minutes
+
+
+def _make_auth_redis():
+	url = os.getenv("AUTH_REDIS_URL") or os.getenv("REDIS_URL")
+	if url:
+		import redis as _sync_redis
+		return _sync_redis.from_url(url, decode_responses=True)
+	import fakeredis
+	return fakeredis.FakeRedis(decode_responses=True)
+
+
+# Module-level store — replaced in tests via _set_auth_redis()
+_auth_redis = _make_auth_redis()
+
+
+def _set_auth_redis(client: Any) -> None:
+	"""Inject a custom Redis client for tests."""
+	global _auth_redis
+	_auth_redis = client
+
+
+# ---------------------------------------------------------------------------
+# Redis-backed store helpers
+# ---------------------------------------------------------------------------
+
+def _store_client(client_id: str, data: dict) -> None:
+	_auth_redis.set(f"{_KEY_PREFIX_CLIENT}{client_id}", json.dumps(data))
+
+
+def _load_client(client_id: str) -> dict | None:
+	raw = _auth_redis.get(f"{_KEY_PREFIX_CLIENT}{client_id}")
+	return json.loads(raw) if raw else None
+
+
+def _store_code(code: str, data: dict) -> None:
+	_auth_redis.setex(f"{_KEY_PREFIX_CODE}{code}", _CODE_TTL_SECONDS, json.dumps(data))
+
+
+def _load_and_delete_code(code: str) -> dict | None:
+	"""Atomic load-and-delete for one-time-use codes."""
+	key = f"{_KEY_PREFIX_CODE}{code}"
+	raw = _auth_redis.getdel(key)
+	return json.loads(raw) if raw else None
 
 
 # ---------------------------------------------------------------------------
@@ -141,11 +189,11 @@ def _compute_s256(verifier: str) -> str:
 @auth_app.post("/register")
 async def register_client(req: ClientRegistrationRequest) -> dict:
 	"""Register an OAuth 2.1 client."""
-	_clients[req.client_id] = {
+	_store_client(req.client_id, {
 		"client_secret": req.client_secret,
 		"redirect_uri": req.redirect_uri,
 		"scope": req.scope,
-	}
+	})
 	logger.info(json.dumps({
 		"event": "client_registered",
 		"client_id": req.client_id,
@@ -172,16 +220,16 @@ async def authorize(
 			status_code=400,
 			detail="Only S256 code_challenge_method is supported (plain is not allowed)",
 		)
-	if client_id not in _clients:
+	if _load_client(client_id) is None:
 		raise HTTPException(status_code=400, detail=f"Unknown client: {client_id!r}")
 
 	code = secrets.token_urlsafe(32)
-	_codes[code] = {
+	_store_code(code, {
 		"code_challenge": code_challenge,
 		"user_id": user_id,
 		"scope": scope,
 		"client_id": client_id,
-	}
+	})
 	logger.info(json.dumps({
 		"event": "code_issued",
 		"client_id": client_id,
@@ -202,14 +250,15 @@ async def token(req: TokenRequest) -> dict:
 	if req.grant_type != "authorization_code":
 		raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
-	code_data = _codes.get(req.code)
+	# Atomic load-and-delete ensures one-time use even under concurrent requests
+	code_data = _load_and_delete_code(req.code)
 	if code_data is None:
 		raise HTTPException(status_code=400, detail="Invalid or expired authorization code")
 
 	if code_data["client_id"] != req.client_id:
 		raise HTTPException(status_code=400, detail="client_id mismatch")
 
-	client = _clients.get(req.client_id)
+	client = _load_client(req.client_id)
 	if client is None or client["client_secret"] != req.client_secret:
 		raise HTTPException(status_code=401, detail="Invalid client credentials")
 
@@ -217,9 +266,6 @@ async def token(req: TokenRequest) -> dict:
 	expected_challenge = _compute_s256(req.code_verifier)
 	if expected_challenge != code_data["code_challenge"]:
 		raise HTTPException(status_code=400, detail="PKCE code_verifier verification failed")
-
-	# One-time use: delete code immediately
-	del _codes[req.code]
 
 	# Build token claims
 	now = int(time.time())
