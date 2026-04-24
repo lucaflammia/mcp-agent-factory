@@ -29,7 +29,8 @@ from pydantic import BaseModel, ValidationError
 
 from mcp_agent_factory.agents.models import AgentTask, MCPContext
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
-from mcp_agent_factory.auth.resource import make_verify_token
+from authlib.jose import OctKey
+from mcp_agent_factory.auth.resource import make_verify_token, set_jwt_key
 from mcp_agent_factory.config.privacy import PrivacyConfig
 from mcp_agent_factory.economics.auction import Auction
 from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder, query_knowledge_base
@@ -85,6 +86,9 @@ def _make_event_log():
 @asynccontextmanager
 async def _gateway_lifespan(app: FastAPI):
 	PrivacyConfig().assert_no_egress()
+	secret = os.getenv("JWT_SECRET")
+	if secret:
+		set_jwt_key(OctKey.import_key(secret.encode()))
 	if os.getenv("REDIS_URL"):
 		try:
 			await _redis_client.ping()
