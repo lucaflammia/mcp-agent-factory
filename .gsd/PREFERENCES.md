@@ -45,6 +45,9 @@ cmux:
 
 # Git
 git:
+  auto_push: false            # push after commits
+  push_branches: false        # push milestone branch
+  auto_pr: false              # create PR on milestone completion
   snapshots: false
   merge_strategy: squash
   main_branch: main
