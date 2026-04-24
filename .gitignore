@@ -38,6 +38,7 @@ tmp/
 .gsd/runtime/
 .gsd/worktrees/
 .gsd/event-log.jsonl
+.gsd/notifications.jsonl
 .gsd/state-manifest.json
 .gsd/STATE.md
 
