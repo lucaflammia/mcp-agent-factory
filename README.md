@@ -100,11 +100,29 @@ python -m mcp_agent_factory.bridge
 # Gateway with real Redis (M008)
 REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
 
+# Gateway with a shared JWT secret (required when Bridge or external clients send real tokens)
+JWT_SECRET=<same-secret-used-by-auth-server> python -m mcp_agent_factory.gateway.run
+
 # Real infrastructure (Kafka + Redis cluster) — M007
 docker-compose up -d
 pip install -e ".[infra]"          # aiokafka extra
 pytest -m integration -v           # 8 integration tests against live services
 ```
+
+### JWT_SECRET and the Gateway / Auth Server handshake
+
+The Gateway acts as an OAuth 2.1 Resource Server. To verify incoming Bearer tokens it must
+share the same signing key as the Auth Server:
+
+| Scenario | What to do |
+|----------|-----------|
+| Dev / `MCP_DEV_MODE=1` | No `JWT_SECRET` needed — auth is bypassed |
+| Gateway + Auth Server in the same process | Key is set automatically at startup |
+| Gateway + Auth Server as separate processes | Set `JWT_SECRET=<random-secret>` for **both** processes |
+
+Without `JWT_SECRET` in a secured multi-process setup, the Gateway raises
+`RuntimeError: JWT key not set` on the first authenticated request. The Bridge must
+also send a real JWT (not the default `demo-token`) matching `aud: mcp-server`.
 
 ## External Client Integration 
 
@@ -352,7 +370,7 @@ tests/
 
 ## Security Notes
 
-- JWT tokens use HS256 with a randomly-generated `OctKey` per server start. Rotate to RS256 + JWKS for multi-service deployments.
+- JWT tokens use HS256. Set `JWT_SECRET` to share the signing key between the Gateway and Auth Server processes; without it the Gateway cannot verify tokens and raises `RuntimeError: JWT key not set`. Rotate to RS256 + JWKS for multi-service deployments.
 - `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls — checked at startup via FastAPI lifespan.
 - PKCE S256 enforced on all authorization code exchanges; codes are single-use.
 - Audience binding (`aud: mcp-server`) prevents confused-deputy attacks.
