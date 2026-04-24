@@ -126,30 +126,55 @@ also send a real JWT (not the default `demo-token`) matching `aud: mcp-server`.
 
 ## External Client Integration 
 
-The gateway is ready for Cursor, Claude Desktop, or any MCP-compatible client:
+The gateway supports RFC 8414 OAuth 2.1 auto-discovery, so Cursor, Claude Desktop, or any standards-compliant MCP client can connect without hardcoding endpoint URLs.
 
-1. **Start the gateway** on port 8000:
+### Connecting Cursor (or any OAuth 2.1 MCP client)
+
+1. **Start the auth server** on port 8001:
 	```bash
-	python -m mcp_agent_factory.gateway.run
+	JWT_SECRET=<shared-secret> uvicorn mcp_agent_factory.auth.server:auth_app --port 8001
 	```
 
-2. **Start the auth server** on port 8001 (for real token issuance):
+2. **Start the gateway** on port 8000 with the same secret:
 	```bash
-	uvicorn mcp_agent_factory.auth.server:auth_app --port 8001
+	JWT_SECRET=<shared-secret> python -m mcp_agent_factory.gateway.run
 	```
 
-3. **Point your IDE** at `mcp.json` — it contains the server URL, PKCE auth config, and full tool schemas.
+3. **Point Cursor at `mcp.json`** — it contains the server URL, `discoveryUrl`, PKCE auth config, and tool schemas. Cursor will hit `GET /.well-known/oauth-authorization-server` on the gateway, which proxies the auth server's discovery document, and then walk through the PKCE S256 flow automatically.
 
-4. **SSE stream** (stays open, first event is `connected`):
+4. **Verify discovery** (optional):
+	```bash
+	curl http://localhost:8000/.well-known/oauth-authorization-server
+	# {"issuer": "http://localhost:8001", "authorization_endpoint": "...", ...}
+	```
+
+5. **Verify 401 hints a client where to authenticate**:
+	```bash
+	curl -i http://localhost:8000/mcp
+	# HTTP/1.1 401
+	# WWW-Authenticate: Bearer realm="mcp-server", resource_metadata="http://localhost:8000/.well-known/..."
+	```
+
+6. **SSE stream** (stays open, first event is `connected`):
 	```bash
 	curl -N http://localhost:8000/sse/v1/events?topic=agent.events
 	```
 
-5. **Health check**:
+7. **Health check**:
 	```bash
 	curl http://localhost:8000/health
 	# {"status": "ok", "service": "mcp-gateway"}
 	```
+
+### How auto-discovery works
+
+| Endpoint | RFC | Purpose |
+|----------|-----|---------|
+| `GET /.well-known/oauth-authorization-server` (auth server :8001) | RFC 8414 | Canonical metadata: all auth endpoints, PKCE method, scopes |
+| `GET /.well-known/oauth-authorization-server` (gateway :8000) | RFC 8414 | Proxies the auth server's document — clients only need the gateway URL |
+| `WWW-Authenticate` header on every 401 | RFC 6750 §3.1 | Tells the client the `resource_metadata` URL so it can discover auth automatically |
+
+Cursor reads the `discoveryUrl` in `mcp.json`, fetches the metadata, and initiates PKCE — no manual endpoint configuration required.
 
 ## RAG Knowledge Base       
 
@@ -371,6 +396,8 @@ tests/
 ## Security Notes
 
 - JWT tokens use HS256. Set `JWT_SECRET` to share the signing key between the Gateway and Auth Server processes; without it the Gateway cannot verify tokens and raises `RuntimeError: JWT key not set`. Rotate to RS256 + JWKS for multi-service deployments.
+- All 401 responses carry a `WWW-Authenticate` header with `resource_metadata` pointing at the gateway's `/.well-known/oauth-authorization-server` endpoint — compliant clients (Cursor, Claude Desktop) use this to auto-discover auth endpoints without hardcoded URLs.
+- Gateway proxies the Auth Server's RFC 8414 discovery document at `GET /.well-known/oauth-authorization-server`. Clients need only the gateway URL; all auth endpoints are discovered at runtime.
 - `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls — checked at startup via FastAPI lifespan.
 - PKCE S256 enforced on all authorization code exchanges; codes are single-use.
 - Audience binding (`aud: mcp-server`) prevents confused-deputy attacks.
