@@ -1,0 +1,32 @@
+{
+  "template": "small-feature",
+  "templateName": "Small Feature",
+  "description": "\"The issue is to connect an external CLI like Cursor to my secured MCP Gateway, you must bridge the gap between Cursor's configuration and your OAuth 2.1 implementation.\"",
+  "branch": "gsd/small-feature/the-issue-is-to-connect-an-external-cli",
+  "phases": [
+    {
+      "name": "scope",
+      "index": 0,
+      "status": "active"
+    },
+    {
+      "name": "plan",
+      "index": 1,
+      "status": "pending"
+    },
+    {
+      "name": "implement",
+      "index": 2,
+      "status": "pending"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "pending"
+    }
+  ],
+  "currentPhase": 0,
+  "startedAt": "2026-04-24T18:03:29.554Z",
+  "updatedAt": "2026-04-24T18:03:29.554Z",
+  "artifactDir": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/workflows/features/260424-1-the-issue-is-to-connect-an-external-cli"
+}

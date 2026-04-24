@@ -24,8 +24,11 @@ import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI
+import httpx
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse as _JSONResponse
 from pydantic import BaseModel, ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mcp_agent_factory.agents.models import AgentTask, MCPContext
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
@@ -150,7 +153,46 @@ def set_embedder(embedder: Any) -> None:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
+_AUTH_SERVER_URL = os.getenv("AUTH_SERVER_URL", "http://localhost:8001")
+_DISCOVERY_PATH = "/.well-known/oauth-authorization-server"
+_WWW_AUTH_VALUE = (
+    f'Bearer realm="mcp-server",'
+    f' resource_metadata="http://localhost:8000{_DISCOVERY_PATH}"'
+)
+
 gateway_app = FastAPI(lifespan=_gateway_lifespan, title="MCP API Gateway")
+
+
+@gateway_app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    headers = {}
+    if exc.status_code == 401:
+        headers["WWW-Authenticate"] = _WWW_AUTH_VALUE
+    return _JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=headers,
+    )
+
+
+@gateway_app.get(_DISCOVERY_PATH)
+async def oauth_discovery_proxy() -> _JSONResponse:
+    """Proxy RFC 8414 discovery from the auth server so clients need only one base URL."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{_AUTH_SERVER_URL}{_DISCOVERY_PATH}")
+            resp.raise_for_status()
+            return _JSONResponse(content=resp.json())
+    except Exception:
+        return _JSONResponse(content={
+            "issuer": _AUTH_SERVER_URL,
+            "authorization_endpoint": f"{_AUTH_SERVER_URL}/authorize",
+            "token_endpoint": f"{_AUTH_SERVER_URL}/token",
+            "registration_endpoint": f"{_AUTH_SERVER_URL}/register",
+            "response_types_supported": ["code"],
+            "code_challenge_methods_supported": ["S256"],
+        })
+
 
 # Mount SSE router (legacy /sse/events)
 sse_router = create_sse_router(bus)

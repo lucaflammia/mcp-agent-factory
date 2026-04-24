@@ -3,7 +3,8 @@
     "mcp-agent-factory": {
       "comment": "MCP Agent Factory — HTTP/SSE Gateway. Requires a running gateway (python -m mcp_agent_factory.gateway.run).",
       "serverUrl": "http://localhost:8000",
-      "transport": "http",
+      "transport": "sse",
+      "discoveryUrl": "http://localhost:8000/.well-known/oauth-authorization-server",
       "auth": {
         "type": "oauth2",
         "authorizationUrl": "http://localhost:8001/authorize",
@@ -64,6 +65,18 @@
               "prompt": {"type": "string", "description": "Prompt to send to the sampling client"}
             },
             "required": ["prompt"]
+          }
+        },
+        {
+          "name": "query_knowledge_base",
+          "description": "Semantic search over the agent's vector knowledge base (RAG). Returns top-k matching chunks from the caller's namespace.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {"type": "string", "description": "Natural-language search query"},
+              "top_k": {"type": "integer", "description": "Maximum number of chunks to return (default 3)", "default": 3}
+            },
+            "required": ["query"]
           }
         }
       ]

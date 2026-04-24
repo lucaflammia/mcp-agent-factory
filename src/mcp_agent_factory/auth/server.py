@@ -186,6 +186,25 @@ def _compute_s256(verifier: str) -> str:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+_AUTH_ISSUER = os.getenv("AUTH_ISSUER", "http://localhost:8001")
+
+
+@auth_app.get("/.well-known/oauth-authorization-server")
+async def oauth_discovery() -> JSONResponse:
+    """RFC 8414 OAuth 2.0 Authorization Server Metadata."""
+    return JSONResponse({
+        "issuer": _AUTH_ISSUER,
+        "authorization_endpoint": f"{_AUTH_ISSUER}/authorize",
+        "token_endpoint": f"{_AUTH_ISSUER}/token",
+        "registration_endpoint": f"{_AUTH_ISSUER}/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["client_secret_post"],
+        "scopes_supported": sorted(VALID_SCOPES),
+    })
+
+
 @auth_app.post("/register")
 async def register_client(req: ClientRegistrationRequest) -> dict:
 	"""Register an OAuth 2.1 client."""
