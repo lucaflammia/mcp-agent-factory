@@ -25,6 +25,7 @@ vendor/
 coverage/
 .cache/
 tmp/
+.jsonl
 
 # ── GSD runtime (system-managed, do not commit) ──
 .gsd/gsd.db
