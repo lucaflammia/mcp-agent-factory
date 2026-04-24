@@ -78,6 +78,7 @@ tests/test_m006_streams.py
 tests/test_m007_kafka.py
 tests/test_m007_redlock.py
 tests/test_m007_scaling.py
+tests/test_m008_integration.py
 tests/test_mcp_lifecycle.py
 tests/test_message_bus.py
 tests/test_pipeline.py

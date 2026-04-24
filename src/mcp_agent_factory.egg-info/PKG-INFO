@@ -3,9 +3,10 @@ Name: mcp-agent-factory
 Version: 0.1.0
 Summary: Industrial-grade Multi-Agent Orchestrator using Model Context Protocol
 Requires-Python: >=3.11
+Requires-Dist: redis>=5
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: fakeredis>=2.0; extra == "dev"
 Provides-Extra: infra
 Requires-Dist: aiokafka>=0.10; extra == "infra"
-Requires-Dist: redis>=5; extra == "infra"

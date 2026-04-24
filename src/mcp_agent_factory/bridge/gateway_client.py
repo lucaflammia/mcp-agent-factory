@@ -72,6 +72,7 @@ class MCPGatewayClient:
 			"params": {"name": name, "arguments": arguments},
 			"id": 2,
 		})
+		print(f"DEBUG GATEWAY RESPONSE: {body}")
 		return body["result"]
 
 	async def stream_events(
