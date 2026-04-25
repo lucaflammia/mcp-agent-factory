@@ -75,7 +75,19 @@ def _make_auth_redis():
 	url = os.getenv("AUTH_REDIS_URL") or os.getenv("REDIS_URL")
 	if url:
 		import redis as _sync_redis
-		return _sync_redis.from_url(url, decode_responses=True)
+		client = _sync_redis.from_url(url, decode_responses=True, socket_connect_timeout=2)
+		try:
+			client.ping()
+			return client
+		except Exception as exc:
+			logger.warning(
+				json.dumps({
+					"event": "auth_redis_unavailable",
+					"url": url,
+					"error": str(exc),
+					"fallback": "fakeredis",
+				})
+			)
 	import fakeredis
 	return fakeredis.FakeRedis(decode_responses=True)
 

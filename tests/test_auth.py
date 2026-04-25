@@ -321,3 +321,47 @@ class TestSessionModule:
 	def test_user_id_with_colon_rejected(self):
 		with pytest.raises(ValueError):
 			generate_session_id("user:bad")
+
+
+# ---------------------------------------------------------------------------
+# Redis fallback tests
+# ---------------------------------------------------------------------------
+
+class TestRedisFallback:
+	def test_make_auth_redis_falls_back_to_fakeredis_on_connection_error(
+		self, monkeypatch
+	):
+		"""_make_auth_redis() must return a FakeRedis when the configured Redis
+		host is unreachable, so the auth server stays operational."""
+		import fakeredis as _fr
+		import redis as _redis
+		import mcp_agent_factory.auth.server as auth_server_mod
+
+		monkeypatch.setenv("AUTH_REDIS_URL", "redis://127.0.0.1:19999")  # nothing there
+
+		client = auth_server_mod._make_auth_redis()
+		# Must be usable (FakeRedis or connected Redis — either is fine as long
+		# as basic set/get works without raising).
+		client.set("probe", "ok")
+		assert client.get("probe") == "ok"
+
+	def test_register_succeeds_without_redis(self, monkeypatch):
+		"""POST /register must return 200 even when AUTH_REDIS_URL points at an
+		unreachable host (regression for ConnectionError 111 crash)."""
+		import fakeredis as _fr
+		import mcp_agent_factory.auth.server as auth_server_mod
+
+		# Inject a fresh FakeRedis so the test is isolated
+		monkeypatch.setattr(
+			auth_server_mod, "_auth_redis", _fr.FakeRedis(decode_responses=True)
+		)
+
+		client = TestClient(auth_server_mod.auth_app)
+		resp = client.post("/register", json={
+			"client_id": "fallback-client",
+			"client_secret": "s3cr3t",
+			"redirect_uri": "http://localhost",
+			"scope": "tools:call",
+		})
+		assert resp.status_code == 200
+		assert resp.json()["registered"] is True
