@@ -166,11 +166,12 @@ class ClientRegistrationRequest(BaseModel):
 
 
 class TokenRequest(BaseModel):
-	code: str
-	code_verifier: str
 	client_id: str
 	client_secret: str
 	grant_type: str = "authorization_code"
+	# authorization_code fields (required for that grant type)
+	code: str | None = None
+	code_verifier: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +199,7 @@ async def oauth_discovery() -> JSONResponse:
         "token_endpoint": f"{_AUTH_ISSUER}/token",
         "registration_endpoint": f"{_AUTH_ISSUER}/register",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": ["authorization_code", "client_credentials"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
         "scopes_supported": sorted(VALID_SCOPES),
@@ -258,65 +259,72 @@ async def authorize(
 	return {"code": code}
 
 
-@auth_app.post("/token")
-async def token(req: TokenRequest) -> dict:
-	"""
-	Exchange an authorization code for a JWT access token.
-
-	Validates PKCE S256: SHA256(code_verifier) must equal stored code_challenge.
-	Codes are one-time-use — deleted immediately after successful exchange.
-	"""
-	if req.grant_type != "authorization_code":
-		raise HTTPException(status_code=400, detail="Unsupported grant_type")
-
-	# Atomic load-and-delete ensures one-time use even under concurrent requests
-	code_data = _load_and_delete_code(req.code)
-	if code_data is None:
-		raise HTTPException(status_code=400, detail="Invalid or expired authorization code")
-
-	if code_data["client_id"] != req.client_id:
-		raise HTTPException(status_code=400, detail="client_id mismatch")
-
-	client = _load_client(req.client_id)
-	if client is None or client["client_secret"] != req.client_secret:
-		raise HTTPException(status_code=401, detail="Invalid client credentials")
-
-	# PKCE S256 verification
-	expected_challenge = _compute_s256(req.code_verifier)
-	if expected_challenge != code_data["code_challenge"]:
-		raise HTTPException(status_code=400, detail="PKCE code_verifier verification failed")
-
-	# Build token claims
+def _issue_token(client_id: str, scope: str, sub: str) -> dict:
+	"""Mint a signed JWT and return the token response dict."""
 	now = int(time.time())
-	scope = code_data["scope"]
-	user_id = code_data["user_id"]
-	session_id = generate_session_id(user_id)
+	session_id = generate_session_id(sub)
 	granted_scopes = " ".join(sorted(expand_scope(scope)))
-
 	claims: dict[str, Any] = {
-		"sub": user_id,
+		"sub": sub,
 		"aud": "mcp-server",
 		"scope": granted_scopes,
 		"session_id": session_id,
 		"iat": now,
 		"exp": now + 3600,
 	}
-
 	key = get_jwt_key()
 	access_token = jwt.encode({"alg": "HS256"}, claims, key).decode("ascii")
-
 	logger.info(json.dumps({
 		"event": "token_issued",
-		"client_id": req.client_id,
+		"client_id": client_id,
 		"scope": granted_scopes,
 		"aud": "mcp-server",
 		"session_id": session_id,
-		# Never log the token value
 	}))
-
 	return {
 		"access_token": access_token,
 		"token_type": "bearer",
 		"expires_in": 3600,
 		"scope": granted_scopes,
 	}
+
+
+@auth_app.post("/token")
+async def token(req: TokenRequest) -> dict:
+	"""
+	Exchange a credential for a JWT access token.
+
+	Supports two grant types:
+	- ``authorization_code`` (PKCE S256): interactive browser flow for human users.
+	- ``client_credentials``: machine-to-machine; no code or verifier needed.
+	"""
+	client = _load_client(req.client_id)
+	if client is None or client["client_secret"] != req.client_secret:
+		raise HTTPException(status_code=401, detail="Invalid client credentials")
+
+	if req.grant_type == "client_credentials":
+		scope = client.get("scope", "tools:call")
+		return _issue_token(req.client_id, scope, sub=req.client_id)
+
+	if req.grant_type == "authorization_code":
+		if not req.code or not req.code_verifier:
+			raise HTTPException(
+				status_code=400,
+				detail="authorization_code grant requires code and code_verifier",
+			)
+		# Atomic load-and-delete ensures one-time use even under concurrent requests
+		code_data = _load_and_delete_code(req.code)
+		if code_data is None:
+			raise HTTPException(status_code=400, detail="Invalid or expired authorization code")
+
+		if code_data["client_id"] != req.client_id:
+			raise HTTPException(status_code=400, detail="client_id mismatch")
+
+		# PKCE S256 verification
+		expected_challenge = _compute_s256(req.code_verifier)
+		if expected_challenge != code_data["code_challenge"]:
+			raise HTTPException(status_code=400, detail="PKCE code_verifier verification failed")
+
+		return _issue_token(req.client_id, code_data["scope"], sub=code_data["user_id"])
+
+	raise HTTPException(status_code=400, detail="Unsupported grant_type")

@@ -299,3 +299,66 @@ def test_gateway_insufficient_scope_returns_403(gateway_client, shared_key):
 	)
 	# Gateway requires tools:call scope; tools:list is insufficient
 	assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# client_credentials grant — machine-to-machine bridge flow
+# ---------------------------------------------------------------------------
+
+def test_client_credentials_issues_valid_token(auth_client, shared_key):
+	"""POST /token with grant_type=client_credentials returns a usable JWT."""
+	# Register a machine client
+	auth_client.post("/register", json={
+		"client_id": "bridge",
+		"client_secret": "s3cr3t",
+		"redirect_uri": "http://localhost",
+		"scope": "tools:call",
+	})
+
+	resp = auth_client.post("/token", json={
+		"grant_type": "client_credentials",
+		"client_id": "bridge",
+		"client_secret": "s3cr3t",
+	})
+	assert resp.status_code == 200
+	data = resp.json()
+	assert "access_token" in data
+	assert data["token_type"] == "bearer"
+	assert "tools:call" in data["scope"]
+
+	# Verify the JWT is accepted by the gateway
+	from fastapi.testclient import TestClient
+	from mcp_agent_factory.gateway.app import gateway_app
+	gw = TestClient(gateway_app)
+	tool_resp = gw.post(
+		"/mcp",
+		json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+		headers={"Authorization": f"Bearer {data['access_token']}"},
+	)
+	assert tool_resp.status_code == 200
+
+
+def test_client_credentials_wrong_secret_returns_401(auth_client, shared_key):
+	"""Wrong client_secret must be rejected."""
+	auth_client.post("/register", json={
+		"client_id": "bridge",
+		"client_secret": "correct",
+		"redirect_uri": "http://localhost",
+		"scope": "tools:call",
+	})
+	resp = auth_client.post("/token", json={
+		"grant_type": "client_credentials",
+		"client_id": "bridge",
+		"client_secret": "wrong",
+	})
+	assert resp.status_code == 401
+
+
+def test_client_credentials_unknown_client_returns_401(auth_client, shared_key):
+	"""Unregistered client_id must be rejected."""
+	resp = auth_client.post("/token", json={
+		"grant_type": "client_credentials",
+		"client_id": "ghost",
+		"client_secret": "whatever",
+	})
+	assert resp.status_code == 401

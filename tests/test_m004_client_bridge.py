@@ -14,7 +14,7 @@ from authlib.jose import OctKey, jwt
 
 from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient
-from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware
+from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware, make_client_credentials_factory
 from mcp_agent_factory.gateway.app import gateway_app, bus
 
 
@@ -191,3 +191,40 @@ async def test_stream_events_via_bus_delivery(shared_key):
 	received = await asyncio.wait_for(queue.get(), timeout=2.0)
 	assert received.content["result"] == "ok"
 	test_bus.unsubscribe(topic, queue)
+
+
+# ---------------------------------------------------------------------------
+# Error handling — JSON error body raises RuntimeError (not KeyError)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_call_tool_raises_on_auth_error(transport):
+	"""tools/call with no token should raise RuntimeError, not KeyError."""
+	def _no_auth() -> tuple[str, int]:
+		return "", int(time.time()) + 3600
+
+	middleware = OAuthMiddleware(_no_auth)
+	client = MCPGatewayClient("http://test", middleware, transport=transport)
+	with pytest.raises(RuntimeError, match="MCP error"):
+		await client.call_tool("echo", {"message": "hi"})
+
+
+# ---------------------------------------------------------------------------
+# Async token factory (client_credentials style)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_async_token_factory_is_awaited(shared_key, transport):
+	"""OAuthMiddleware must await an async token factory correctly."""
+	fetched: list[int] = []
+
+	async def _async_factory() -> tuple[str, int]:
+		fetched.append(1)
+		token = _make_token(shared_key)
+		return token, int(time.time()) + 3600
+
+	middleware = OAuthMiddleware(_async_factory)
+	client = MCPGatewayClient("http://test", middleware, transport=transport)
+	tools = await client.list_tools()
+	assert len(fetched) == 1
+	assert isinstance(tools, list)

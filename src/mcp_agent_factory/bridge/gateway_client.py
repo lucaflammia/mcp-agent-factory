@@ -51,7 +51,13 @@ class MCPGatewayClient:
 		) as client:
 			resp = await client.post("/mcp", json=payload, headers=headers)
 			resp.raise_for_status()
-			return resp.json()
+		body = resp.json()
+		if "error" in body:
+			err = body["error"]
+			raise RuntimeError(
+				f"MCP error {err.get('code', '?')}: {err.get('message', err)}"
+			)
+		return body
 
 	async def list_tools(self) -> list[dict]:
 		"""Return the list of tools exposed by the gateway."""
@@ -72,7 +78,6 @@ class MCPGatewayClient:
 			"params": {"name": name, "arguments": arguments},
 			"id": 2,
 		})
-		print(f"DEBUG GATEWAY RESPONSE: {body}")
 		return body["result"]
 
 	async def stream_events(
