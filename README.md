@@ -124,57 +124,295 @@ Without `JWT_SECRET` in a secured multi-process setup, the Gateway raises
 `RuntimeError: JWT key not set` on the first authenticated request. The Bridge must
 also send a real JWT (not the default `demo-token`) matching `aud: mcp-server`.
 
-## External Client Integration 
+## External Client Integration
 
-The gateway supports RFC 8414 OAuth 2.1 auto-discovery, so Cursor, Claude Desktop, or any standards-compliant MCP client can connect without hardcoding endpoint URLs.
+The gateway implements RFC 8414 OAuth 2.1 auto-discovery. Any compliant MCP client — Cursor, Claude Desktop, a custom Python/Node client — connects using the same protocol: discover → register → PKCE auth → Bearer JWT on every request.
 
-### Connecting Cursor (or any OAuth 2.1 MCP client)
+### How it works end-to-end
 
-1. **Start the auth server** on port 8001:
-	```bash
-	JWT_SECRET=<shared-secret> uvicorn mcp_agent_factory.auth.server:auth_app --port 8001
-	```
+```
+MCP Client (Cursor / Claude Desktop / custom)
+  │
+  │ 1. GET /.well-known/oauth-authorization-server  (RFC 8414 discovery)
+  │    ← {issuer, authorization_endpoint, token_endpoint, registration_endpoint, ...}
+  │
+  │ 2. POST /register  (dynamic client registration)
+  │    ← {client_id}
+  │
+  │ 3. Redirect to /authorize?code_challenge=<S256>&...
+  │    (user approves in browser)
+  │    ← ?code=<one-time-code>
+  │
+  │ 4. POST /token  {code, code_verifier}
+  │    ← {access_token, token_type: "bearer"}
+  │
+  │ 5. POST /mcp   Authorization: Bearer <JWT>
+  │    {"jsonrpc":"2.0","method":"tools/call",...}
+  │
+  ▼
+MCP Gateway :8000  →  Auth Server :8001  (same JWT_SECRET)
+```
 
-2. **Start the gateway** on port 8000 with the same secret:
-	```bash
-	JWT_SECRET=<shared-secret> python -m mcp_agent_factory.gateway.run
-	```
+Every 401 response includes `WWW-Authenticate: Bearer resource_metadata=<discovery-url>` (RFC 6750 §3.1), so clients that missed step 1 can self-correct without any hardcoded endpoint config.
 
-3. **Point Cursor at `mcp.json`** — it contains the server URL, `discoveryUrl`, PKCE auth config, and tool schemas. Cursor will hit `GET /.well-known/oauth-authorization-server` on the gateway, which proxies the auth server's discovery document, and then walk through the PKCE S256 flow automatically.
+---
 
-4. **Verify discovery** (optional):
-	```bash
-	curl http://localhost:8000/.well-known/oauth-authorization-server
-	# {"issuer": "http://localhost:8001", "authorization_endpoint": "...", ...}
-	```
+### Step 1 — Set environment variables
 
-5. **Verify 401 hints a client where to authenticate**:
-	```bash
-	curl -i http://localhost:8000/mcp
-	# HTTP/1.1 401
-	# WWW-Authenticate: Bearer realm="mcp-server", resource_metadata="http://localhost:8000/.well-known/..."
-	```
+Both processes must share the same `JWT_SECRET`. Generate one and export it in every shell (or add to your secrets manager / `.env`):
 
-6. **SSE stream** (stays open, first event is `connected`):
-	```bash
-	curl -N http://localhost:8000/sse/v1/events?topic=agent.events
-	```
+```bash
+export JWT_SECRET="$(openssl rand -hex 32)"
+```
 
-7. **Health check**:
-	```bash
-	curl http://localhost:8000/health
-	# {"status": "ok", "service": "mcp-gateway"}
-	```
+Optional but recommended for production:
 
-### How auto-discovery works
+```bash
+export REDIS_URL="redis://your-redis:6379"        # real Redis for gateway sessions
+export AUTH_REDIS_URL="redis://your-redis:6379"   # real Redis for auth codes + client registry
+```
 
-| Endpoint | RFC | Purpose |
-|----------|-----|---------|
-| `GET /.well-known/oauth-authorization-server` (auth server :8001) | RFC 8414 | Canonical metadata: all auth endpoints, PKCE method, scopes |
-| `GET /.well-known/oauth-authorization-server` (gateway :8000) | RFC 8414 | Proxies the auth server's document — clients only need the gateway URL |
-| `WWW-Authenticate` header on every 401 | RFC 6750 §3.1 | Tells the client the `resource_metadata` URL so it can discover auth automatically |
+Without `REDIS_URL` / `AUTH_REDIS_URL` the servers fall back to an in-process `FakeRedis` — fine for development, not for multi-process or multi-node deployments.
 
-Cursor reads the `discoveryUrl` in `mcp.json`, fetches the metadata, and initiates PKCE — no manual endpoint configuration required.
+---
+
+### Step 2 — Start the auth server (port 8001)
+
+```bash
+JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.auth.server:auth_app \
+  --host 0.0.0.0 --port 8001
+```
+
+---
+
+### Step 3 — Start the MCP gateway (port 8000)
+
+```bash
+JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.gateway.run
+# or
+JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.gateway.run:app \
+  --host 0.0.0.0 --port 8000
+```
+
+Or spin both up together with Docker Compose (already wired):
+
+```bash
+docker compose up
+```
+
+---
+
+### Step 4 — Verify the stack is healthy
+
+```bash
+# Health check
+curl http://localhost:8000/health
+# {"status": "ok", "service": "mcp-gateway"}
+
+# OAuth discovery document
+curl http://localhost:8000/.well-known/oauth-authorization-server | python3 -m json.tool
+# {
+#   "issuer": "http://localhost:8001",
+#   "authorization_endpoint": "http://localhost:8001/authorize",
+#   "token_endpoint": "http://localhost:8001/token",
+#   "registration_endpoint": "http://localhost:8001/register",
+#   ...
+# }
+
+# 401 with WWW-Authenticate hint (no auth header)
+curl -i http://localhost:8000/mcp
+# HTTP/1.1 401
+# WWW-Authenticate: Bearer realm="mcp-server",
+#   resource_metadata="http://localhost:8000/.well-known/oauth-authorization-server"
+
+# SSE stream (stays open — Ctrl-C to stop)
+curl -N "http://localhost:8000/sse/v1/events?topic=agent.events"
+# data: {"type":"connected","topic":"agent.events"}
+```
+
+---
+
+### Connecting Cursor
+
+Cursor reads `mcp.json` from the project root and runs the full PKCE flow automatically.
+
+**Local development** — the repo ships a ready-to-use `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-agent-factory": {
+      "serverUrl": "http://localhost:8000",
+      "transport": "sse",
+      "discoveryUrl": "http://localhost:8000/.well-known/oauth-authorization-server",
+      "auth": {
+        "type": "oauth2",
+        "pkce": true,
+        "codeChallengeMethod": "S256",
+        "scopes": ["tools:call"]
+      }
+    }
+  }
+}
+```
+
+Open the project in Cursor. On first use Cursor fetches the discovery document, registers itself, opens a browser tab for the authorization redirect, exchanges the code for a JWT, and then attaches `Authorization: Bearer <token>` to every tool call — no manual configuration beyond placing `mcp.json` in the project root.
+
+**Remote/production deployment** — replace `localhost` with your host. TLS is strongly recommended:
+
+```json
+{
+  "mcpServers": {
+    "mcp-agent-factory": {
+      "serverUrl": "https://mcp.example.com",
+      "transport": "sse",
+      "discoveryUrl": "https://mcp.example.com/.well-known/oauth-authorization-server",
+      "auth": {
+        "type": "oauth2",
+        "pkce": true,
+        "codeChallengeMethod": "S256",
+        "scopes": ["tools:call"]
+      }
+    }
+  }
+}
+```
+
+Cursor re-reads `mcp.json` on project reload (or after a "Reconnect MCP server" from the Command Palette).
+
+---
+
+### Connecting Claude Desktop
+
+Claude Desktop uses the same `mcp.json` format. Place it (or merge it into your global `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) with the same fields shown above. Claude Desktop performs the same PKCE flow; a browser tab will open once to authorise the connection.
+
+---
+
+### Connecting any MCP client (Python example)
+
+The repo ships `bridge/gateway_client.py` — a minimal reference client you can copy into any project:
+
+```python
+import asyncio
+from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient
+from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware
+
+# 1. Obtain a Bearer JWT (e.g. from your auth server's /token endpoint)
+#    In production this is handled by OAuthMiddleware (token cache + auto-refresh).
+token = "eyJ..."
+
+# 2. Instantiate the client
+client = MCPGatewayClient(
+    base_url="http://localhost:8000",
+    token=token,
+)
+
+async def main():
+    # 3. List available tools
+    tools = await client.list_tools()
+    print(tools)
+
+    # 4. Call a tool
+    result = await client.call_tool("echo", {"text": "hello"})
+    print(result)
+
+    # 5. Stream SSE events
+    async for event in client.stream_events(topic="agent.events"):
+        print(event)
+
+asyncio.run(main())
+```
+
+For a self-contained demo that handles token acquisition automatically:
+
+```bash
+JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.bridge
+```
+
+---
+
+### Connecting via raw HTTP (curl / any HTTP client)
+
+All MCP calls are plain JSON-RPC 2.0 over HTTPS. Once you have a Bearer token:
+
+```bash
+TOKEN="eyJ..."   # JWT from POST /token
+
+# List tools
+curl -s -X POST http://localhost:8000/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  | python3 -m json.tool
+
+# Call a tool
+curl -s -X POST http://localhost:8000/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {"name": "echo", "arguments": {"text": "hello"}}
+  }' | python3 -m json.tool
+
+# Query the knowledge base
+curl -s -X POST http://localhost:8000/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {"name": "query_knowledge_base", "arguments": {"query": "climate", "top_k": 3}}
+  }' | python3 -m json.tool
+```
+
+**Dev mode (no auth)** — set `MCP_DEV_MODE=1` to disable token verification. Useful for local scripting:
+
+```bash
+MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run &
+
+curl -s -X POST http://localhost:8000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+> Never run `MCP_DEV_MODE=1` in production — it disables all authentication.
+
+---
+
+### Gateway endpoint reference
+
+| Method | Path | Auth required | Purpose |
+|--------|------|---------------|---------|
+| `GET` | `/health` | No | Liveness probe |
+| `GET` | `/.well-known/oauth-authorization-server` | No | RFC 8414 discovery (proxies `:8001`) |
+| `POST` | `/mcp` | Bearer JWT | JSON-RPC 2.0 tool calls (`tools/list`, `tools/call`) |
+| `POST` | `/sampling` | Bearer JWT | `sampling/createMessage` |
+| `GET` | `/sse/v1/events` | No | SSE event stream (`?topic=<name>`) |
+| `POST` | `/sse/v1/messages` | Bearer JWT | Publish to SSE bus |
+
+Auth server endpoints (`:8001`):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/register` | Dynamic client registration (RFC 7591) |
+| `GET` | `/authorize` | Authorization code + PKCE challenge |
+| `POST` | `/token` | Code exchange → JWT |
+
+---
+
+### Production checklist
+
+| Item | Notes |
+|------|-------|
+| `JWT_SECRET` set on both processes | Same secret required — gateway can't verify tokens without it |
+| `MCP_DEV_MODE` unset or `0` | Never `1` in production |
+| Real Redis (`REDIS_URL`, `AUTH_REDIS_URL`) | In-process FakeRedis doesn't survive restarts |
+| TLS termination | Put a reverse proxy (nginx, Caddy) in front; JWT tokens must not travel over plain HTTP |
+| Token rotation | HS256 is fine for a single gateway+auth pair; switch to RS256 + JWKS for multi-service deployments |
+| Port exposure | Auth server (`:8001`) should not be public-facing; only the gateway (`:8000`) needs external access |
 
 ## RAG Knowledge Base       
 
