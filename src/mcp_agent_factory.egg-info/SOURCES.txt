@@ -22,6 +22,7 @@ src/mcp_agent_factory/agents/models.py
 src/mcp_agent_factory/agents/pipeline_orchestrator.py
 src/mcp_agent_factory/agents/writer.py
 src/mcp_agent_factory/auth/__init__.py
+src/mcp_agent_factory/auth/__main__.py
 src/mcp_agent_factory/auth/resource.py
 src/mcp_agent_factory/auth/server.py
 src/mcp_agent_factory/auth/session.py
@@ -60,6 +61,7 @@ src/mcp_agent_factory/streams/redlock.py
 src/mcp_agent_factory/streams/worker.py
 tests/test_adapters.py
 tests/test_auth.py
+tests/test_cursor_connect.py
 tests/test_e2e_routing.py
 tests/test_economics.py
 tests/test_gateway.py
