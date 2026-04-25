@@ -333,7 +333,28 @@ JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.bridge
 
 The bridge supports `client_credentials` grant so it can authenticate without a browser redirect — useful for CI, scripts, and server-side deployments.
 
-**1. Register the bridge client once:**
+The auth server **must** share the same `JWT_SECRET` as the gateway. If they use different keys (or one uses an ephemeral key), every token the auth server issues will fail signature verification at the gateway with `bad_signature` or `Not Authorized`.
+
+**1. Export a shared secret (once, in every shell):**
+
+```bash
+export JWT_SECRET="$(openssl rand -hex 32)"
+```
+
+**2. Start the auth server with that secret:**
+
+```bash
+JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.auth.server:auth_app \
+  --host 0.0.0.0 --port 8001
+```
+
+**3. Start the gateway with the same secret:**
+
+```bash
+JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.gateway.run
+```
+
+**4. Register the bridge client once (auth server must be running):**
 
 ```bash
 curl -X POST http://localhost:8001/register \
@@ -341,7 +362,7 @@ curl -X POST http://localhost:8001/register \
   -d '{"client_id":"my-bridge","client_secret":"s3cr3t","redirect_uri":"http://localhost","scope":"tools:call"}'
 ```
 
-**2. Run the bridge with the client credentials:**
+**5. Run the bridge with the client credentials:**
 
 ```bash
 JWT_SECRET=$JWT_SECRET \
@@ -350,7 +371,9 @@ BRIDGE_CLIENT_SECRET=s3cr3t \
 python -m mcp_agent_factory.bridge
 ```
 
-When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge exchanges credentials directly at `/token` (no user interaction). Without them it falls back to the PKCE browser flow.
+When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge fetches a token from the auth server's `/token` endpoint (no user interaction). The gateway verifies that token using the shared `JWT_SECRET` — all three processes must use the same value.
+
+> **Common failure mode:** Starting the auth server without `JWT_SECRET` causes it to generate an ephemeral key. Tokens it issues are then signed with a different key than the gateway expects, producing a `Not Authorized` / `bad_signature` error on every call even though the credentials are correct.
 
 #### Simplest local dev — no auth server required
 
@@ -696,6 +719,7 @@ tests/
 | Hotfix | Resource server reads `JWT_SECRET` from env as fallback; bridge warns on stale `GATEWAY_TOKEN` + `JWT_SECRET` combination that would cause `bad_signature` | +0 (248 unit) |
 | Hotfix | Bridge no longer injects `Authorization: Bearer ` when no credentials are configured; resource server guards against empty token before parsing — fixes `Invalid input segments length` 500 error | +0 (248 unit) |
 | Hotfix | Bridge self-signs a valid HS256 JWT with `JWT_SECRET` when no auth server is running — no extra process needed for local dev; `python -m mcp_agent_factory.auth token` generates a static `GATEWAY_TOKEN` | +0 (248 unit) |
+| Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
 
 ## Security Notes
 
