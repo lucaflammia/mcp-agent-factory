@@ -136,7 +136,11 @@ _JWT_KEY: OctKey | None = None
 def get_jwt_key() -> OctKey:
 	global _JWT_KEY
 	if _JWT_KEY is None:
-		_JWT_KEY = OctKey.generate_key(256, is_private=True)
+		secret = os.getenv("JWT_SECRET")
+		if secret:
+			_JWT_KEY = OctKey.import_key(secret.encode())
+		else:
+			_JWT_KEY = OctKey.generate_key(256, is_private=True)
 	return _JWT_KEY
 
 

@@ -118,11 +118,9 @@ share the same signing key as the Auth Server:
 |----------|-----------|
 | Dev / `MCP_DEV_MODE=1` | No `JWT_SECRET` needed — auth is bypassed |
 | Gateway + Auth Server in the same process | Key is set automatically at startup |
-| Gateway + Auth Server as separate processes | Set `JWT_SECRET=<random-secret>` for **both** processes |
+| Gateway + Auth Server as separate processes | Set `JWT_SECRET=<random-secret>` for **both** processes — Auth Server signs with it, Gateway verifies with it |
 
-Without `JWT_SECRET` in a secured multi-process setup, the Gateway raises
-`RuntimeError: JWT key not set` on the first authenticated request. The Bridge must
-also send a real JWT (not the default `demo-token`) matching `aud: mcp-server`.
+Without a shared `JWT_SECRET`, the Auth Server generates a random key at startup while the Gateway uses its own random key, so every token fails signature verification with `bad_signature`.
 
 ## External Client Integration
 
@@ -674,7 +672,7 @@ tests/
 
 ## Security Notes
 
-- JWT tokens use HS256. Set `JWT_SECRET` to share the signing key between the Gateway and Auth Server processes; without it the Gateway cannot verify tokens and raises `RuntimeError: JWT key not set`. Rotate to RS256 + JWKS for multi-service deployments.
+- JWT tokens use HS256. Both the Auth Server and the Gateway must read the same `JWT_SECRET` — the Auth Server uses it as the signing key; the Gateway uses it for verification. Without a shared secret the Gateway sees `bad_signature` on every token. Rotate to RS256 + JWKS for multi-service deployments.
 - All 401 responses carry a `WWW-Authenticate` header with `resource_metadata` pointing at the gateway's `/.well-known/oauth-authorization-server` endpoint — compliant clients (Cursor, Claude Desktop) use this to auto-discover auth endpoints without hardcoded URLs.
 - Gateway proxies the Auth Server's RFC 8414 discovery document at `GET /.well-known/oauth-authorization-server`. Clients need only the gateway URL; all auth endpoints are discovered at runtime.
 - `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls — checked at startup via FastAPI lifespan.
