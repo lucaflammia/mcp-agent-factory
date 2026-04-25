@@ -669,6 +669,7 @@ tests/
 | M008 | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | +5 (241 unit) |
 | Hotfix | Bridge `client_credentials` grant — headless machine-to-machine auth without browser redirect | +6 (246 unit) |
 | Hotfix | Auth server falls back to FakeRedis when configured Redis is unreachable at startup | +2 (248 unit) |
+| Hotfix | Auth server now reads `JWT_SECRET` env var to share the signing key with the gateway — fixes `bad_signature` when both run as separate processes | +0 (248 unit) |
 
 ## Security Notes
 
