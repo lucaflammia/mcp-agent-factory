@@ -192,10 +192,10 @@ JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.gateway.run:app \
   --host 0.0.0.0 --port 8000
 ```
 
-Or spin both up together with Docker Compose (already wired):
+If you also want the real Redis/Kafka infrastructure running locally:
 
 ```bash
-docker compose up
+docker compose up -d   # starts Redis + Kafka only (gateway/auth are Python processes)
 ```
 
 ---
