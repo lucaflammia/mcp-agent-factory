@@ -70,8 +70,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
 | **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
 | **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; SSE /v1 endpoints |
-| **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding |
-| **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream |
+| **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding; `client_credentials` grant for machine-to-machine auth |
+| **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream; `make_client_credentials_factory()` for headless bridge operation |
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
@@ -331,6 +331,42 @@ For a self-contained demo that handles token acquisition automatically:
 JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.bridge
 ```
 
+#### Machine-to-machine bridge (no browser required)
+
+The bridge supports `client_credentials` grant so it can authenticate without a browser redirect — useful for CI, scripts, and server-side deployments.
+
+**1. Register the bridge client once:**
+
+```bash
+curl -X POST http://localhost:8001/register \
+  -H 'Content-Type: application/json' \
+  -d '{"client_id":"my-bridge","client_secret":"s3cr3t","redirect_uri":"http://localhost","scope":"tools:call"}'
+```
+
+**2. Run the bridge with the client credentials:**
+
+```bash
+JWT_SECRET=$JWT_SECRET \
+BRIDGE_CLIENT_ID=my-bridge \
+BRIDGE_CLIENT_SECRET=s3cr3t \
+python -m mcp_agent_factory.bridge
+```
+
+When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge exchanges credentials directly at `/token` (no user interaction). Without them it falls back to the PKCE browser flow.
+
+**Programmatic usage:**
+
+```python
+from mcp_agent_factory.bridge.oauth_middleware import make_client_credentials_factory
+
+token_factory = make_client_credentials_factory(
+    token_url="http://localhost:8001/token",
+    client_id="my-bridge",
+    client_secret="s3cr3t",
+    scope="tools:call",
+)
+```
+
 ---
 
 ### Connecting via raw HTTP (curl / any HTTP client)
@@ -514,7 +550,7 @@ if not guard.already_seen(task.id):        # Skip if already processed
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 240 unit tests (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 246 unit tests (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -632,7 +668,8 @@ tests/
 | M005 | Vector RAG layer, multi-tenant isolation, async ingestion, knowledge-augmented auction, LibrarianAgent, SSE events | +7 (205) |
 | M006 | Redis Streams consumer groups, EventLog + KafkaEventLog, ValidationGate, IdempotencyGuard, DistributedLock, OutboxRelay, CircuitBreaker | +26 (231) |
 | M007 | docker-compose stack, real KafkaEventLog integration tests, RedlockClient 3-node quorum, multi-process StreamWorker scaling | +15 unit / +8 integration (246 unit) |
-| M008 | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | +5 (236 unit) |
+| M008 | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | +5 (241 unit) |
+| Hotfix | Bridge `client_credentials` grant — headless machine-to-machine auth without browser redirect | +6 (246 unit) |
 
 ## Security Notes
 
