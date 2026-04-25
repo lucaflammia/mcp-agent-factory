@@ -172,7 +172,7 @@ export REDIS_URL="redis://your-redis:6379"        # real Redis for gateway sessi
 export AUTH_REDIS_URL="redis://your-redis:6379"   # real Redis for auth codes + client registry
 ```
 
-Without `REDIS_URL` / `AUTH_REDIS_URL` the servers fall back to an in-process `FakeRedis` — fine for development, not for multi-process or multi-node deployments.
+Without `REDIS_URL` / `AUTH_REDIS_URL` the servers fall back to an in-process `FakeRedis` — fine for development, not for multi-process or multi-node deployments. If `AUTH_REDIS_URL` is set but the configured Redis is unreachable at startup, the auth server logs a warning and falls back to FakeRedis automatically rather than crashing.
 
 ---
 
@@ -550,7 +550,7 @@ if not guard.already_seen(task.id):        # Skip if already processed
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 246 unit tests (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 248 unit tests (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -670,6 +670,7 @@ tests/
 | M007 | docker-compose stack, real KafkaEventLog integration tests, RedlockClient 3-node quorum, multi-process StreamWorker scaling | +15 unit / +8 integration (246 unit) |
 | M008 | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | +5 (241 unit) |
 | Hotfix | Bridge `client_credentials` grant — headless machine-to-machine auth without browser redirect | +6 (246 unit) |
+| Hotfix | Auth server falls back to FakeRedis when configured Redis is unreachable at startup | +2 (248 unit) |
 
 ## Security Notes
 
