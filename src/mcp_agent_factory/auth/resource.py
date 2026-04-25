@@ -79,6 +79,10 @@ def make_verify_token(required_scope: str, optional: bool = False):
 			raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
 
 		raw_token = authorization.split(" ", 1)[1].strip()
+		if not raw_token:
+			if optional:
+				return None
+			raise HTTPException(status_code=401, detail="Missing token")
 
 		try:
 			key = get_jwt_key()

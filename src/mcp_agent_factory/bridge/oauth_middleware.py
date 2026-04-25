@@ -101,4 +101,6 @@ class OAuthMiddleware:
     async def inject(self, headers: dict) -> dict:
         """Return *headers* extended with an Authorization: Bearer header."""
         token = await self.get_token()
+        if not token:
+            return dict(headers)
         return {**headers, "Authorization": f"Bearer {token}"}

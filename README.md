@@ -673,6 +673,7 @@ tests/
 | Hotfix | Auth server falls back to FakeRedis when configured Redis is unreachable at startup | +2 (248 unit) |
 | Hotfix | Auth server now reads `JWT_SECRET` env var to share the signing key with the gateway — fixes `bad_signature` when both run as separate processes | +0 (248 unit) |
 | Hotfix | Resource server reads `JWT_SECRET` from env as fallback; bridge warns on stale `GATEWAY_TOKEN` + `JWT_SECRET` combination that would cause `bad_signature` | +0 (248 unit) |
+| Hotfix | Bridge no longer injects `Authorization: Bearer ` when no credentials are configured; resource server guards against empty token before parsing — fixes `Invalid input segments length` 500 error | +0 (248 unit) |
 
 ## Security Notes
 
@@ -683,5 +684,6 @@ tests/
 - PKCE S256 enforced on all authorization code exchanges; codes are single-use.
 - Audience binding (`aud: mcp-server`) prevents confused-deputy attacks.
 - Gateway rejects all requests without a valid, non-expired Bearer JWT — 401 on missing/expired/wrong-audience tokens.
+- Bridge skips the `Authorization` header entirely when no credentials are configured — sending `Bearer ` with an empty token causes authlib to raise `Invalid input segments length` before any auth logic runs.
 - RAG vector store is namespace-isolated by `owner_id` (bound to JWT `sub`) — cross-tenant queries return empty results by design.
 - `DistributedLock` uses a UUID token to prevent a worker from releasing another holder's lock after TTL expiry.
