@@ -219,8 +219,10 @@ curl http://localhost:8000/.well-known/oauth-authorization-server | python3 -m j
 #   ...
 # }
 
-# 401 with WWW-Authenticate hint (no auth header)
-curl -i http://localhost:8000/mcp
+# 401 with WWW-Authenticate hint (POST /mcp with no auth header)
+curl -i -X POST http://localhost:8000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 # HTTP/1.1 401
 # WWW-Authenticate: Bearer realm="mcp-server",
 #   resource_metadata="http://localhost:8000/.well-known/oauth-authorization-server"
@@ -388,6 +390,7 @@ curl -s -X POST http://localhost:8000/mcp \
 |--------|------|---------------|---------|
 | `GET` | `/health` | No | Liveness probe |
 | `GET` | `/.well-known/oauth-authorization-server` | No | RFC 8414 discovery (proxies `:8001`) |
+| `GET` | `/mcp` | No | SSE channel for server→client messages (MCP Streamable HTTP transport, spec 2024-11-05) |
 | `POST` | `/mcp` | Bearer JWT | JSON-RPC 2.0 tool calls (`tools/list`, `tools/call`) |
 | `POST` | `/sampling` | Bearer JWT | `sampling/createMessage` |
 | `GET` | `/sse/v1/events` | No | SSE event stream (`?topic=<name>`) |
@@ -511,7 +514,7 @@ if not guard.already_seen(task.id):        # Skip if already processed
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 236 unit tests (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 240 unit tests (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
