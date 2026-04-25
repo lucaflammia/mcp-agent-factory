@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-04-25T10:06:49Z | Files: 100 | Described: 0/100
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-25T10:06:49Z","fingerprint":"d335ed0f50f8684fc5a10a581964e8ce23e8d3e2","fileCount":100,"truncated":false} -->
+Generated: 2026-04-25T12:28:52Z | Files: 101 | Described: 0/101
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-25T12:28:52Z","fingerprint":"e493084d96ad9b014552da23c05d7f2dbe67efe7","fileCount":101,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -46,6 +46,7 @@ Generated: 2026-04-25T10:06:49Z | Files: 100 | Described: 0/100
 
 ### src/mcp_agent_factory/auth/
 - `src/mcp_agent_factory/auth/__init__.py`
+- `src/mcp_agent_factory/auth/__main__.py`
 - `src/mcp_agent_factory/auth/resource.py`
 - `src/mcp_agent_factory/auth/server.py`
 - `src/mcp_agent_factory/auth/session.py`

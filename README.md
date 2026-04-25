@@ -352,7 +352,28 @@ python -m mcp_agent_factory.bridge
 
 When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge exchanges credentials directly at `/token` (no user interaction). Without them it falls back to the PKCE browser flow.
 
-> **Avoid `GATEWAY_TOKEN` with `JWT_SECRET`:** If both are set, the pre-issued token was likely signed with a different key and will fail with `bad_signature`. Always use `BRIDGE_CLIENT_ID` + `BRIDGE_CLIENT_SECRET` when running with a shared `JWT_SECRET` — the bridge fetches a fresh, correctly-signed token at startup. If you see `bad_signature` with a `GATEWAY_TOKEN`, unset `GATEWAY_TOKEN` and use the client credentials flow instead.
+#### Simplest local dev — no auth server required
+
+When `JWT_SECRET` is set but neither `BRIDGE_CLIENT_ID` nor `GATEWAY_TOKEN` is configured, the bridge self-signs a valid HS256 JWT using the shared secret. The gateway validates it with the same key — no auth server process needed:
+
+```bash
+# Terminal 1
+JWT_SECRET=mysecret python -m mcp_agent_factory.gateway.run
+
+# Terminal 2
+JWT_SECRET=mysecret python -m mcp_agent_factory.bridge
+```
+
+#### Generating a static GATEWAY_TOKEN
+
+If you need a pre-issued token (e.g. for CI or a static `.env`), the auth CLI can generate one:
+
+```bash
+JWT_SECRET=mysecret python -m mcp_agent_factory.auth token
+# Prints a valid signed token to stdout
+```
+
+> **Note:** A `GATEWAY_TOKEN` must be signed with the same `JWT_SECRET` the gateway uses. Tokens from a different session or a gateway without `JWT_SECRET` will fail with `bad_signature` or `Invalid input segments length`.
 
 **Programmatic usage:**
 
@@ -674,6 +695,7 @@ tests/
 | Hotfix | Auth server now reads `JWT_SECRET` env var to share the signing key with the gateway — fixes `bad_signature` when both run as separate processes | +0 (248 unit) |
 | Hotfix | Resource server reads `JWT_SECRET` from env as fallback; bridge warns on stale `GATEWAY_TOKEN` + `JWT_SECRET` combination that would cause `bad_signature` | +0 (248 unit) |
 | Hotfix | Bridge no longer injects `Authorization: Bearer ` when no credentials are configured; resource server guards against empty token before parsing — fixes `Invalid input segments length` 500 error | +0 (248 unit) |
+| Hotfix | Bridge self-signs a valid HS256 JWT with `JWT_SECRET` when no auth server is running — no extra process needed for local dev; `python -m mcp_agent_factory.auth token` generates a static `GATEWAY_TOKEN` | +0 (248 unit) |
 
 ## Security Notes
 
