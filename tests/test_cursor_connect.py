@@ -108,3 +108,25 @@ async def test_gateway_discovery_proxy_returns_endpoints():
     body = resp.json()
     assert "authorization_endpoint" in body
     assert "token_endpoint" in body
+
+
+# ---------------------------------------------------------------------------
+# MCP Streamable HTTP — GET /mcp SSE channel
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_mcp_returns_sse_stream():
+    """GET /mcp SSE generator must yield an endpoint event as its first item."""
+    from mcp_agent_factory.gateway.app import mcp_sse_endpoint
+
+    # Call the handler directly and inspect the EventSourceResponse generator.
+    # This avoids ASGI streaming complexity (the stream never ends by design).
+    response = await mcp_sse_endpoint(_claims=None)
+    gen = response.body_iterator
+    first = await gen.__anext__()
+    assert first is not None  # generator yielded something
+    # Drain the generator — it may be a dict or encoded bytes
+    text = first if isinstance(first, str) else (
+        first.get("data", "") if isinstance(first, dict) else first.decode()
+    )
+    assert "endpoint" in text or "/mcp" in text

@@ -10,6 +10,7 @@ Integrates:
 
 Endpoints
 ---------
+GET  /mcp            — MCP Streamable HTTP SSE channel (server→client)
 POST /mcp            — MCP JSON-RPC 2.0, requires Bearer token w/ scope tools:call
 POST /sampling       — Sampling/createMessage stub (unauthenticated)
 GET  /health         — Liveness probe (unauthenticated)
@@ -17,6 +18,7 @@ GET  /health         — Liveness probe (unauthenticated)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -27,6 +29,7 @@ from typing import Any
 import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse as _JSONResponse
+from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -231,6 +234,20 @@ class SamplingBody(BaseModel):
 @gateway_app.post("/sampling", response_model=SamplingResult)
 async def sampling_endpoint(body: SamplingBody) -> SamplingResult:
 	return await sampling_handler.handle(body.prompt)
+
+
+@gateway_app.get("/mcp")
+async def mcp_sse_endpoint(
+	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
+) -> Any:
+	"""MCP Streamable HTTP — GET /mcp opens the server→client SSE channel."""
+	async def _events():
+		yield {"event": "endpoint", "data": json.dumps({"path": "/mcp"})}
+		while True:
+			await asyncio.sleep(15)
+			yield {"event": "ping", "data": ""}
+
+	return EventSourceResponse(_events())
 
 
 @gateway_app.post("/mcp")
