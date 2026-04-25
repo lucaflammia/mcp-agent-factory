@@ -351,6 +351,7 @@ JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.auth.server:auth_app \
 **3. Start the gateway with the same secret:**
 
 ```bash
+export JWT_SECRET="<shared-secret-previously-created>"
 JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.gateway.run
 ```
 
