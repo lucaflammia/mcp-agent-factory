@@ -352,6 +352,8 @@ python -m mcp_agent_factory.bridge
 
 When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge exchanges credentials directly at `/token` (no user interaction). Without them it falls back to the PKCE browser flow.
 
+> **Avoid `GATEWAY_TOKEN` with `JWT_SECRET`:** If both are set, the pre-issued token was likely signed with a different key and will fail with `bad_signature`. Always use `BRIDGE_CLIENT_ID` + `BRIDGE_CLIENT_SECRET` when running with a shared `JWT_SECRET` — the bridge fetches a fresh, correctly-signed token at startup. If you see `bad_signature` with a `GATEWAY_TOKEN`, unset `GATEWAY_TOKEN` and use the client credentials flow instead.
+
 **Programmatic usage:**
 
 ```python
@@ -670,6 +672,7 @@ tests/
 | Hotfix | Bridge `client_credentials` grant — headless machine-to-machine auth without browser redirect | +6 (246 unit) |
 | Hotfix | Auth server falls back to FakeRedis when configured Redis is unreachable at startup | +2 (248 unit) |
 | Hotfix | Auth server now reads `JWT_SECRET` env var to share the signing key with the gateway — fixes `bad_signature` when both run as separate processes | +0 (248 unit) |
+| Hotfix | Resource server reads `JWT_SECRET` from env as fallback; bridge warns on stale `GATEWAY_TOKEN` + `JWT_SECRET` combination that would cause `bad_signature` | +0 (248 unit) |
 
 ## Security Notes
 
