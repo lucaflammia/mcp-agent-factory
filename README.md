@@ -721,6 +721,7 @@ tests/
 | Hotfix | Bridge no longer injects `Authorization: Bearer ` when no credentials are configured; resource server guards against empty token before parsing — fixes `Invalid input segments length` 500 error | +0 (248 unit) |
 | Hotfix | Bridge self-signs a valid HS256 JWT with `JWT_SECRET` when no auth server is running — no extra process needed for local dev; `python -m mcp_agent_factory.auth token` generates a static `GATEWAY_TOKEN` | +0 (248 unit) |
 | Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
+| Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
 
 ## Security Notes
 
