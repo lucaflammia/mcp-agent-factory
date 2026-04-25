@@ -163,12 +163,14 @@ Both processes must share the same `JWT_SECRET`. Generate one and export it in e
 export JWT_SECRET="$(openssl rand -hex 32)"
 ```
 
-Optional but recommended for production:
+Optional but recommended for production. If you started Redis via `docker compose up -d`, use `localhost:6379`:
 
 ```bash
-export REDIS_URL="redis://your-redis:6379"        # real Redis for gateway sessions
-export AUTH_REDIS_URL="redis://your-redis:6379"   # real Redis for auth codes + client registry
+export REDIS_URL="redis://localhost:6379"        # real Redis for gateway sessions
+export AUTH_REDIS_URL="redis://localhost:6379"   # real Redis for auth codes + client registry
 ```
+
+Replace `localhost` with your Redis host when deploying to a remote environment.
 
 Without `REDIS_URL` / `AUTH_REDIS_URL` the servers fall back to an in-process `FakeRedis` — fine for development, not for multi-process or multi-node deployments. If `AUTH_REDIS_URL` is set but the configured Redis is unreachable at startup, the auth server logs a warning and falls back to FakeRedis automatically rather than crashing.
 
