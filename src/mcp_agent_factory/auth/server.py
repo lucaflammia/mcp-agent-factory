@@ -141,6 +141,14 @@ def get_jwt_key() -> OctKey:
 			_JWT_KEY = OctKey.import_key(secret.encode())
 		else:
 			_JWT_KEY = OctKey.generate_key(256, is_private=True)
+			logger.warning(json.dumps({
+				"event": "jwt_key_auto_generated",
+				"warning": (
+					"JWT_SECRET not set — ephemeral key in use. Tokens issued by this "
+					"server will be rejected by the gateway (different process, different key). "
+					"Set JWT_SECRET to the same value in both servers."
+				),
+			}))
 	return _JWT_KEY
 
 

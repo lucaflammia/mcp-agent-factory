@@ -34,6 +34,9 @@ import os
 import sys
 import time
 
+from authlib.jose import OctKey, jwt as _jwt
+
+from mcp_agent_factory.auth.session import generate_session_id
 from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient
 from mcp_agent_factory.bridge.oauth_middleware import (
     OAuthMiddleware,
@@ -45,6 +48,32 @@ logger = logging.getLogger(__name__)
 
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
 AUTH_SERVER_URL = os.getenv("AUTH_SERVER_URL", "http://localhost:8001")
+
+
+def _make_self_signed_factory(jwt_secret: str, client_id: str = "bridge") -> OAuthMiddleware:
+    """
+    Return an OAuthMiddleware that self-signs JWTs using JWT_SECRET.
+
+    This bypasses the auth server — the gateway validates the token using the
+    same JWT_SECRET.  Use only when the auth server is not running.
+    """
+    key = OctKey.import_key(jwt_secret.encode())
+
+    def _factory() -> tuple[str, int]:
+        now = int(time.time())
+        exp = now + 3600
+        claims = {
+            "sub": client_id,
+            "aud": "mcp-server",
+            "scope": "tools:call",
+            "session_id": generate_session_id(client_id),
+            "iat": now,
+            "exp": exp,
+        }
+        token = _jwt.encode({"alg": "HS256"}, claims, key).decode("ascii")
+        return token, exp
+
+    return OAuthMiddleware(_factory)
 
 
 def _build_middleware() -> OAuthMiddleware:
@@ -60,21 +89,22 @@ def _build_middleware() -> OAuthMiddleware:
 
     token = os.getenv("GATEWAY_TOKEN")
     if token:
-        if os.getenv("JWT_SECRET"):
-            logger.warning(
-                "GATEWAY_TOKEN is set alongside JWT_SECRET. "
-                "The pre-issued token may have been signed with a different key and will be "
-                "rejected by the gateway. Prefer BRIDGE_CLIENT_ID + BRIDGE_CLIENT_SECRET to "
-                "obtain a fresh token automatically."
-            )
         logger.info("Using pre-issued GATEWAY_TOKEN")
         def _static() -> tuple[str, int]:
             return token, int(time.time()) + 3600
         return OAuthMiddleware(_static)
 
+    jwt_secret = os.getenv("JWT_SECRET")
+    if jwt_secret:
+        logger.info(
+            "Auth server not configured — self-signing JWTs with JWT_SECRET "
+            "(dev mode; set BRIDGE_CLIENT_ID + BRIDGE_CLIENT_SECRET for production)"
+        )
+        return _make_self_signed_factory(jwt_secret)
+
     logger.warning(
-        "No credentials found. Set BRIDGE_CLIENT_ID + BRIDGE_CLIENT_SECRET "
-        "for M2M auth, or GATEWAY_TOKEN for a pre-issued token. "
+        "No credentials found. Set JWT_SECRET (dev), GATEWAY_TOKEN (pre-issued), "
+        "or BRIDGE_CLIENT_ID + BRIDGE_CLIENT_SECRET (M2M). "
         "Proceeding without auth — tools/call will be rejected by the gateway."
     )
     def _no_auth() -> tuple[str, int]:
