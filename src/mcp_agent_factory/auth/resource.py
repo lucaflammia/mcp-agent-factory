@@ -37,9 +37,14 @@ def get_jwt_key() -> OctKey:
 	"""Return the current JWT validation key."""
 	global _JWT_KEY
 	if _JWT_KEY is None:
-		raise RuntimeError(
-			"JWT key not set. Call set_jwt_key() with the Auth Server's key before use."
-		)
+		import os
+		secret = os.getenv("JWT_SECRET")
+		if secret:
+			_JWT_KEY = OctKey.import_key(secret.encode())
+		else:
+			raise RuntimeError(
+				"JWT key not set. Set JWT_SECRET env var or call set_jwt_key() before use."
+			)
 	return _JWT_KEY
 
 

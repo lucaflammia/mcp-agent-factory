@@ -60,6 +60,13 @@ def _build_middleware() -> OAuthMiddleware:
 
     token = os.getenv("GATEWAY_TOKEN")
     if token:
+        if os.getenv("JWT_SECRET"):
+            logger.warning(
+                "GATEWAY_TOKEN is set alongside JWT_SECRET. "
+                "The pre-issued token may have been signed with a different key and will be "
+                "rejected by the gateway. Prefer BRIDGE_CLIENT_ID + BRIDGE_CLIENT_SECRET to "
+                "obtain a fresh token automatically."
+            )
         logger.info("Using pre-issued GATEWAY_TOKEN")
         def _static() -> tuple[str, int]:
             return token, int(time.time()) + 3600
