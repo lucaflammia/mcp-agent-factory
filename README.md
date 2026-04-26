@@ -553,10 +553,13 @@ from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder, query
 
 store, embedder = InMemoryVectorStore(), StubEmbedder()
 store.upsert("alice", "prior climate analysis", embedder.embed("prior climate analysis"))
-chunks = query_knowledge_base("climate", "alice", store, embedder, top_k=3)
+chunks = query_knowledge_base("prior climate analysis", "alice", store, embedder, top_k=3)
 print(chunks)
 ' 
 # [{"text": "prior climate analysis", "score": 0.99...}]
+# Note: StubEmbedder uses hash-seeded random projection — it is deterministic but not
+# semantic. Querying with a different string (e.g. "climate") will return a near-random
+# cosine score. Use a real embedding model for semantic similarity.
 ```
 
 ## Fault-Tolerant Streaming Pipeline
