@@ -5,13 +5,13 @@
       "args": [
         "/home/luca/.nvm/versions/node/v22.22.2/lib/node_modules/gsd-pi/packages/mcp-server/dist/cli.js"
       ],
-      "cwd": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory",
+      "cwd": "/home/luca/Documents/Fargin/mcp-agent-factory",
       "env": {
         "GSD_CLI_PATH": "/home/luca/.nvm/versions/node/v22.22.2/bin/gsd",
         "GSD_WORKFLOW_EXECUTORS_MODULE": "/home/luca/.gsd/agent/extensions/gsd/tools/workflow-tool-executors.js",
         "GSD_WORKFLOW_WRITE_GATE_MODULE": "/home/luca/.gsd/agent/extensions/gsd/bootstrap/write-gate.js",
         "GSD_PERSIST_WRITE_GATE_STATE": "1",
-        "GSD_WORKFLOW_PROJECT_ROOT": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory"
+        "GSD_WORKFLOW_PROJECT_ROOT": "/home/luca/Documents/Fargin/mcp-agent-factory"
       }
     }
   }

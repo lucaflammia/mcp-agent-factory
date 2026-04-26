@@ -1,0 +1,32 @@
+{
+  "template": "dep-upgrade",
+  "templateName": "Dependency Upgrade",
+  "description": "\"please add key-value storage for redis to collect a small number of topics and make tests\"",
+  "branch": "gsd/dep-upgrade/please-add-key-value-storage-for-redis-t",
+  "phases": [
+    {
+      "name": "assess",
+      "index": 0,
+      "status": "active"
+    },
+    {
+      "name": "upgrade",
+      "index": 1,
+      "status": "pending"
+    },
+    {
+      "name": "fix",
+      "index": 2,
+      "status": "pending"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "pending"
+    }
+  ],
+  "currentPhase": 0,
+  "startedAt": "2026-04-26T08:01:18.531Z",
+  "updatedAt": "2026-04-26T08:01:18.531Z",
+  "artifactDir": "/home/luca/Documents/Fargin/mcp-agent-factory/.gsd/workflows/upgrades/260426-1-please-add-key-value-storage-for-redis-t"
+}
