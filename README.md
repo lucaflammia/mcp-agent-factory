@@ -46,7 +46,9 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 └──────┬──────────────────────────────────────────────────────┘
        │
 ┌──────▼─────────────────────────────────────────────────────┐
-│            Redis Session Manager (fakeredis / real)         │
+│       Redis Storage Layer (fakeredis / real)                │
+│  RedisSessionManager — cross-agent session handoffs         │
+│  RedisKVStore — topic-namespaced key-value store            │
 └────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
@@ -66,6 +68,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **ReAct Loop** | `react_loop.py` | Perception → Reasoning → Action agent loop |
 | **Agent Pipeline** | `agents/` | `AnalystAgent` → `WriterAgent` coordinated by `MultiAgentOrchestrator`; `LibrarianAgent` for RAG retrieval |
 | **Session State** | `session/manager.py` | Redis-backed key/value store for cross-agent handoffs |
+| **KV Store** | `kv/store.py` | Topic-namespaced Redis key-value store; registered topics enforced at runtime; JSON serialisation; async `set/get/delete/keys` |
 | **Economics** | `economics/` | Utility scoring + knowledge-augmented sealed-bid auction |
 | **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
 | **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
@@ -597,7 +600,7 @@ if not guard.already_seen(task.id):        # Skip if already processed
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 248 unit tests (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 255 unit tests (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -635,6 +638,9 @@ src/mcp_agent_factory/
 │   ├── librarian.py                # LibrarianAgent (RAG retrieval synthesis)
 │   └── pipeline_orchestrator.py
 ├── session/manager.py              # Redis session manager
+├── kv/
+│   ├── __init__.py                 # Public re-exports
+│   └── store.py                    # RedisKVStore — topic-namespaced async KV store
 ├── economics/
 │   ├── utility.py                  # Utility function scoring
 │   └── auction.py                  # Knowledge-augmented sealed-bid auction
@@ -701,6 +707,7 @@ tests/
 ├── test_m007_kafka.py              # M007: KafkaEventLog integration (real Kafka)
 ├── test_m007_redlock.py            # M007: RedlockClient 3-node quorum
 ├── test_m007_scaling.py            # M007: Multi-process StreamWorker scaling
+├── test_kv_store.py                # KV: RedisKVStore topic namespacing + CRUD
 └── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
 ```
 
@@ -724,6 +731,7 @@ tests/
 | Hotfix | Bridge self-signs a valid HS256 JWT with `JWT_SECRET` when no auth server is running — no extra process needed for local dev; `python -m mcp_agent_factory.auth token` generates a static `GATEWAY_TOKEN` | +0 (248 unit) |
 | Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
 | Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
+| KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; tested with `fakeredis` | +7 (255 unit) |
 
 ## Security Notes
 
