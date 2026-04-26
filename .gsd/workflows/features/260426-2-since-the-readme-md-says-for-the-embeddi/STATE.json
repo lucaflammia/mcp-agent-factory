@@ -1,0 +1,32 @@
+{
+  "template": "small-feature",
+  "templateName": "Small Feature",
+  "description": "\"Since the README.md says for the embedding model that: \"\"\" # Note: StubEmbedder uses hash-seeded random projection — it is deterministic but not # semantic. Querying with a different string (e.g. \"climate\") will return a near-random # cosine score. Use a real embedding model for semantic similarity. \"\"\" I need to use a real one which is free and works locally without any API calls in order to get semantic similarity for real.\"",
+  "branch": "gsd/small-feature/since-the-readme-md-says-for-the-embeddi",
+  "phases": [
+    {
+      "name": "scope",
+      "index": 0,
+      "status": "active"
+    },
+    {
+      "name": "plan",
+      "index": 1,
+      "status": "pending"
+    },
+    {
+      "name": "implement",
+      "index": 2,
+      "status": "pending"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "pending"
+    }
+  ],
+  "currentPhase": 0,
+  "startedAt": "2026-04-26T14:00:00.783Z",
+  "updatedAt": "2026-04-26T14:00:00.783Z",
+  "artifactDir": "/home/luca/Documents/Fargin/mcp-agent-factory/.gsd/workflows/features/260426-2-since-the-readme-md-says-for-the-embeddi"
+}
