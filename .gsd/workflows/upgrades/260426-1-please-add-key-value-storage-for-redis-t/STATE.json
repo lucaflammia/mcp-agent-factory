@@ -7,25 +7,25 @@
     {
       "name": "assess",
       "index": 0,
-      "status": "active"
+      "status": "complete"
     },
     {
       "name": "upgrade",
       "index": 1,
-      "status": "pending"
+      "status": "complete"
     },
     {
       "name": "fix",
       "index": 2,
-      "status": "pending"
+      "status": "complete"
     },
     {
       "name": "verify",
       "index": 3,
-      "status": "pending"
+      "status": "complete"
     }
   ],
-  "currentPhase": 0,
+  "currentPhase": 3,
   "startedAt": "2026-04-26T08:01:18.531Z",
   "updatedAt": "2026-04-26T08:01:18.531Z",
   "artifactDir": "/home/luca/Documents/Fargin/mcp-agent-factory/.gsd/workflows/upgrades/260426-1-please-add-key-value-storage-for-redis-t"
