@@ -68,7 +68,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **ReAct Loop** | `react_loop.py` | Perception → Reasoning → Action agent loop |
 | **Agent Pipeline** | `agents/` | `AnalystAgent` → `WriterAgent` coordinated by `MultiAgentOrchestrator`; `LibrarianAgent` for RAG retrieval |
 | **Session State** | `session/manager.py` | Redis-backed key/value store for cross-agent handoffs |
-| **KV Store** | `kv/store.py` | Topic-namespaced Redis key-value store; registered topics enforced at runtime; JSON serialisation; async `set/get/delete/keys` |
+| **KV Store** | `kv/store.py` | Topic-namespaced Redis key-value store; registered topics enforced at runtime; JSON serialisation; async `set/get/delete/keys`; O(1) phrase-affinity check via Redis sets (`add_phrase` / `has_affinity` / `phrases`) |
 | **Economics** | `economics/` | Utility scoring + knowledge-augmented sealed-bid auction |
 | **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
 | **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
@@ -596,6 +596,44 @@ if not guard.already_seen(task.id):        # Skip if already processed
 - `CLOSED` — normal operation; failure count tracked
 - `OPEN` — threshold reached; returns `fallback` immediately without calling `fn`
 - `HALF_OPEN` — after `recovery_timeout`; one probe call; success → CLOSED, failure → OPEN
+
+## Topic Affinity — Checking Phrase Membership in Redis
+
+Populate a topic with representative phrases, then check whether an incoming
+phrase belongs to it.  Uses Redis native sets (`SADD` / `SISMEMBER`) so the
+membership test is O(1) regardless of vocabulary size.
+
+```python
+import asyncio
+import fakeredis.aioredis
+from mcp_agent_factory.kv import RedisKVStore
+
+async def main():
+    client = fakeredis.aioredis.FakeRedis()
+    store = RedisKVStore(client, topics=["climate", "finance", "health"])
+
+    # Populate topics with representative phrases
+    for phrase in ["global warming", "carbon footprint", "sea level rise"]:
+        await store.add_phrase("climate", phrase)
+
+    for phrase in ["interest rate", "equity market", "hedge fund"]:
+        await store.add_phrase("finance", phrase)
+
+    # Check affinity
+    print(await store.has_affinity("climate", "sea level rise"))   # True
+    print(await store.has_affinity("finance", "sea level rise"))   # False
+    print(await store.has_affinity("health",  "sea level rise"))   # False
+
+    # Inspect registered phrases for a topic
+    print(await store.phrases("climate"))
+    # ['carbon footprint', 'global warming', 'sea level rise']
+
+asyncio.run(main())
+```
+
+> **Note:** `add_phrase` / `has_affinity` / `phrases` use a dedicated internal
+> Redis set key (`kv:<topic>:__phrases__`) that is hidden from `keys()`, so
+> the standard CRUD surface stays clean.
 
 ## Running Tests
 

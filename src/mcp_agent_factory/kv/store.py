@@ -44,4 +44,28 @@ class RedisKVStore:
         return [
             (k.decode() if isinstance(k, bytes) else k).removeprefix(prefix)
             for k in raw_keys
+            # exclude the internal phrase-set key
+            if (k.decode() if isinstance(k, bytes) else k) != f"{prefix}__phrases__"
         ]
+
+    # ------------------------------------------------------------------
+    # Topic affinity — phrase membership via Redis Set
+    # ------------------------------------------------------------------
+
+    def _phrase_key(self, topic: str) -> str:
+        if topic not in self._topics:
+            raise ValueError(f"Unknown topic {topic!r}. Registered: {sorted(self._topics)}")
+        return f"kv:{topic}:__phrases__"
+
+    async def add_phrase(self, topic: str, phrase: str) -> None:
+        """Register *phrase* as belonging to *topic*."""
+        await self._client.sadd(self._phrase_key(topic), phrase)
+
+    async def has_affinity(self, topic: str, phrase: str) -> bool:
+        """Return True if *phrase* was registered under *topic*."""
+        return bool(await self._client.sismember(self._phrase_key(topic), phrase))
+
+    async def phrases(self, topic: str) -> list[str]:
+        """Return all phrases registered under *topic*."""
+        raw = await self._client.smembers(self._phrase_key(topic))
+        return sorted(m.decode() if isinstance(m, bytes) else m for m in raw)

@@ -64,3 +64,48 @@ async def test_values_roundtrip_types(kv):
     assert await kv.get("agents", "int-val") == 42
     assert await kv.get("agents", "list-val") == [1, 2, 3]
     assert await kv.get("agents", "nested") == {"a": {"b": True}}
+
+
+# ------------------------------------------------------------------
+# Topic affinity
+# ------------------------------------------------------------------
+
+async def test_has_affinity_true(kv):
+    await kv.add_phrase("agents", "autonomous agent")
+    assert await kv.has_affinity("agents", "autonomous agent") is True
+
+
+async def test_has_affinity_false(kv):
+    assert await kv.has_affinity("agents", "deep learning") is False
+
+
+async def test_affinity_topic_isolation(kv):
+    await kv.add_phrase("agents", "orchestration")
+    await kv.add_phrase("sessions", "session token")
+    assert await kv.has_affinity("agents", "session token") is False
+    assert await kv.has_affinity("sessions", "orchestration") is False
+
+
+async def test_phrases_returns_all(kv):
+    await kv.add_phrase("config", "feature flag")
+    await kv.add_phrase("config", "rate limit")
+    await kv.add_phrase("config", "timeout")
+    result = await kv.phrases("config")
+    assert result == ["feature flag", "rate limit", "timeout"]
+
+
+async def test_phrases_not_leaked_into_keys(kv):
+    """add_phrase must not appear in keys() results."""
+    await kv.add_phrase("agents", "agent loop")
+    await kv.set("agents", "a1", {"status": "idle"})
+    keys = await kv.keys("agents")
+    assert "__phrases__" not in keys
+    assert keys == ["a1"]
+
+
+async def test_affinity_unknown_topic_raises(kv):
+    with pytest.raises(ValueError, match="Unknown topic"):
+        await kv.has_affinity("unknown", "phrase")
+
+    with pytest.raises(ValueError, match="Unknown topic"):
+        await kv.add_phrase("unknown", "phrase")
