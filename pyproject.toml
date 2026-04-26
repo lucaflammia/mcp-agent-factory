@@ -15,6 +15,7 @@ mcp-sim-server = "mcp_agent_factory.server:main"
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "fakeredis>=2.0"]
 infra = ["aiokafka>=0.10"]
+ml = ["sentence-transformers>=2.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

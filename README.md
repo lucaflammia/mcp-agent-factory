@@ -548,18 +548,17 @@ Every call emits a `knowledge.retrieved` SSE event with `owner_id`, `chunk_count
 
 ```python
 python -c '
-# Direct Python usage
-from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder, query_knowledge_base
+# Direct Python usage — LocalEmbedder (default) provides real semantic similarity
+from mcp_agent_factory.knowledge import InMemoryVectorStore, LocalEmbedder, query_knowledge_base
 
-store, embedder = InMemoryVectorStore(), StubEmbedder()
+store, embedder = InMemoryVectorStore(), LocalEmbedder()  # all-MiniLM-L6-v2, local, no API key
 store.upsert("alice", "prior climate analysis", embedder.embed("prior climate analysis"))
-chunks = query_knowledge_base("prior climate analysis", "alice", store, embedder, top_k=3)
+chunks = query_knowledge_base("climate", "alice", store, embedder, top_k=3)
 print(chunks)
-' 
-# [{"text": "prior climate analysis", "score": 0.99...}]
-# Note: StubEmbedder uses hash-seeded random projection — it is deterministic but not
-# semantic. Querying with a different string (e.g. "climate") will return a near-random
-# cosine score. Use a real embedding model for semantic similarity.
+'
+# [{"text": "prior climate analysis", "score": 0.87...}]
+# LocalEmbedder uses sentence-transformers/all-MiniLM-L6-v2 — 22 MB, fully offline,
+# genuine semantic similarity. StubEmbedder is still available for tests/CI (no model download).
 ```
 
 ## Fault-Tolerant Streaming Pipeline
