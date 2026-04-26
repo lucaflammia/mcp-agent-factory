@@ -638,7 +638,7 @@ asyncio.run(main())
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 255 unit tests (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 273 unit tests (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -769,7 +769,7 @@ tests/
 | Hotfix | Bridge self-signs a valid HS256 JWT with `JWT_SECRET` when no auth server is running — no extra process needed for local dev; `python -m mcp_agent_factory.auth token` generates a static `GATEWAY_TOKEN` | +0 (248 unit) |
 | Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
 | Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
-| KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; tested with `fakeredis` | +7 (255 unit) |
+| KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; `add_phrase` / `has_affinity` / `phrases` topic-affinity API via Redis sets; tested with `fakeredis` | +13 (273 unit) |
 
 ## Security Notes
 

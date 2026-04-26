@@ -1,0 +1,32 @@
+{
+  "template": "dep-upgrade",
+  "templateName": "Dependency Upgrade",
+  "description": "\"I need to populate Redis within the MCP Agent Factory ecosystem and check if pharases belong to a specific topic. I need that a short test appears to the README.md to check topic affinity\"",
+  "branch": "gsd/dep-upgrade/i-need-to-populate-redis-within-the-mcp",
+  "phases": [
+    {
+      "name": "assess",
+      "index": 0,
+      "status": "active"
+    },
+    {
+      "name": "upgrade",
+      "index": 1,
+      "status": "pending"
+    },
+    {
+      "name": "fix",
+      "index": 2,
+      "status": "pending"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "pending"
+    }
+  ],
+  "currentPhase": 0,
+  "startedAt": "2026-04-26T10:08:15.641Z",
+  "updatedAt": "2026-04-26T10:08:15.641Z",
+  "artifactDir": "/home/luca/Documents/Fargin/mcp-agent-factory/.gsd/workflows/upgrades/260426-2-i-need-to-populate-redis-within-the-mcp"
+}
