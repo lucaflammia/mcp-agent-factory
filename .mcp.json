@@ -11,8 +11,7 @@
         "GSD_WORKFLOW_EXECUTORS_MODULE": "/home/luca/.gsd/agent/extensions/gsd/tools/workflow-tool-executors.js",
         "GSD_WORKFLOW_WRITE_GATE_MODULE": "/home/luca/.gsd/agent/extensions/gsd/bootstrap/write-gate.js",
         "GSD_PERSIST_WRITE_GATE_STATE": "1",
-        "GSD_WORKFLOW_PROJECT_ROOT": "/home/luca/Documents/Fargin/mcp-agent-factory",
-        "ANTHROPIC_API_KEY": ""
+        "GSD_WORKFLOW_PROJECT_ROOT": "/home/luca/Documents/Fargin/mcp-agent-factory"
       }
     }
   }

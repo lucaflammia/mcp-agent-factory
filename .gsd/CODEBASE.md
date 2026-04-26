@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-04-26T08:06:07Z | Files: 101 | Described: 0/101
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-26T08:06:07Z","fingerprint":"e493084d96ad9b014552da23c05d7f2dbe67efe7","fileCount":101,"truncated":false} -->
+Generated: 2026-04-26T09:47:12Z | Files: 104 | Described: 0/104
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-26T09:47:12Z","fingerprint":"a3b4cb19f088806af99c69f1323405e9c195b39a","fileCount":104,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -81,6 +81,10 @@ Generated: 2026-04-26T08:06:07Z | Files: 101 | Described: 0/101
 - `src/mcp_agent_factory/knowledge/tools.py`
 - `src/mcp_agent_factory/knowledge/vector_store.py`
 
+### src/mcp_agent_factory/kv/
+- `src/mcp_agent_factory/kv/__init__.py`
+- `src/mcp_agent_factory/kv/store.py`
+
 ### src/mcp_agent_factory/messaging/
 - `src/mcp_agent_factory/messaging/__init__.py`
 - `src/mcp_agent_factory/messaging/bus.py`
@@ -101,4 +105,4 @@ Generated: 2026-04-26T08:06:07Z | Files: 101 | Described: 0/101
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(34 files: 34 .py)*
+- *(35 files: 35 .py)*
