@@ -1,16 +1,17 @@
 # Codebase Map
 
-Generated: 2026-04-27T10:35:47Z | Files: 105 | Described: 0/105
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-27T10:35:47Z","fingerprint":"cebbdfb47453b4615127c0cf2cfbce0a7155eea8","fileCount":105,"truncated":false} -->
+Generated: 2026-04-27T11:46:38Z | Files: 106 | Described: 0/106
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-27T11:46:38Z","fingerprint":"bdefc8ff4ab173c6d247b22c82aee8feb6eecf1f","fileCount":106,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
 - `.gitignore`
-- `.mcp.json`
+- `.mcp.json.template`
 - `docker-compose.yml`
 - `mcp.json`
 - `pyproject.toml`
 - `README.md`
+- `setup-mcp.sh`
 
 ### docs/
 - `docs/security_audit.md`
