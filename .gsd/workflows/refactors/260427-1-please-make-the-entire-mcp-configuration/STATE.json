@@ -1,0 +1,33 @@
+{
+  "template": "refactor",
+  "templateName": "Refactor / Migration",
+  "description": "\"Please make the entire MCP configuration tailor-made depending on the laptop is using the repo. The goal is to handle the different local paths. For example in .mcp.json I sometimes use /home/luca/Documents/Fargin/mcp-agent-factory but also I occasionally use /home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory\" depending on the laptop I am actually working on\"",
+  "branch": "gsd/refactor/please-make-the-entire-mcp-configuration",
+  "phases": [
+    {
+      "name": "inventory",
+      "index": 0,
+      "status": "complete"
+    },
+    {
+      "name": "plan",
+      "index": 1,
+      "status": "complete"
+    },
+    {
+      "name": "migrate",
+      "index": 2,
+      "status": "complete"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "complete"
+    }
+  ],
+  "currentPhase": 3,
+  "status": "complete",
+  "startedAt": "2026-04-27T11:40:49.983Z",
+  "updatedAt": "2026-04-27T13:36:00.000Z",
+  "artifactDir": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/workflows/refactors/260427-1-please-make-the-entire-mcp-configuration"
+}
