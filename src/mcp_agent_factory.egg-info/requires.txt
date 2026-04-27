@@ -7,3 +7,6 @@ fakeredis>=2.0
 
 [infra]
 aiokafka>=0.10
+
+[ml]
+sentence-transformers>=2.2

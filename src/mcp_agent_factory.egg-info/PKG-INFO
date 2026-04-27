@@ -10,3 +10,5 @@ Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
 Requires-Dist: fakeredis>=2.0; extra == "dev"
 Provides-Extra: infra
 Requires-Dist: aiokafka>=0.10; extra == "infra"
+Provides-Extra: ml
+Requires-Dist: sentence-transformers>=2.2; extra == "ml"
