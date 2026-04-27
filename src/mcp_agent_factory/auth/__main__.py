@@ -61,6 +61,9 @@ def _cmd_token(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+    load_dotenv()
+
     parser = argparse.ArgumentParser(prog="python -m mcp_agent_factory.auth")
     sub = parser.add_subparsers(dest="command", required=True)
 

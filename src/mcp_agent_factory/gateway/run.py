@@ -19,6 +19,10 @@ from __future__ import annotations
 import logging
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import uvicorn
 
 from mcp_agent_factory.gateway.app import gateway_app
