@@ -1,0 +1,32 @@
+{
+  "template": "small-feature",
+  "templateName": "Small Feature",
+  "description": "\"I need to handle the env variables from .env and to be able to detect them every time I start a new terminal shell e.g. running the auth server or the MCP gateway\"",
+  "branch": "gsd/small-feature/i-need-to-handle-the-env-variables-from",
+  "phases": [
+    {
+      "name": "scope",
+      "index": 0,
+      "status": "complete"
+    },
+    {
+      "name": "plan",
+      "index": 1,
+      "status": "complete"
+    },
+    {
+      "name": "implement",
+      "index": 2,
+      "status": "complete"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "complete"
+    }
+  ],
+  "currentPhase": 3,
+  "startedAt": "2026-04-27T07:17:52.982Z",
+  "updatedAt": "2026-04-27T11:56:00.000Z",
+  "artifactDir": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/workflows/features/260427-3-i-need-to-handle-the-env-variables-from"
+}
