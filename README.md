@@ -83,6 +83,9 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 ## Quick Start
 
 ```bash
+# Generate machine-specific .mcp.json (run once after cloning or moving the repo)
+./setup-mcp.sh
+
 pip install -e .          # core deps: redis, python-dotenv
 pip install -e ".[ml]"   # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
 
