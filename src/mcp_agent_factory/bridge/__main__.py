@@ -34,6 +34,12 @@ import os
 import sys
 import time
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from authlib.jose import OctKey, jwt as _jwt
 
 from mcp_agent_factory.auth.session import generate_session_id

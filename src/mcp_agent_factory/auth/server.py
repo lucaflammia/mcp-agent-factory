@@ -29,6 +29,9 @@ import hashlib
 import json
 import logging
 import os
+
+from dotenv import load_dotenv
+load_dotenv()
 import secrets
 import time
 from contextlib import asynccontextmanager

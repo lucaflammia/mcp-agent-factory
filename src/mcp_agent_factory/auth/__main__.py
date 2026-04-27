@@ -15,7 +15,7 @@ Environment variables
 ---------------------
 JWT_SECRET   Shared HMAC secret (required for both serve and token sub-commands).
 HOST         Bind address for serve (default: 0.0.0.0).
-PORT         Port for serve (default: 8001).
+AUTH_PORT    Port for serve (default: 8001). Falls back to PORT if unset.
 LOG_LEVEL    Uvicorn log level for serve (default: info).
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     from mcp_agent_factory.auth.server import auth_app
 
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8001"))
+    port = int(os.getenv("AUTH_PORT", os.getenv("PORT", "8001")))
     log_level = os.getenv("LOG_LEVEL", "info")
     print(f"Auth server running on http://{host}:{port}", flush=True)
     uvicorn.run(auth_app, host=host, port=port, log_level=log_level)

@@ -83,7 +83,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 ## Quick Start
 
 ```bash
-pip install -e .          # redis>=5 is now a core dependency
+pip install -e .          # core deps: redis, python-dotenv
+pip install -e ".[ml]"   # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
 
 # STDIO server
 python -m mcp_agent_factory.server
@@ -160,17 +161,28 @@ Every 401 response includes `WWW-Authenticate: Bearer resource_metadata=<discove
 
 ### Step 1 — Set environment variables
 
-Both processes must share the same `JWT_SECRET`. Generate one and export it in every shell (or add to your secrets manager / `.env`):
+Copy the template and fill in your values — the servers load `.env` automatically at startup via `python-dotenv`, so you never need to `export` manually in a new shell:
 
 ```bash
-export JWT_SECRET="$(openssl rand -hex 32)"
+cp .env.example .env
+# edit .env and set at minimum:
+#   JWT_SECRET — shared signing key for auth + gateway
+#   REDIS_URL / AUTH_REDIS_URL — if using real Redis (optional for local dev)
 ```
 
-Optional but recommended for production. If you started Redis via `docker compose up -d`, use `localhost:6379`:
+Generate a strong `JWT_SECRET`:
 
 ```bash
-export REDIS_URL="redis://localhost:6379"        # real Redis for gateway sessions
-export AUTH_REDIS_URL="redis://localhost:6379"   # real Redis for auth codes + client registry
+openssl rand -hex 32
+```
+
+Both servers must share the same `JWT_SECRET`. System environment variables (exported in the shell) always take precedence over `.env` values.
+
+Optional but recommended for production — if you started Redis via `docker compose up -d`, use `localhost:6379`:
+
+```bash
+REDIS_URL=redis://localhost:6379          # real Redis for gateway sessions
+AUTH_REDIS_URL=redis://localhost:6379     # real Redis for auth codes + client registry
 ```
 
 Replace `localhost` with your Redis host when deploying to a remote environment.
@@ -182,8 +194,9 @@ Without `REDIS_URL` / `AUTH_REDIS_URL` the servers fall back to an in-process `F
 ### Step 2 — Start the auth server (port 8001)
 
 ```bash
-JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.auth.server:auth_app \
-  --host 0.0.0.0 --port 8001
+python -m mcp_agent_factory.auth serve
+# or via uvicorn directly
+uvicorn mcp_agent_factory.auth.server:auth_app --host 0.0.0.0 --port 8001
 ```
 
 ---
@@ -191,10 +204,9 @@ JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.auth.server:auth_app \
 ### Step 3 — Start the MCP gateway (port 8000)
 
 ```bash
-JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.gateway.run
-# or
-JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.gateway.run:app \
-  --host 0.0.0.0 --port 8000
+python -m mcp_agent_factory.gateway.run
+# or via uvicorn directly
+uvicorn mcp_agent_factory.gateway.run:app --host 0.0.0.0 --port 8000
 ```
 
 If you also want the real Redis/Kafka infrastructure running locally:
@@ -331,7 +343,7 @@ asyncio.run(main())
 For a self-contained demo that handles token acquisition automatically:
 
 ```bash
-JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.bridge
+python -m mcp_agent_factory.bridge
 ```
 
 #### Machine-to-machine bridge (no browser required)
@@ -340,24 +352,25 @@ The bridge supports `client_credentials` grant so it can authenticate without a 
 
 The auth server **must** share the same `JWT_SECRET` as the gateway. If they use different keys (or one uses an ephemeral key), every token the auth server issues will fail signature verification at the gateway with `bad_signature` or `Not Authorized`.
 
-**1. Export a shared secret (once, in every shell):**
+**1. Set the shared secret in `.env` (once):**
 
 ```bash
-export JWT_SECRET="$(openssl rand -hex 32)"
+# .env
+JWT_SECRET=<output of: openssl rand -hex 32>
 ```
 
-**2. Start the auth server with that secret:**
+Both servers load this automatically — no `export` needed in every shell.
+
+**2. Start the auth server:**
 
 ```bash
-JWT_SECRET=$JWT_SECRET uvicorn mcp_agent_factory.auth.server:auth_app \
-  --host 0.0.0.0 --port 8001
+python -m mcp_agent_factory.auth serve
 ```
 
-**3. Start the gateway with the same secret:**
+**3. Start the gateway:**
 
 ```bash
-export JWT_SECRET="<shared-secret-previously-created>"
-JWT_SECRET=$JWT_SECRET python -m mcp_agent_factory.gateway.run
+python -m mcp_agent_factory.gateway.run
 ```
 
 **4. Register the bridge client once (auth server must be running):**
@@ -371,11 +384,12 @@ curl -X POST http://localhost:8001/register \
 **5. Run the bridge with the client credentials:**
 
 ```bash
-JWT_SECRET=$JWT_SECRET \
 BRIDGE_CLIENT_ID=my-bridge \
 BRIDGE_CLIENT_SECRET=s3cr3t \
 python -m mcp_agent_factory.bridge
 ```
+
+Or add `BRIDGE_CLIENT_ID` / `BRIDGE_CLIENT_SECRET` to `.env` and just run `python -m mcp_agent_factory.bridge`.
 
 When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge fetches a token from the auth server's `/token` endpoint (no user interaction). The gateway verifies that token using the shared `JWT_SECRET` — all three processes must use the same value.
 
@@ -636,6 +650,14 @@ asyncio.run(main())
 > **Note:** `add_phrase` / `has_affinity` / `phrases` use a dedicated internal
 > Redis set key (`kv:<topic>:__phrases__`) that is hidden from `keys()`, so
 > the standard CRUD surface stays clean.
+>
+> **Verifying with `redis-cli`:** phrases are stored in `kv:<topic>:__phrases__`
+> (a Redis Set), not `kv:<topic>`. Use the correct key name:
+> ```
+> redis-cli TYPE "kv:climate:__phrases__"   # → set
+> redis-cli SMEMBERS "kv:climate:__phrases__"  # → phrase list
+> ```
+> `TYPE "kv:climate"` returns `none` because that key does not exist — this is expected.
 
 ## Running Tests
 
