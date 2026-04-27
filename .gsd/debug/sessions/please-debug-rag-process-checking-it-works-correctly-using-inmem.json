@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "mode": "debug",
+  "slug": "please-debug-rag-process-checking-it-works-correctly-using-inmem",
+  "issue": "\"please debug RAG process checking it works correctly using InMemoryVectorStore\"",
+  "status": "active",
+  "phase": "continued",
+  "createdAt": 1777283851213,
+  "updatedAt": 1777283882339,
+  "logPath": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/debug/please-debug-rag-process-checking-it-works-correctly-using-inmem.log",
+  "lastError": null
+}
