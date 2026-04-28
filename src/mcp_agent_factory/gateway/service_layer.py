@@ -12,8 +12,11 @@ from mcp_agent_factory.models import AddInput
 from mcp_agent_factory.session.manager import RedisSessionManager
 from mcp_agent_factory.streams.eventlog import EventLog
 
+from mcp_agent_factory.streams.async_idempotency import AsyncIdempotencyGuard
+
+from .router import LLMRequest, UnifiedRouter
 from .sampling import SamplingHandler
-from .validation import ValidationGate
+from .validation import PIIGate, ValidationGate
 
 
 class InternalServiceLayer:
@@ -33,6 +36,8 @@ class InternalServiceLayer:
         vector_store: Any,
         embedder: Any,
         event_log: EventLog | None = None,
+        router: UnifiedRouter | None = None,
+        prompt_cache: AsyncIdempotencyGuard | None = None,
     ) -> None:
         self._bus = bus
         self._session = session
@@ -40,7 +45,10 @@ class InternalServiceLayer:
         self._vector_store = vector_store
         self._embedder = embedder
         self._event_log = event_log
+        self._router = router
+        self._prompt_cache = prompt_cache
         self._gate = ValidationGate()
+        self._pii_gate = PIIGate()
 
     async def handle(
         self,
@@ -54,6 +62,9 @@ class InternalServiceLayer:
             pydantic.ValidationError: when tool arguments fail schema validation.
             ValueError: when *tool_name* is not recognised.
         """
+        # PII gate — raises PIIViolation (ValueError subclass) on blocked fields
+        self._pii_gate.scrub(args)
+
         if tool_name == "echo":
             text = args.get("text", "")
             outcome = {"content": [{"type": "text", "text": text}]}
@@ -77,8 +88,28 @@ class InternalServiceLayer:
 
         elif tool_name == "sampling_demo":
             prompt = args.get("prompt", "")
-            result = await self._sampling_handler.handle(prompt)
-            outcome = {"content": [{"type": "text", "text": result.completion}]}
+            # Prompt cache check — hit returns immediately without touching the router
+            if self._prompt_cache is not None:
+                cache_key = self._prompt_cache.cache_key(tool_name, args)
+                cached = await self._prompt_cache.get(cache_key)
+                if cached is not None:
+                    return {"content": [{"type": "text", "text": cached}]}
+
+            if self._router is not None:
+                llm_result = await self._router.route(
+                    LLMRequest(tool_name=tool_name, args=args, claims=claims, prompt=prompt)
+                )
+                text = llm_result["content"]
+                if self._prompt_cache is not None:
+                    await self._prompt_cache.set(cache_key, text)  # type: ignore[possibly-undefined]
+                outcome = {"content": [{"type": "text", "text": text}]}
+            else:
+                result = await self._sampling_handler.handle(prompt)
+                text = result.completion
+                if self._prompt_cache is not None:
+                    cache_key = self._prompt_cache.cache_key(tool_name, args)
+                    await self._prompt_cache.set(cache_key, text)
+                outcome = {"content": [{"type": "text", "text": text}]}
 
         elif tool_name == "query_knowledge_base":
             owner_id = claims["sub"] if claims else "dev"

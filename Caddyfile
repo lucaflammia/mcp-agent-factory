@@ -1,0 +1,8 @@
+# Caddy reverse proxy — terminates TLS at :443, proxies to gateway:8000
+# Uses Caddy's automatic self-signed cert for localhost (development).
+# Replace with a real ACME-capable domain for production.
+
+https://localhost {
+	tls internal
+	reverse_proxy gateway:8000
+}

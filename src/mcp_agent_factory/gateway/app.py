@@ -49,6 +49,7 @@ from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS
 from mcp_agent_factory.session.manager import RedisSessionManager
 
+from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
 
@@ -127,8 +128,14 @@ _vector_store: InMemoryVectorStore = InMemoryVectorStore()
 _embedder: LocalEmbedder = LocalEmbedder()
 _event_log = _make_event_log()
 
+_unified_router: UnifiedRouter = UnifiedRouter(
+    handlers=[AnthropicHandler(), OllamaHandler()],
+    event_log=_event_log,
+)
+
 _service_layer: InternalServiceLayer = InternalServiceLayer(
-	bus, session, sampling_handler, _vector_store, _embedder, _event_log
+	bus, session, sampling_handler, _vector_store, _embedder, _event_log,
+	router=_unified_router,
 )
 
 # ---------------------------------------------------------------------------

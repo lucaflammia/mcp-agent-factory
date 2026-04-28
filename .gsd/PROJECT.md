@@ -46,3 +46,4 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [x] M006: Distributed Orchestration & Monolith Refactoring — Redis Streams workers, event log, validation gate, idempotency, circuit breakers
 - [x] M007: Real Infrastructure — docker-compose stack, Kafka integration, Redlock 3-node quorum, multi-process horizontal scaling
 - [ ] M008: Production-Grade Infrastructure Wiring — replace all in-memory/fake defaults with env-driven real implementations
+- [ ] M009: Model Agnosticism & Token Economy — unified provider router, PII gate, context pruning, async caching, Caddy TLS

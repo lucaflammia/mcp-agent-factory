@@ -347,7 +347,121 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: unmapped
 - Notes: None.
 
+## Active (M009)
+
+### R033 — Unified provider router with handler abstraction
+- Class: core-capability
+- Status: active
+- Description: `UnifiedRouter` dispatches `MCPRequest` to `OpenAIHandler`, `AnthropicHandler`, or `OllamaHandler`. `InternalServiceLayer` calls the router; no direct provider calls outside it.
+- Why it matters: True vendor agnosticism — the service layer asks for a result and the router figures out the how.
+- Source: user
+- Primary owning slice: M009/S01
+- Supporting slices: M009/S05
+- Validation: unmapped
+- Notes: Router replaces `_dispatch` in `gateway/service_layer.py`.
+
+### R034 — Automatic fallback from cloud provider to local Ollama on retriable failure
+- Class: core-capability
+- Status: active
+- Description: On `ProviderError(retryable=True)` (e.g. HTTP 429), router retries once then falls back to `OllamaHandler` transparently.
+- Why it matters: System stays operational when cloud providers are rate-limited or degraded.
+- Source: user
+- Primary owning slice: M009/S01
+- Supporting slices: M009/S05
+- Validation: unmapped
+- Notes: Non-retriable errors (400, 401) propagate as `isError:true` without fallback.
+
+### R035 — Gateway-level PII scrubbing with negative-permissions model
+- Class: compliance/security
+- Status: active
+- Description: `ValidationGate` in `gateway/validation.py` scrubs all fields by default; only fields in `MCP_ALLOWED_FIELDS` env var (default: `"query,task_id,limit"`) pass to external handlers.
+- Why it matters: JWT secrets and private file paths never leave the local network even when using cloud LLMs.
+- Source: user
+- Primary owning slice: M009/S02
+- Supporting slices: M009/S05
+- Validation: unmapped
+- Notes: Regex patterns cover emails, API keys, private IPs, JWT-shaped strings.
+
+### R036 — Context pruning via cosine similarity before LLM call
+- Class: quality-attribute
+- Status: active
+- Description: `ContextPruner` embeds the incoming query via `StubEmbedder`/`LocalEmbedder`, computes cosine similarity against chunk embeddings, drops below-threshold chunks before the handler call.
+- Why it matters: Saves tokens, reduces latency, prevents LLM confusion from irrelevant RAG chunks.
+- Source: user
+- Primary owning slice: M009/S03
+- Supporting slices: M009/S05
+- Validation: unmapped
+- Notes: Empty-context fallthrough (all chunks pruned) is allowed — LLM answers from weights alone.
+
+### R037 — Async prompt response caching via AsyncIdempotencyGuard
+- Class: quality-attribute
+- Status: active
+- Description: `AsyncIdempotencyGuard` caches prompt-hash → full LLM response in Redis. Cache hit returns in under 1ms; cache miss falls through to live call. Write failures are non-fatal.
+- Why it matters: Identical complex prompts should not re-call the LLM; reduces cost and latency.
+- Source: user
+- Primary owning slice: M009/S04
+- Supporting slices: M009/S05
+- Validation: unmapped
+- Notes: New async-native class; existing sync `IdempotencyGuard` is unchanged.
+
+### R038 — `token.usage` event type on EventLog with per-user cost tracking
+- Class: failure-visibility
+- Status: active
+- Description: Every LLM handler call appends a `token.usage` event to `EventLog` with fields: `model`, `input_tokens`, `output_tokens`, `cost_usd`, `sub`. Non-fatal — never blocks the primary response.
+- Why it matters: Real-time visibility into AI spend per user; natural audit trail in the streaming pipeline.
+- Source: user
+- Primary owning slice: M009/S04
+- Supporting slices: M009/S05
+- Validation: unmapped
+- Notes: Extends existing `EventLog.append()` async interface; no schema change required to prior events.
+
+### R039 — TLS via Caddy reverse proxy in docker-compose stack
+- Class: operability
+- Status: active
+- Description: A `caddy` service in `docker-compose.yml` proxies `:443 → gateway:8000`. All external traffic is TLS-terminated at Caddy; gateway listens plain HTTP internally.
+- Why it matters: Sensitive data in transit is encrypted; clean separation of TLS from application logic.
+- Source: user
+- Primary owning slice: M009/S05
+- Supporting slices: none
+- Validation: unmapped
+- Notes: Self-signed cert acceptable for local dev. Caddy failure makes gateway unreachable — no app-level fallback.
+
+### R040 — Live Ollama fallback verified end-to-end in test suite
+- Class: operability
+- Status: active
+- Description: Integration test confirms: simulated OpenAI 429 → `UnifiedRouter` falls back to `OllamaHandler` → successful completion → `token.usage` event recorded in `EventLog`.
+- Why it matters: Contract-level stubs don't prove the live fallback chain works on real hardware.
+- Source: user
+- Primary owning slice: M009/S05
+- Supporting slices: M009/S01
+- Validation: unmapped
+- Notes: Requires Ollama running locally with a small model (e.g. `llama3.2:1b`).
+
 ## Deferred
+
+### R041 — Multi-tenant cost dashboards (aggregated per-user spend)
+- Class: admin/support
+- Status: deferred
+- Description: Aggregated spend reporting across users; admin endpoint or UI for cost visibility.
+- Why it matters: Useful for billing and capacity planning at scale.
+- Source: inferred
+- Primary owning slice: none
+- Supporting slices: none
+- Validation: unmapped
+- Notes: Deferred — R038 provides the raw data; aggregation is a future analytics layer.
+
+### R042 — PII allow-list management UI or admin endpoint
+- Class: admin/support
+- Status: deferred
+- Description: Runtime management of `MCP_ALLOWED_FIELDS` without restart.
+- Why it matters: Useful for operators tuning the PII gate without redeploying.
+- Source: inferred
+- Primary owning slice: none
+- Supporting slices: none
+- Validation: unmapped
+- Notes: Env-var-driven approach is sufficient for M009; runtime update is a future concern.
+
+## Deferred (pre-M009)
 
 ### R032 — Auth server uses RS256 + JWKS for multi-service JWT
 - Class: compliance/security
@@ -396,11 +510,21 @@ This file is the explicit capability and coverage contract for the project.
 | R030 | constraint | active | M008/S01 | none | unmapped |
 | R031 | operability | active | M008/S04 | M008/S01, M008/S02, M008/S03 | unmapped |
 | R032 | compliance/security | deferred | none | none | unmapped |
+| R033 | core-capability | active | M009/S01 | M009/S05 | unmapped |
+| R034 | core-capability | active | M009/S01 | M009/S05 | unmapped |
+| R035 | compliance/security | active | M009/S02 | M009/S05 | unmapped |
+| R036 | quality-attribute | active | M009/S03 | M009/S05 | unmapped |
+| R037 | quality-attribute | active | M009/S04 | M009/S05 | unmapped |
+| R038 | failure-visibility | active | M009/S04 | M009/S05 | unmapped |
+| R039 | operability | active | M009/S05 | none | unmapped |
+| R040 | operability | active | M009/S05 | M009/S01 | unmapped |
+| R041 | admin/support | deferred | none | none | unmapped |
+| R042 | admin/support | deferred | none | none | unmapped |
 
 ## Coverage Summary
 
-- Active requirements: 5 (R027–R031)
-- Mapped to slices: 5
+- Active requirements: 13 (R027–R031, R033–R040)
+- Mapped to slices: 13
 - Validated: 26 (R001–R026)
-- Deferred: 1 (R032)
+- Deferred: 3 (R032, R041, R042)
 - Unmapped active requirements: 0

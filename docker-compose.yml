@@ -43,6 +43,43 @@ services:
       timeout: 3s
       retries: 5
 
+  # MCP API Gateway
+  gateway:
+    build: .
+    command: ["python", "-m", "uvicorn", "mcp_agent_factory.gateway.app:gateway_app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MCP_DEV_MODE=1
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Caddy — terminates TLS at :443, proxies to gateway:8000
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
   # Zookeeper — required by Confluent Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -78,3 +115,7 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+volumes:
+  caddy_data:
+  caddy_config:
