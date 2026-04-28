@@ -1,7 +1,14 @@
 version: "3.9"
 
+# Profiles:
+#   (none) — Redis only, for local test runs
+#   full   — Complete reference stack: gateway, auth, Kafka, observability
+
 services:
-  # Standalone Redis — used by StreamWorker and IdempotencyGuard tests
+  # ---------------------------------------------------------------------------
+  # Core infrastructure — always available (no profile)
+  # ---------------------------------------------------------------------------
+
   redis:
     image: redis:7-alpine
     ports:
@@ -12,9 +19,14 @@ services:
       timeout: 3s
       retries: 5
 
-  # Three independent Redis nodes for Redlock quorum (R018)
+  # ---------------------------------------------------------------------------
+  # Full-stack services — started only with --profile full
+  # ---------------------------------------------------------------------------
+
+  # Three independent Redis nodes for Redlock quorum
   redis-node-1:
     image: redis:7-alpine
+    profiles: [full]
     ports:
       - "6381:6379"
     healthcheck:
@@ -25,6 +37,7 @@ services:
 
   redis-node-2:
     image: redis:7-alpine
+    profiles: [full]
     ports:
       - "6382:6379"
     healthcheck:
@@ -35,6 +48,7 @@ services:
 
   redis-node-3:
     image: redis:7-alpine
+    profiles: [full]
     ports:
       - "6383:6379"
     healthcheck:
@@ -43,46 +57,10 @@ services:
       timeout: 3s
       retries: 5
 
-  # MCP API Gateway
-  gateway:
-    build: .
-    command: ["python", "-m", "uvicorn", "mcp_agent_factory.gateway.app:gateway_app", "--host", "0.0.0.0", "--port", "8000"]
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - MCP_DEV_MODE=1
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
-    depends_on:
-      redis:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # Caddy — terminates TLS at :443, proxies to gateway:8000
-  caddy:
-    image: caddy:2-alpine
-    depends_on:
-      gateway:
-        condition: service_healthy
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
   # Zookeeper — required by Confluent Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
+    profiles: [full]
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -94,9 +72,10 @@ services:
       timeout: 5s
       retries: 5
 
-  # Kafka broker — used by KafkaEventLog integration tests (R017)
+  # Kafka broker
   kafka:
     image: confluentinc/cp-kafka:7.5.0
+    profiles: [full]
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -105,8 +84,11 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      # Two listener sets: internal (container→container) and external (host→container)
+      KAFKA_LISTENERS: PLAINTEXT_INTERNAL://0.0.0.0:29092,PLAINTEXT_EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:29092,PLAINTEXT_EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT,PLAINTEXT_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
@@ -116,6 +98,137 @@ services:
       retries: 10
       start_period: 30s
 
+  # OAuth 2.1 authorization server
+  auth:
+    build: .
+    profiles: [full]
+    command: ["python", "-m", "mcp_agent_factory.auth", "serve"]
+    environment:
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      AUTH_PORT: "8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/.well-known/oauth-authorization-server')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # MCP API Gateway
+  gateway:
+    build: .
+    profiles: [full]
+    command: ["python", "-m", "uvicorn", "mcp_agent_factory.gateway.app:gateway_app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      AUTH_SERVER_URL: http://auth:8001
+      MCP_DEV_MODE: ${MCP_DEV_MODE:-0}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: mcp-gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Caddy — terminates TLS at :443, proxies to gateway:8000
+  caddy:
+    image: caddy:2-alpine
+    profiles: [full]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "8443:443"
+      - "8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # ---------------------------------------------------------------------------
+  # Observability stack
+  # ---------------------------------------------------------------------------
+
+  # Jaeger all-in-one — distributed tracing backend + UI
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    profiles: [full]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Prometheus — metrics scraper
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    profiles: [full]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+
+  # Grafana — dashboards
+  grafana:
+    image: grafana/grafana:10.4.2
+    profiles: [full]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   caddy_data:
   caddy_config:
+  grafana_data:

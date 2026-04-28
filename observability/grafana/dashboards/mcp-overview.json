@@ -1,0 +1,63 @@
+{
+  "title": "MCP Agent Factory — Overview",
+  "uid": "mcp-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(http_requests_total{job=\"mcp-gateway\"}[1m])) by (path, method)",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP Latency P99 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"mcp-gateway\"}[1m])) by (le, path))",
+          "legendFormat": "P99 {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "100 * sum(rate(http_requests_total{job=\"mcp-gateway\",status=~\"5..\"}[1m])) / sum(rate(http_requests_total{job=\"mcp-gateway\"}[1m]))",
+          "legendFormat": "5xx %"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Auction Bids (total)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(mcp_auction_bids_total{job=\"mcp-gateway\"})",
+          "legendFormat": "Total bids"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    }
+  ]
+}
