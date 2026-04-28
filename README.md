@@ -1,6 +1,6 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, and a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure — built across eight progressive milestones.
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure, and model-agnostic LLM routing with PII scrubbing, context pruning, async prompt caching, and Caddy TLS — built across nine progressive milestones.
 
 ## Architecture
 
@@ -9,12 +9,15 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 │                     External Clients                         │
 │   Cursor / Claude Desktop / MCPGatewayClient + mcp.json      │
 └────────────────────────┬─────────────────────────────────────┘
+                         │ HTTPS (Caddy TLS termination → :8000)
                          │ Bearer JWT (OAuth 2.1 / PKCE S256)
 ┌────────────────────────▼─────────────────────────────────────┐
 │                 MCP API Gateway (FastAPI :8000)               │
 │  POST /mcp   POST /sampling   GET /health                     │
 │  GET  /sse/v1/events          POST /sse/v1/messages           │
-│  ValidationGate · InternalServiceLayer                       │
+│  PIIGate · ValidationGate · InternalServiceLayer             │
+│  UnifiedRouter → OpenAI / Anthropic / Ollama (auto-fallback) │
+│  ContextPruner (cosine) · AsyncIdempotencyGuard (SHA-256)    │
 └──────┬──────────────┬──────────────┬────────────────────────-┘
        │              │              │
 ┌──────▼──────┐ ┌─────▼──────────┐ ┌▼────────────────────────┐
@@ -78,6 +81,11 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
+| **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub |
+| **PII Gate** | `gateway/validation.py` | `PIIGate` deny-list regex scrubbing (email, API keys, private IPs, JWTs); `MCP_ALLOWED_FIELDS` env override |
+| **Context Pruner** | `gateway/pruner.py` | `ContextPruner.prune()` — cosine-similarity threshold filters irrelevant chunks before LLM dispatch |
+| **Async Prompt Cache** | `streams/async_idempotency.py` | `AsyncIdempotencyGuard` — SHA-256 cache key, async Redis SET NX; avoids redundant LLM calls for identical prompts |
+| **TLS / Caddy** | `Caddyfile`, `docker-compose.yml` | Caddy `tls internal` terminates HTTPS at `localhost`; `gateway` + `caddy` services in docker-compose stack |
 | **External Config** | `.mcp.json` (machine-local, gitignored) | IDE config for Cursor / Claude Desktop pointing at localhost gateway — generated from `.mcp.json.template` by `./setup-mcp.sh` |
 
 ## Quick Start
@@ -667,7 +675,7 @@ asyncio.run(main())
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 273 unit tests (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 336 tests collected (11 skipped without Docker) — no external services required
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -678,6 +686,7 @@ pytest tests/test_vector_store.py tests/test_ingest.py tests/test_knowledge_auct
 pytest tests/test_m006_streams.py tests/test_m006_eventlog.py tests/test_m006_gateway.py tests/test_m006_reliability.py tests/test_m006_integration.py  # M006
 pytest tests/test_m007_kafka.py tests/test_m007_redlock.py tests/test_m007_scaling.py   # M007 (unit)
 pytest tests/test_m008_integration.py                                                   # M008
+pytest tests/test_m009_s01.py tests/test_m009_s02.py tests/test_m009_s03.py tests/test_m009_s04.py tests/test_m009_s05.py  # M009
 
 # Integration tests — requires docker-compose up -d
 pytest -m integration -v  # 8 tests: KafkaEventLog, Redlock quorum, multi-process scaling
@@ -724,8 +733,10 @@ src/mcp_agent_factory/
 │   └── sse_v1_router.py            # SSE v1 router (/sse/v1/events + /messages)
 ├── gateway/
 │   ├── app.py                      # MCP API Gateway FastAPI app
-│   ├── validation.py               # ValidationGate (Pydantic schema guard)
-│   ├── service_layer.py            # InternalServiceLayer (tool dispatch)
+│   ├── validation.py               # ValidationGate + PIIGate (PII scrubbing, deny-list)
+│   ├── service_layer.py            # InternalServiceLayer → UnifiedRouter
+│   ├── router.py                   # UnifiedRouter + OpenAI/Anthropic/Ollama handlers
+│   ├── pruner.py                   # ContextPruner (cosine threshold filtering)
 │   ├── run.py                      # Production uvicorn entrypoint
 │   └── sampling.py                 # Sampling/createMessage handler
 ├── streams/                        # Fault-tolerant streaming layer (M006–M007)
@@ -734,6 +745,7 @@ src/mcp_agent_factory/
 │   ├── eventlog.py                 # EventLog protocol + InProcessEventLog
 │   ├── kafka_adapter.py            # KafkaEventLog (aiokafka, real Kafka)
 │   ├── idempotency.py              # IdempotencyGuard, DistributedLock, OutboxRelay
+│   ├── async_idempotency.py        # AsyncIdempotencyGuard (SHA-256 prompt cache)
 │   ├── circuit_breaker.py         # CircuitBreaker (CLOSED→OPEN→HALF_OPEN)
 │   └── redlock.py                  # RedlockClient — 3-node quorum acquire/release
 ├── auth/
@@ -776,6 +788,11 @@ tests/
 ├── test_m007_redlock.py            # M007: RedlockClient 3-node quorum
 ├── test_m007_scaling.py            # M007: Multi-process StreamWorker scaling
 ├── test_kv_store.py                # KV: RedisKVStore topic namespacing + CRUD
+├── test_m009_s01.py                # M009: UnifiedRouter + provider handlers
+├── test_m009_s02.py                # M009: PIIGate scrubbing
+├── test_m009_s03.py                # M009: ContextPruner cosine filtering
+├── test_m009_s04.py                # M009: AsyncIdempotencyGuard + token.usage events
+├── test_m009_s05.py                # M009: Caddy TLS + live Ollama fallback acceptance
 └── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
 ```
 
@@ -800,6 +817,7 @@ tests/
 | Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
 | Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
 | KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; `add_phrase` / `has_affinity` / `phrases` topic-affinity API via Redis sets; tested with `fakeredis` | +13 (273 unit) |
+| M009 | Model agnosticism: `UnifiedRouter` (OpenAI / Anthropic / Ollama + auto-fallback), `PIIGate` scrubbing, `ContextPruner`, `AsyncIdempotencyGuard` prompt cache, `token.usage` EventLog schema, Caddy TLS in docker-compose | +63 (336 total) |
 
 ## Security Notes
 
