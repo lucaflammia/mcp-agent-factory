@@ -1,12 +1,13 @@
 # Codebase Map
 
-Generated: 2026-04-28T04:01:57Z | Files: 106 | Described: 0/106
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-28T04:01:57Z","fingerprint":"bdefc8ff4ab173c6d247b22c82aee8feb6eecf1f","fileCount":106,"truncated":false} -->
+Generated: 2026-04-28T04:10:01Z | Files: 115 | Described: 0/115
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-28T04:10:01Z","fingerprint":"f247c2b1aaa3259695975b8ea26b7aab065379bf","fileCount":115,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
 - `.gitignore`
 - `.mcp.json.template`
+- `Caddyfile`
 - `docker-compose.yml`
 - `mcp.json`
 - `pyproject.toml`
@@ -71,6 +72,8 @@ Generated: 2026-04-28T04:01:57Z | Files: 106 | Described: 0/106
 ### src/mcp_agent_factory/gateway/
 - `src/mcp_agent_factory/gateway/__init__.py`
 - `src/mcp_agent_factory/gateway/app.py`
+- `src/mcp_agent_factory/gateway/pruner.py`
+- `src/mcp_agent_factory/gateway/router.py`
 - `src/mcp_agent_factory/gateway/run.py`
 - `src/mcp_agent_factory/gateway/sampling.py`
 - `src/mcp_agent_factory/gateway/service_layer.py`
@@ -99,6 +102,7 @@ Generated: 2026-04-28T04:01:57Z | Files: 106 | Described: 0/106
 
 ### src/mcp_agent_factory/streams/
 - `src/mcp_agent_factory/streams/__init__.py`
+- `src/mcp_agent_factory/streams/async_idempotency.py`
 - `src/mcp_agent_factory/streams/circuit_breaker.py`
 - `src/mcp_agent_factory/streams/eventlog.py`
 - `src/mcp_agent_factory/streams/idempotency.py`
@@ -107,4 +111,4 @@ Generated: 2026-04-28T04:01:57Z | Files: 106 | Described: 0/106
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(35 files: 35 .py)*
+- *(40 files: 40 .py)*
