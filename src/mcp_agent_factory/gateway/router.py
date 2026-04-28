@@ -223,6 +223,82 @@ class OllamaHandler(LLMHandler):
 
 
 # ---------------------------------------------------------------------------
+# Gemini handler
+# ---------------------------------------------------------------------------
+
+class GeminiHandler(LLMHandler):
+	provider_name = "gemini"
+
+	def __init__(self) -> None:
+		self._api_key = os.getenv("GEMINI_API_KEY", "")
+		self._model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+		self._base_url = "https://generativelanguage.googleapis.com/v1beta"
+
+	async def call(self, request: LLMRequest) -> dict[str, Any]:
+		if not self._api_key:
+			logger.warning('{"event":"gemini_key_missing","detail":"GEMINI_API_KEY not set — falling back"}')
+			raise ProviderError("gemini", detail="GEMINI_API_KEY not set")
+
+		url = f"{self._base_url}/models/{self._model}:generateContent?key={self._api_key}"
+		payload = {
+			"contents": [{"parts": [{"text": _prompt_from(request)}]}],
+		}
+		async with httpx.AsyncClient(timeout=30.0) as client:
+			try:
+				resp = await client.post(url, json=payload)
+			except httpx.ConnectError as exc:
+				raise ProviderError("gemini", detail=str(exc)) from exc
+
+		if resp.status_code == 429:
+			raise ProviderError("gemini", status=429, detail="rate limited")
+		if resp.status_code >= 400:
+			raise ProviderError("gemini", status=resp.status_code, detail=resp.text[:200])
+
+		data = resp.json()
+		candidates = data.get("candidates", [])
+		content_text = ""
+		if candidates:
+			parts = candidates[0].get("content", {}).get("parts", [])
+			content_text = " ".join(p.get("text", "") for p in parts)
+
+		usage = data.get("usageMetadata", {})
+		return {
+			"content": content_text,
+			"model": self._model,
+			"input_tokens": usage.get("promptTokenCount", 0),
+			"output_tokens": usage.get("candidatesTokenCount", 0),
+		}
+
+
+# ---------------------------------------------------------------------------
+# Provider factory — re-read LLM_PROVIDER on every call for live switching
+# ---------------------------------------------------------------------------
+
+def provider_factory(event_log: EventLog | None = None) -> "UnifiedRouter":
+	"""Build a UnifiedRouter with handler order driven by LLM_PROVIDER env var.
+
+	LLM_PROVIDER=anthropic → [AnthropicHandler, OllamaHandler]
+	LLM_PROVIDER=gemini    → [GeminiHandler, OllamaHandler]
+	LLM_PROVIDER=ollama    → [OllamaHandler]
+	LLM_PROVIDER=openai    → [OpenAIHandler, OllamaHandler]
+	default (unset)        → [AnthropicHandler, OllamaHandler]
+	"""
+	provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+	ollama = OllamaHandler()
+
+	if provider == "gemini":
+		handlers: list[LLMHandler] = [GeminiHandler(), ollama]
+	elif provider == "openai":
+		handlers = [OpenAIHandler(), ollama]
+	elif provider == "ollama":
+		handlers = [ollama]
+	else:
+		handlers = [AnthropicHandler(), ollama]
+
+	return UnifiedRouter(handlers=handlers, event_log=event_log)
+
+
+# ---------------------------------------------------------------------------
 # UnifiedRouter
 # ---------------------------------------------------------------------------
 

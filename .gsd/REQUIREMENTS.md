@@ -2,529 +2,137 @@
 
 This file is the explicit capability and coverage contract for the project.
 
-## Validated
-
-### R001 — The orchestrator manages and routes tasks between agents.
-- Class: core-capability
-- Status: validated
-- Description: The orchestrator manages and routes tasks between agents.
-- Why it matters: Essential for multi-agent functionality.
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: none
-- Validation: tests/test_mcp_lifecycle.py — 12 lifecycle tests; tests/test_e2e_routing.py — 4 end-to-end routing tests pass
-- Notes: 12 lifecycle tests + 4 e2e routing tests pass.
-
-### R002 — Standardized client-server communication via JSON-RPC 2.0.
-- Class: core-capability
-- Status: validated
-- Description: Standardized client-server communication via JSON-RPC 2.0.
-- Why it matters: Universal connection layer for agents.
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: none
-- Validation: tests/test_mcp_lifecycle.py — JSON-RPC 2.0 over live STDIO subprocess; 12/12 tests pass
-- Notes: 12/12 pytest tests pass over live STDIO subprocess.
-
-### R003 — Agents follow the Perception-Reasoning-Action loop with tool discovery and execution.
-- Class: core-capability
-- Status: validated
-- Description: Agents follow the Perception-Reasoning-Action loop with tool discovery and execution.
-- Why it matters: Enables adaptive agent behavior and dynamic tool usage.
-- Source: user
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: tests/test_react_loop.py — 11 ReAct cycle tests; tool discovery + execution verified
-- Notes: 11 ReAct tests pass — full cycle verified.
-
-### R004 — Agent behaviors demonstrably derived from Fargin Curriculum theory.
-- Class: core-capability
-- Status: validated
-- Description: Agent behaviors demonstrably derived from Fargin Curriculum theory.
-- Why it matters: Core theoretical foundation of the project.
-- Source: research
-- Primary owning slice: M001/S01
-- Supporting slices: M002/S04, M003/S05
-- Validation: tests/test_react_loop.py, tests/test_pipeline.py — agent behaviors traced to Fargin Curriculum patterns throughout M001–M003
-- Notes: docs/security_audit.md maps all controls to Fargin chapters.
-
-### R005 — All tool arguments validated against Pydantic v2 models at dispatch boundary.
-- Class: security
-- Status: validated
-- Description: All tool arguments validated against Pydantic v2 models at dispatch boundary.
-- Why it matters: Prevents injection and ensures data integrity.
-- Source: user
-- Primary owning slice: M001/S03
-- Supporting slices: none
-- Validation: tests/test_schema_validation.py — 5 Pydantic v2 dispatch-boundary rejection tests; isError=True on bad inputs
-- Notes: 5 test cases prove isError=True on bad inputs.
-
-### R006 — Architecture prioritizes on-device inference; egress guard at startup.
-- Class: privacy
-- Status: validated
-- Description: Architecture prioritizes on-device inference; egress guard at startup.
-- Why it matters: Core requirement for secure enterprise environments.
-- Source: user
-- Primary owning slice: M001/S03
-- Supporting slices: none
-- Validation: tests/test_schema_validation.py — PrivacyConfig.assert_no_egress() verified at startup; 3 privacy tests pass
-- Notes: PrivacyConfig with assert_no_egress() proven by 3 tests.
-
-### R007 — asyncio-native TaskScheduler with inbox, priority queue, retry logic, structured logging.
-- Class: core-capability
-- Status: validated
-- Description: asyncio-native TaskScheduler with inbox, priority queue, retry logic, structured logging.
-- Why it matters: Enables autonomous agent loops without blocking I/O.
-- Source: user
-- Primary owning slice: M002/S01
-- Supporting slices: none
-- Validation: tests/test_scheduler.py — 12 pytest-asyncio tests; inbox, priority queue, retry logic all verified
-- Notes: 12 pytest-asyncio tests pass.
-
-### R008 — TCP/IP MCP server over HTTP (POST /mcp). Coexists with STDIO server.
-- Class: core-capability
-- Status: validated
-- Description: TCP/IP MCP server over HTTP (POST /mcp). Coexists with STDIO server.
-- Why it matters: Networked transport for multi-host deployments.
-- Source: user
-- Primary owning slice: M002/S02
-- Supporting slices: none
-- Validation: tests/test_server_http.py — 11 HTTP MCP tests; POST /mcp coexists with STDIO server
-- Notes: 11 HTTP MCP tests pass.
-
-### R009 — Schema translation layer for Claude/OpenAI/Gemini function-calling formats.
-- Class: core-capability
-- Status: validated
-- Description: Schema translation layer for Claude/OpenAI/Gemini function-calling formats.
-- Why it matters: Universal adapter between MCP tools and LLM providers.
-- Source: user
-- Primary owning slice: M002/S02
-- Supporting slices: none
-- Validation: tests/test_adapters.py — 23 adapter tests; Claude/OpenAI/Gemini schema translation; no live API calls
-- Notes: 23 adapter tests pass, no live API calls.
-
-### R010 — Full OAuth 2.1 Auth Server: PKCE S256, /authorize, /token, client registration.
-- Class: compliance/security
-- Status: validated
-- Description: Full OAuth 2.1 Auth Server: PKCE S256, /authorize, /token, client registration.
-- Why it matters: Course deliverable; proves full PKCE flow.
-- Source: user
-- Primary owning slice: M002/S03
-- Supporting slices: none
-- Validation: tests/test_auth.py — full PKCE S256 flow; /register, /authorize, /token endpoints; 8 auth tests pass
-- Notes: Full PKCE flow proven by 8 auth tests.
-
-### R011 — Tokens are audience-bound; wrong aud → HTTP 401.
-- Class: compliance/security
-- Status: validated
-- Description: Tokens are audience-bound; wrong aud → HTTP 401.
-- Why it matters: Prevents token replay across services.
-- Source: user
-- Primary owning slice: M002/S03
-- Supporting slices: none
-- Validation: tests/test_auth.py — test_confused_deputy_wrong_aud_rejected; wrong aud → HTTP 401 verified
-- Notes: test_confused_deputy_wrong_aud_rejected passes.
-
-### R012 — Session IDs in format user_id:secrets.token_urlsafe(32).
-- Class: compliance/security
-- Status: validated
-- Description: Session IDs in format user_id:secrets.token_urlsafe(32).
-- Why it matters: Prevents session fixation and prediction.
-- Source: user
-- Primary owning slice: M002/S03
-- Supporting slices: none
-- Validation: tests/test_auth.py — 10/10 unique session IDs in user_id:token_urlsafe(32) format verified
-- Notes: 10/10 unique session IDs verified.
-
-### R013 — docs/security_audit.md maps all controls to Fargin Curriculum.
-- Class: compliance/security
-- Status: validated
-- Description: docs/security_audit.md maps all controls to Fargin Curriculum.
-- Why it matters: Primary course deliverable artifact.
-- Source: user
-- Primary owning slice: M002/S04
-- Supporting slices: none
-- Validation: docs/security_audit.md — 8 controls mapped to Fargin Curriculum chapters with module/function/test citations
-- Notes: 8 controls documented with module/function/test citations.
-
-### R014 — FastAPI MCP server validates bearer tokens, enforces scopes, audience binding.
-- Class: compliance/security
-- Status: validated
-- Description: FastAPI MCP server validates bearer tokens, enforces scopes, audience binding.
-- Why it matters: Closes the security loop between issuance and enforcement.
-- Source: user
-- Primary owning slice: M002/S03
-- Supporting slices: M002/S02
-- Validation: tests/test_auth.py, tests/test_server_http.py — test_protected_endpoint_no_token_returns_401 and test_wrong_scope_rejected pass
-- Notes: test_protected_endpoint_no_token_returns_401, test_wrong_scope_rejected pass.
-
-### R015 — Making live calls to Claude, GPT, or Gemini APIs from the adapter layer.
-- Class: integration
-- Status: validated
-- Description: Making live calls to Claude, GPT, or Gemini APIs from the adapter layer.
-- Why it matters: Keeps tests deterministic; avoids secret management.
-- Source: user
-- Primary owning slice: none
-- Supporting slices: none
-- Validation: All 246 tests self-contained; no live API calls in any test file; schema translation only in adapter layer
-- Notes: Schema translation only in M002/M003. Deferred to a future milestone.
-
-### R016 — Kafka, RabbitMQ, or other external queue backends.
-- Class: operability
-- Status: validated
-- Description: Kafka, RabbitMQ, or other external queue backends.
-- Why it matters: Asyncio message bus proves the pattern; external broker is infrastructure.
-- Source: user
-- Primary owning slice: none
-- Supporting slices: none
-- Validation: tests/test_message_bus.py — asyncio MessageBus fan-out proven; external broker deferred and later delivered via M007 KafkaEventLog
-- Notes: Deferred from M002. Still deferred in M003. asyncio bus is sufficient.
-
-### R017 — AnalystAgent processes raw data and extracts metrics; WriterAgent receives structured data from Analyst and generates a report. Orchestrator manages state transitions and handoffs between agents.
-- Class: core-capability
-- Status: validated
-- Description: AnalystAgent processes raw data and extracts metrics; WriterAgent receives structured data from Analyst and generates a report. Orchestrator manages state transitions and handoffs between agents.
-- Why it matters: Proves the "divide and conquer" multi-agent collaboration pattern from the Fargin Curriculum.
-- Source: user
-- Primary owning slice: M003/S01
-- Supporting slices: none
-- Validation: tests/test_pipeline.py — AnalystAgent → WriterAgent handoff via MultiAgentOrchestrator; Redis session state verified
-- Notes: Agents are Python classes (same interface as ReActAgent). Cross-agent state via Redis Session Manager.
-
-### R018 — A Redis-backed session store that persists structured data between agent steps (Analyst output → Writer input). Real redis client; fakeredis for tests.
-- Class: core-capability
-- Status: validated
-- Description: A Redis-backed session store that persists structured data between agent steps (Analyst output → Writer input). Real redis client; fakeredis for tests.
-- Why it matters: Makes cross-agent handoffs inspectable and durable rather than in-memory coupling.
-- Source: user
-- Primary owning slice: M003/S01
-- Supporting slices: M003/S03
-- Validation: tests/test_pipeline.py, tests/test_integration.py — fakeredis session store; cross-agent handoff data persists between Analyst and Writer steps
-- Notes: Interface-compatible with real Redis; fakeredis used in all tests.
-
-### R019 — MCP Context primitive used within individual tool calls for logging, progress reporting, and tracing. Scoped to single-tool execution health, not cross-agent state.
-- Class: quality-attribute
-- Status: validated
-- Description: MCP Context primitive used within individual tool calls for logging, progress reporting, and tracing. Scoped to single-tool execution health, not cross-agent state.
-- Why it matters: Provides structured observability at the MCP protocol boundary.
-- Source: user
-- Primary owning slice: M003/S01
-- Supporting slices: M003/S04
-- Validation: tests/test_pipeline.py, tests/test_gateway.py — MCP Context used for tool start/progress/completion logging throughout M003 pipeline
-- Notes: Context logs tool start/progress/completion. Not used for orchestrator-level state.
-
-### R020 — Each agent has a utility function that scores tasks based on cost and expertise. The score determines task desirability — higher utility = stronger preference to execute.
-- Class: core-capability
-- Status: validated
-- Description: Each agent has a utility function that scores tasks based on cost and expertise. The score determines task desirability — higher utility = stronger preference to execute.
-- Why it matters: Implements the economic agent behavior from the Fargin Curriculum; deterministic, no LLM needed.
-- Source: user
-- Primary owning slice: M003/S02
-- Supporting slices: none
-- Validation: tests/test_economics.py — utility scoring f(task_complexity, agent_expertise, execution_cost); deterministic, no LLM required
-- Notes: Utility = f(task_complexity, agent_expertise, execution_cost). Pure math, fully testable.
-
-### R021 — Agents submit bids (utility scores) for available tasks. The Orchestrator runs the auction and allocates the task to the highest bidder.
-- Class: core-capability
-- Status: validated
-- Description: Agents submit bids (utility scores) for available tasks. The Orchestrator runs the auction and allocates the task to the highest bidder.
-- Why it matters: Proves market dynamics in multi-agent resource allocation.
-- Source: user
-- Primary owning slice: M003/S02
-- Supporting slices: none
-- Validation: tests/test_economics.py — sealed-bid auction; highest bidder wins; tie-breaking by agent_id; deterministic
-- Notes: Deterministic auction — no randomness. Tie-breaking by agent_id for stability.
-
-### R022 — An asyncio in-process message bus routes messages between agents by role/capability. Consistent with M002's TaskScheduler pattern. No external broker in M003.
-- Class: core-capability
-- Status: validated
-- Description: An asyncio in-process message bus routes messages between agents by role/capability. Consistent with M002's TaskScheduler pattern. No external broker in M003.
-- Why it matters: Decouples agent communication from direct method calls; enables parallel processing.
-- Source: user
-- Primary owning slice: M003/S03
-- Supporting slices: none
-- Validation: tests/test_message_bus.py — asyncio fan-out by topic/role; no external broker; consistent with TaskScheduler pattern
-- Notes: External broker (Kafka/RabbitMQ) deferred to a future milestone.
-
-### R023 — Server-Sent Events endpoint on the API Gateway that streams agent messages to connected external clients in real time.
-- Class: core-capability
-- Status: validated
-- Description: Server-Sent Events endpoint on the API Gateway that streams agent messages to connected external clients in real time.
-- Why it matters: Enables external clients (Cursor IDE) to observe agent activity without polling.
-- Source: user
-- Primary owning slice: M003/S03
-- Supporting slices: M003/S04
-- Validation: tests/test_message_bus.py, tests/test_gateway.py — SSE /v1/events streams agent messages; first event is "connected"
-- Notes: sse_starlette already installed.
-
-### R024 — A centralized MCP server that routes tools/call requests from external clients to the appropriate internal agent/tool, and exposes sampling/createMessage capability.
-- Class: core-capability
-- Status: validated
-- Description: A centralized MCP server that routes tools/call requests from external clients to the appropriate internal agent/tool, and exposes sampling/createMessage capability.
-- Why it matters: Makes the entire multi-agent system accessible as a single MCP endpoint for Cursor IDE and other clients.
-- Source: user
-- Primary owning slice: M003/S04
-- Supporting slices: none
-- Validation: tests/test_gateway.py — MCP API Gateway routes tools/call to InternalServiceLayer; sampling/createMessage exposed on POST /sampling
-- Notes: New dedicated FastAPI app (not built on server_http_secured.py).
-
-### R025 — The API Gateway implements the MCP sampling/createMessage capability, allowing agents to request LLM completions mid-task via the connected client.
-- Class: core-capability
-- Status: validated
-- Description: The API Gateway implements the MCP sampling/createMessage capability, allowing agents to request LLM completions mid-task via the connected client.
-- Why it matters: Enables recursive workflows where a tool can request a second LLM opinion before returning a result.
-- Source: user
-- Primary owning slice: M003/S04
-- Supporting slices: none
-- Validation: tests/test_gateway.py — sampling/createMessage handler verified; client response stubbed in tests; real client exercises in production
-- Notes: Client response stubbed in tests. Real client (Cursor) exercises this in production.
-
-### R026 — langchain-mcp-adapters MultiServerMCPClient loads tools from the API Gateway. A custom security middleware layer injects OAuth 2.1 Bearer tokens (from M002 auth stack) into client requests.
-- Class: integration
-- Status: validated
-- Description: langchain-mcp-adapters MultiServerMCPClient loads tools from the API Gateway. A custom security middleware layer injects OAuth 2.1 Bearer tokens (from M002 auth stack) into client requests.
-- Why it matters: Proves MCP tools are accessible as LangChain tools in a secure, authenticated context — the full enterprise integration story.
-- Source: user
-- Primary owning slice: M003/S05
-- Supporting slices: none
-- Validation: tests/test_langchain_bridge.py — MultiServerMCPClient loads tools from gateway; OAuthMiddleware injects Bearer tokens; full enterprise integration verified
-- Notes: langchain-mcp-adapters 1.2.7 already installed. OAuth middleware is hand-rolled on top of the library.
-
 ## Active
 
-### R027 — Gateway Redis client is env-driven
-- Class: operability
-- Status: active
-- Description: `gateway/app.py` uses `redis.asyncio.from_url(REDIS_URL)` when `REDIS_URL` is set; falls back to `FakeRedis()` when unset.
-- Why it matters: Production deployments must not use a fake in-memory client — session state must survive restarts.
-- Source: user
-- Primary owning slice: M008/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: FakeRedis fallback preserves test isolation with no test changes.
-
-### R028 — OAuth state persists across server restarts
-- Class: compliance/security
-- Status: active
-- Description: `_clients` and `_codes` in `auth/server.py` are backed by Redis hashes when `REDIS_URL` is set; authorization codes carry TTL.
-- Why it matters: In-memory dict state is lost on every restart — OAuth clients must re-register after each deploy, which is unusable in production.
-- Source: user
-- Primary owning slice: M008/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Dict fallback when REDIS_URL unset preserves existing test suite.
-
-### R029 — Tool calls are durably logged via EventLog
-- Class: failure-visibility
-- Status: active
-- Description: `InternalServiceLayer` appends a structured event to `EventLog` on every tool call. Backend is `KafkaEventLog` when `KAFKA_BOOTSTRAP_SERVERS` is set, else `InProcessEventLog`.
-- Why it matters: Without a durable event log, there is no audit trail for tool invocations — debugging production failures requires reconstruction from ephemeral logs.
-- Source: user
-- Primary owning slice: M008/S03
-- Supporting slices: none
-- Validation: unmapped
-- Notes: InProcessEventLog fallback keeps tests hermetic.
-
-### R030 — `redis>=5` is a core dependency
-- Class: constraint
-- Status: active
-- Description: `redis>=5` must be listed in `[project].dependencies` in `pyproject.toml`, not gated behind `[infra]` extras.
-- Why it matters: Gateway and session manager both depend on redis; shipping a package that silently falls back to FakeRedis in production because the dep wasn't installed is a reliability hazard.
-- Source: inferred
-- Primary owning slice: M008/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: `aiokafka` stays as an optional extra since Kafka is not required for all deployments.
-
-### R031 — System passes integration tests against docker-compose stack
-- Class: operability
-- Status: active
-- Description: `pytest -m integration` passes with the full docker-compose stack running (Redis, Kafka, 3 Redlock nodes); all 32 existing non-integration tests also pass.
-- Why it matters: Proves the env-driven wiring actually works against real infrastructure, not just in test isolation.
-- Source: user
-- Primary owning slice: M008/S04
-- Supporting slices: M008/S01, M008/S02, M008/S03
-- Validation: unmapped
-- Notes: None.
-
-## Active (M009)
-
-### R033 — Unified provider router with handler abstraction
+### R001 — Local PDF text extraction via MCP tool `file_context_extractor` using pypdf — processes PDF on-device and returns targeted page snippets
 - Class: core-capability
 - Status: active
-- Description: `UnifiedRouter` dispatches `MCPRequest` to `OpenAIHandler`, `AnthropicHandler`, or `OllamaHandler`. `InternalServiceLayer` calls the router; no direct provider calls outside it.
-- Why it matters: True vendor agnosticism — the service layer asks for a result and the router figures out the how.
+- Description: Local PDF text extraction via MCP tool `file_context_extractor` using pypdf — processes PDF on-device and returns targeted page snippets
+- Why it matters: Raw PDF must never leave the local environment; on-device extraction is the privacy foundation for the whole analyst pipeline
 - Source: user
-- Primary owning slice: M009/S01
-- Supporting slices: M009/S05
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Router replaces `_dispatch` in `gateway/service_layer.py`.
 
-### R034 — Automatic fallback from cloud provider to local Ollama on retriable failure
+### R002 — AnalystAgent upgraded to full document analysis pipeline: invoke file_context_extractor → ContextPruner → PIIGate → UnifiedRouter
 - Class: core-capability
 - Status: active
-- Description: On `ProviderError(retryable=True)` (e.g. HTTP 429), router retries once then falls back to `OllamaHandler` transparently.
-- Why it matters: System stays operational when cloud providers are rate-limited or degraded.
+- Description: AnalystAgent upgraded to full document analysis pipeline: invoke file_context_extractor → ContextPruner → PIIGate → UnifiedRouter
+- Why it matters: Demonstrates the full M001–M009 infrastructure stack through a concrete, business-relevant use case
 - Source: user
-- Primary owning slice: M009/S01
-- Supporting slices: M009/S05
+- Primary owning slice: M010/S02
 - Validation: unmapped
-- Notes: Non-retriable errors (400, 401) propagate as `isError:true` without fallback.
 
-### R035 — Gateway-level PII scrubbing with negative-permissions model
-- Class: compliance/security
+### R003 — GeminiHandler for UnifiedRouter using HTTP-only Gemini REST API via httpx — mirrors AnthropicHandler interface
+- Class: core-capability
 - Status: active
-- Description: `ValidationGate` in `gateway/validation.py` scrubs all fields by default; only fields in `MCP_ALLOWED_FIELDS` env var (default: `"query,task_id,limit"`) pass to external handlers.
-- Why it matters: JWT secrets and private file paths never leave the local network even when using cloud LLMs.
+- Description: GeminiHandler for UnifiedRouter using HTTP-only Gemini REST API via httpx — mirrors AnthropicHandler interface
+- Why it matters: Adds a second cloud provider to demonstrate real multi-provider routing without adding SDK dependencies
 - Source: user
-- Primary owning slice: M009/S02
-- Supporting slices: M009/S05
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Regex patterns cover emails, API keys, private IPs, JWT-shaped strings.
 
-### R036 — Context pruning via cosine similarity before LLM call
-- Class: quality-attribute
+### R004 — Per-request provider resolution: UnifiedRouter.route() reads LLM_PROVIDER env var on every call and builds handler list with first-wins ordering (anthropic/gemini/ollama)
+- Class: core-capability
 - Status: active
-- Description: `ContextPruner` embeds the incoming query via `StubEmbedder`/`LocalEmbedder`, computes cosine similarity against chunk embeddings, drops below-threshold chunks before the handler call.
-- Why it matters: Saves tokens, reduces latency, prevents LLM confusion from irrelevant RAG chunks.
+- Description: Per-request provider resolution: UnifiedRouter.route() reads LLM_PROVIDER env var on every call and builds handler list with first-wins ordering (anthropic/gemini/ollama)
+- Why it matters: Enables live provider switching without restart — the core "hot switch" demo capability
 - Source: user
-- Primary owning slice: M009/S03
-- Supporting slices: M009/S05
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Empty-context fallthrough (all chunks pruned) is allowed — LLM answers from weights alone.
 
-### R037 — Async prompt response caching via AsyncIdempotencyGuard
-- Class: quality-attribute
-- Status: active
-- Description: `AsyncIdempotencyGuard` caches prompt-hash → full LLM response in Redis. Cache hit returns in under 1ms; cache miss falls through to live call. Write failures are non-fatal.
-- Why it matters: Identical complex prompts should not re-call the LLM; reduces cost and latency.
-- Source: user
-- Primary owning slice: M009/S04
-- Supporting slices: M009/S05
-- Validation: unmapped
-- Notes: New async-native class; existing sync `IdempotencyGuard` is unchanged.
-
-### R038 — `token.usage` event type on EventLog with per-user cost tracking
+### R005 — GeminiHandler logs an EventLog warning before raising ProviderError when GEMINI_API_KEY is absent, then falls back to Ollama
 - Class: failure-visibility
 - Status: active
-- Description: Every LLM handler call appends a `token.usage` event to `EventLog` with fields: `model`, `input_tokens`, `output_tokens`, `cost_usd`, `sub`. Non-fatal — never blocks the primary response.
-- Why it matters: Real-time visibility into AI spend per user; natural audit trail in the streaming pipeline.
+- Description: GeminiHandler logs an EventLog warning before raising ProviderError when GEMINI_API_KEY is absent, then falls back to Ollama
+- Why it matters: Demonstrates self-healing infrastructure — the logs show the system tried Gemini, explained failure, and recovered automatically
 - Source: user
-- Primary owning slice: M009/S04
-- Supporting slices: M009/S05
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Extends existing `EventLog.append()` async interface; no schema change required to prior events.
 
-### R039 — TLS via Caddy reverse proxy in docker-compose stack
-- Class: operability
+### R006 — Demo script scripts/demo_analyst.py: three-phase structured terminal output (extraction logs, KPI/risk analysis, provider metadata footer) plus live provider switch mid-session
+- Class: primary-user-loop
 - Status: active
-- Description: A `caddy` service in `docker-compose.yml` proxies `:443 → gateway:8000`. All external traffic is TLS-terminated at Caddy; gateway listens plain HTTP internally.
-- Why it matters: Sensitive data in transit is encrypted; clean separation of TLS from application logic.
+- Description: Demo script scripts/demo_analyst.py: three-phase structured terminal output (extraction logs, KPI/risk analysis, provider metadata footer) plus live provider switch mid-session
+- Why it matters: Primary stakeholder proof — if the demo script runs end-to-end with a real PDF and shows a provider switch, the milestone claim is proven
 - Source: user
-- Primary owning slice: M009/S05
-- Supporting slices: none
+- Primary owning slice: M010/S03
 - Validation: unmapped
-- Notes: Self-signed cert acceptable for local dev. Caddy failure makes gateway unreachable — no app-level fallback.
 
-### R040 — Live Ollama fallback verified end-to-end in test suite
-- Class: operability
+### R007 — Local PDF text extraction via file_context_extractor MCP tool using pypdf; raw PDF never leaves the device
+- Class: core-capability
 - Status: active
-- Description: Integration test confirms: simulated OpenAI 429 → `UnifiedRouter` falls back to `OllamaHandler` → successful completion → `token.usage` event recorded in `EventLog`.
-- Why it matters: Contract-level stubs don't prove the live fallback chain works on real hardware.
+- Description: Local PDF text extraction via file_context_extractor MCP tool using pypdf; raw PDF never leaves the device
+- Why it matters: Privacy-first document ingestion; proves the system can handle real corporate document formats before LLM routing
 - Source: user
-- Primary owning slice: M009/S05
-- Supporting slices: M009/S01
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Requires Ollama running locally with a small model (e.g. `llama3.2:1b`).
 
-## Deferred
-
-### R041 — Multi-tenant cost dashboards (aggregated per-user spend)
-- Class: admin/support
-- Status: deferred
-- Description: Aggregated spend reporting across users; admin endpoint or UI for cost visibility.
-- Why it matters: Useful for billing and capacity planning at scale.
-- Source: inferred
-- Primary owning slice: none
-- Supporting slices: none
+### R008 — AnalystAgent upgraded to full document analysis pipeline: extract via MCP tool → prune via ContextPruner → scrub via PIIGate → route via UnifiedRouter
+- Class: primary-user-loop
+- Status: active
+- Description: AnalystAgent upgraded to full document analysis pipeline: extract via MCP tool → prune via ContextPruner → scrub via PIIGate → route via UnifiedRouter
+- Why it matters: Wires all M009 infrastructure through a real user-visible use case; proves the production claim end-to-end
+- Source: user
+- Primary owning slice: M010/S02
 - Validation: unmapped
-- Notes: Deferred — R038 provides the raw data; aggregation is a future analytics layer.
 
-### R042 — PII allow-list management UI or admin endpoint
-- Class: admin/support
-- Status: deferred
-- Description: Runtime management of `MCP_ALLOWED_FIELDS` without restart.
-- Why it matters: Useful for operators tuning the PII gate without redeploying.
-- Source: inferred
-- Primary owning slice: none
-- Supporting slices: none
+### R009 — GeminiHandler for UnifiedRouter using HTTP-only httpx REST calls, mirroring AnthropicHandler structure; no google-generativeai SDK dependency
+- Class: integration
+- Status: active
+- Description: GeminiHandler for UnifiedRouter using HTTP-only httpx REST calls, mirroring AnthropicHandler structure; no google-generativeai SDK dependency
+- Why it matters: Adds a third LLM provider to the routing chain; validates the handler abstraction is extensible
+- Source: user
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Env-var-driven approach is sufficient for M009; runtime update is a future concern.
 
-## Deferred (pre-M009)
-
-### R032 — Auth server uses RS256 + JWKS for multi-service JWT
-- Class: compliance/security
-- Status: deferred
-- Description: Replace HS256 OctKey symmetric JWT with RS256 + JWKS endpoint for multi-service deployments.
-- Why it matters: HS256 requires sharing the signing secret across services — a security liability at scale.
-- Source: research
-- Primary owning slice: none
-- Supporting slices: none
+### R010 — Per-request provider resolution via LLM_PROVIDER env var with first-wins ordering; no restart required to switch providers
+- Class: core-capability
+- Status: active
+- Description: Per-request provider resolution via LLM_PROVIDER env var with first-wins ordering; no restart required to switch providers
+- Why it matters: Live provider switching is the headline demo feature; proves the system is operationally flexible
+- Source: user
+- Primary owning slice: M010/S01
 - Validation: unmapped
-- Notes: Deferred — HS256 is safe for single-service setups. Revisit if multi-service deployment is targeted.
+
+### R011 — GeminiHandler logs EventLog warning before raising ProviderError when GEMINI_API_KEY is absent, then falls back to next handler
+- Class: observability
+- Status: active
+- Description: GeminiHandler logs EventLog warning before raising ProviderError when GEMINI_API_KEY is absent, then falls back to next handler
+- Why it matters: Makes self-healing behavior observable; demonstrates the EventLog infrastructure is wired through real failure paths
+- Source: user
+- Primary owning slice: M010/S01
+- Validation: unmapped
+
+### R012 — Demo script (scripts/demo_analyst.py) with three-phase structured terminal output and live provider switch; acts as the milestone integration test
+- Class: primary-user-loop
+- Status: active
+- Description: Demo script (scripts/demo_analyst.py) with three-phase structured terminal output and live provider switch; acts as the milestone integration test
+- Why it matters: Stakeholder-facing proof of the production claim; Phase 1 (extraction), Phase 2 (analysis), Phase 3 (provider metadata footer) make the pipeline tangible
+- Source: user
+- Primary owning slice: M010/S03
+- Supporting slices: M010/S01, M010/S02
+- Validation: unmapped
 
 ## Traceability
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
 |---|---|---|---|---|---|
-| R001 | core-capability | validated | M001/S01 | none | tests/test_mcp_lifecycle.py — 12 lifecycle tests; tests/test_e2e_routing.py — 4 end-to-end routing tests pass |
-| R002 | core-capability | validated | M001/S01 | none | tests/test_mcp_lifecycle.py — JSON-RPC 2.0 over live STDIO subprocess; 12/12 tests pass |
-| R003 | core-capability | validated | M001/S02 | none | tests/test_react_loop.py — 11 ReAct cycle tests; tool discovery + execution verified |
-| R004 | core-capability | validated | M001/S01 | M002/S04, M003/S05 | tests/test_react_loop.py, tests/test_pipeline.py — agent behaviors traced to Fargin Curriculum patterns throughout M001–M003 |
-| R005 | security | validated | M001/S03 | none | tests/test_schema_validation.py — 5 Pydantic v2 dispatch-boundary rejection tests; isError=True on bad inputs |
-| R006 | privacy | validated | M001/S03 | none | tests/test_schema_validation.py — PrivacyConfig.assert_no_egress() verified at startup; 3 privacy tests pass |
-| R007 | core-capability | validated | M002/S01 | none | tests/test_scheduler.py — 12 pytest-asyncio tests; inbox, priority queue, retry logic all verified |
-| R008 | core-capability | validated | M002/S02 | none | tests/test_server_http.py — 11 HTTP MCP tests; POST /mcp coexists with STDIO server |
-| R009 | core-capability | validated | M002/S02 | none | tests/test_adapters.py — 23 adapter tests; Claude/OpenAI/Gemini schema translation; no live API calls |
-| R010 | compliance/security | validated | M002/S03 | none | tests/test_auth.py — full PKCE S256 flow; /register, /authorize, /token endpoints; 8 auth tests pass |
-| R011 | compliance/security | validated | M002/S03 | none | tests/test_auth.py — test_confused_deputy_wrong_aud_rejected; wrong aud → HTTP 401 verified |
-| R012 | compliance/security | validated | M002/S03 | none | tests/test_auth.py — 10/10 unique session IDs in user_id:token_urlsafe(32) format verified |
-| R013 | compliance/security | validated | M002/S04 | none | docs/security_audit.md — 8 controls mapped to Fargin Curriculum chapters with module/function/test citations |
-| R014 | compliance/security | validated | M002/S03 | M002/S02 | tests/test_auth.py, tests/test_server_http.py — test_protected_endpoint_no_token_returns_401 and test_wrong_scope_rejected pass |
-| R015 | integration | validated | none | none | All 246 tests self-contained; no live API calls in any test file; schema translation only in adapter layer |
-| R016 | operability | validated | none | none | tests/test_message_bus.py — asyncio MessageBus fan-out proven; external broker deferred and later delivered via M007 KafkaEventLog |
-| R017 | core-capability | validated | M003/S01 | none | tests/test_pipeline.py — AnalystAgent → WriterAgent handoff via MultiAgentOrchestrator; Redis session state verified |
-| R018 | core-capability | validated | M003/S01 | M003/S03 | tests/test_pipeline.py, tests/test_integration.py — fakeredis session store; cross-agent handoff data persists between Analyst and Writer steps |
-| R019 | quality-attribute | validated | M003/S01 | M003/S04 | tests/test_pipeline.py, tests/test_gateway.py — MCP Context used for tool start/progress/completion logging throughout M003 pipeline |
-| R020 | core-capability | validated | M003/S02 | none | tests/test_economics.py — utility scoring f(task_complexity, agent_expertise, execution_cost); deterministic, no LLM required |
-| R021 | core-capability | validated | M003/S02 | none | tests/test_economics.py — sealed-bid auction; highest bidder wins; tie-breaking by agent_id; deterministic |
-| R022 | core-capability | validated | M003/S03 | none | tests/test_message_bus.py — asyncio fan-out by topic/role; no external broker; consistent with TaskScheduler pattern |
-| R023 | core-capability | validated | M003/S03 | M003/S04 | tests/test_message_bus.py, tests/test_gateway.py — SSE /v1/events streams agent messages; first event is "connected" |
-| R024 | core-capability | validated | M003/S04 | none | tests/test_gateway.py — MCP API Gateway routes tools/call to InternalServiceLayer; sampling/createMessage exposed on POST /sampling |
-| R025 | core-capability | validated | M003/S04 | none | tests/test_gateway.py — sampling/createMessage handler verified; client response stubbed in tests; real client exercises in production |
-| R026 | integration | validated | M003/S05 | none | tests/test_langchain_bridge.py — MultiServerMCPClient loads tools from gateway; OAuthMiddleware injects Bearer tokens; full enterprise integration verified |
-| R027 | operability | active | M008/S01 | none | unmapped |
-| R028 | compliance/security | active | M008/S02 | none | unmapped |
-| R029 | failure-visibility | active | M008/S03 | none | unmapped |
-| R030 | constraint | active | M008/S01 | none | unmapped |
-| R031 | operability | active | M008/S04 | M008/S01, M008/S02, M008/S03 | unmapped |
-| R032 | compliance/security | deferred | none | none | unmapped |
-| R033 | core-capability | active | M009/S01 | M009/S05 | unmapped |
-| R034 | core-capability | active | M009/S01 | M009/S05 | unmapped |
-| R035 | compliance/security | active | M009/S02 | M009/S05 | unmapped |
-| R036 | quality-attribute | active | M009/S03 | M009/S05 | unmapped |
-| R037 | quality-attribute | active | M009/S04 | M009/S05 | unmapped |
-| R038 | failure-visibility | active | M009/S04 | M009/S05 | unmapped |
-| R039 | operability | active | M009/S05 | none | unmapped |
-| R040 | operability | active | M009/S05 | M009/S01 | unmapped |
-| R041 | admin/support | deferred | none | none | unmapped |
-| R042 | admin/support | deferred | none | none | unmapped |
+| R001 | core-capability | active | M010/S01 | none | unmapped |
+| R002 | core-capability | active | M010/S02 | none | unmapped |
+| R003 | core-capability | active | M010/S01 | none | unmapped |
+| R004 | core-capability | active | M010/S01 | none | unmapped |
+| R005 | failure-visibility | active | M010/S01 | none | unmapped |
+| R006 | primary-user-loop | active | M010/S03 | none | unmapped |
+| R007 | core-capability | active | M010/S01 | none | unmapped |
+| R008 | primary-user-loop | active | M010/S02 | none | unmapped |
+| R009 | integration | active | M010/S01 | none | unmapped |
+| R010 | core-capability | active | M010/S01 | none | unmapped |
+| R011 | observability | active | M010/S01 | none | unmapped |
+| R012 | primary-user-loop | active | M010/S03 | M010/S01, M010/S02 | unmapped |
 
 ## Coverage Summary
 
-- Active requirements: 13 (R027–R031, R033–R040)
-- Mapped to slices: 13
-- Validated: 26 (R001–R026)
-- Deferred: 3 (R032, R041, R042)
+- Active requirements: 12
+- Mapped to slices: 12
+- Validated: 0
 - Unmapped active requirements: 0
