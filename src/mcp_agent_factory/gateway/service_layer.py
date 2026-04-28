@@ -14,6 +14,7 @@ from mcp_agent_factory.streams.eventlog import EventLog
 
 from mcp_agent_factory.streams.async_idempotency import AsyncIdempotencyGuard
 
+from .pruner import ContextPruner
 from .router import LLMRequest, UnifiedRouter
 from .sampling import SamplingHandler
 from .validation import PIIGate, ValidationGate
@@ -49,6 +50,7 @@ class InternalServiceLayer:
         self._prompt_cache = prompt_cache
         self._gate = ValidationGate()
         self._pii_gate = PIIGate()
+        self._pruner = ContextPruner()
 
     async def handle(
         self,
@@ -113,13 +115,17 @@ class InternalServiceLayer:
 
         elif tool_name == "query_knowledge_base":
             owner_id = claims["sub"] if claims else "dev"
+            query = args.get("query", "")
             chunks = query_knowledge_base(
-                args.get("query", ""),
+                query,
                 owner_id,
                 self._vector_store,
                 self._embedder,
                 args.get("top_k", 5),
             )
+            texts = [c["text"] for c in chunks]
+            kept = set(self._pruner.prune(query, texts, self._embedder))
+            chunks = [c for c in chunks if c["text"] in kept]
             self._bus.publish(
                 "knowledge.retrieved",
                 AgentMessage(

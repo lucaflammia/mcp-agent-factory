@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 import mcp_agent_factory.gateway.app as gateway_module
 from mcp_agent_factory.agents.librarian import LibrarianAgent
 from mcp_agent_factory.agents.models import AgentTask, MCPContext, RetrievalResult
-from mcp_agent_factory.gateway.app import bus, gateway_app, set_embedder, set_vector_store
+from mcp_agent_factory.gateway.app import bus, gateway_app, set_embedder, set_pruner, set_vector_store
+from mcp_agent_factory.gateway.pruner import ContextPruner
 from mcp_agent_factory.knowledge import (
 	InMemoryVectorStore,
 	StubEmbedder,
@@ -75,6 +76,8 @@ def test_gateway_query_knowledge_base_dev_mode(monkeypatch):
 	store.upsert("dev", "prior analysis about climate", embedder.embed("prior analysis about climate"))
 	set_vector_store(store)
 	set_embedder(embedder)
+	# StubEmbedder uses random projections — disable semantic pruning so the test chunk passes through.
+	set_pruner(ContextPruner(threshold=-1.0))  # StubEmbedder gives random cosines; -1.0 passes all
 	monkeypatch.setattr(gateway_module, "DEV_MODE", True)
 
 	client = TestClient(gateway_app)

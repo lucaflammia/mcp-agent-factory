@@ -162,6 +162,11 @@ def set_embedder(embedder: Any) -> None:
 	_service_layer._embedder = embedder
 
 
+def set_pruner(pruner: Any) -> None:
+	"""Inject a custom ContextPruner for tests (e.g. threshold=0.0 with StubEmbedder)."""
+	_service_layer._pruner = pruner
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
