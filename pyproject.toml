@@ -16,6 +16,15 @@ mcp-sim-server = "mcp_agent_factory.server:main"
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "fakeredis>=2.0"]
 infra = ["aiokafka>=0.10"]
 ml = ["sentence-transformers>=2.2"]
+otel = [
+    "opentelemetry-api>=1.24",
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+    "opentelemetry-instrumentation-httpx>=0.45b0",
+    "prometheus-fastapi-instrumentator>=6.1",
+    "prometheus_client>=0.20",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

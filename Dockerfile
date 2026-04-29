@@ -13,7 +13,7 @@ COPY src ./src
 # Install core + streaming infra deps; skip ML extras (sentence-transformers / torch)
 # because the embedder uses a lazy import — health checks and most tools work without it.
 # Add ML extras to the image with: docker build --build-arg EXTRAS=infra,ml
-ARG EXTRAS=infra
+ARG EXTRAS=infra,otel
 RUN pip install --no-cache-dir -e ".[${EXTRAS}]" && \
     pip install --no-cache-dir \
         fastapi \

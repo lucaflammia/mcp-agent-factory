@@ -132,7 +132,7 @@ services:
       MCP_DEV_MODE: ${MCP_DEV_MODE:-0}
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_SERVICE_NAME: mcp-gateway
     depends_on:
       redis:
@@ -140,6 +140,8 @@ services:
       auth:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     ports:
       - "8000:8000"

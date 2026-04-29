@@ -52,6 +52,7 @@ from mcp_agent_factory.session.manager import RedisSessionManager
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
+from .telemetry import configure_telemetry, get_tracer
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format="%(message)s")
 logger = logging.getLogger("mcp_gateway")
@@ -95,6 +96,13 @@ def _make_event_log():
 
 @asynccontextmanager
 async def _gateway_lifespan(app: FastAPI):
+	configure_telemetry()
+	# FastAPI auto-instrumentation — must run after tracer provider is set
+	try:
+		from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+		FastAPIInstrumentor.instrument_app(app)
+	except ImportError:
+		pass
 	PrivacyConfig().assert_no_egress()
 	secret = os.getenv("JWT_SECRET")
 	if secret:
@@ -179,6 +187,13 @@ _WWW_AUTH_VALUE = (
 )
 
 gateway_app = FastAPI(lifespan=_gateway_lifespan, title="MCP API Gateway")
+
+# Prometheus — must be wired before app starts (adds middleware)
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(gateway_app).expose(gateway_app, endpoint="/metrics")
+except ImportError:
+    pass
 
 
 @gateway_app.exception_handler(StarletteHTTPException)
@@ -278,6 +293,28 @@ async def mcp_endpoint(
 
 
 async def _mcp_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
+	_tracer = get_tracer()
+	method = req.method
+	params = req.params or {}
+	req_id = req.id
+
+	with _tracer.start_as_current_span(f"mcp.{method}") as span:
+		span.set_attribute("mcp.method", method)
+		if method == "tools/call":
+			span.set_attribute("mcp.tool", params.get("name", ""))
+		try:
+			return await _mcp_dispatch_inner(req, _claims, span)
+		except Exception as exc:
+			span.record_exception(exc)
+			try:
+				from opentelemetry.trace import StatusCode
+				span.set_status(StatusCode.ERROR, str(exc))
+			except ImportError:
+				pass
+			raise
+
+
+async def _mcp_dispatch_inner(req: MCPRequest, _claims: dict | None, _span) -> MCPResponse:
 	method = req.method
 	params = req.params or {}
 	req_id = req.id

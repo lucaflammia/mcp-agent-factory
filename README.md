@@ -1,6 +1,6 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure, and model-agnostic LLM routing with PII scrubbing, context pruning, async prompt caching, and Caddy TLS — built across nine progressive milestones.
+A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure, model-agnostic LLM routing with PII scrubbing, context pruning, async prompt caching, Caddy TLS, and full-stack observability (OpenTelemetry → Jaeger, Prometheus, Grafana) — built across eleven progressive milestones.
 
 ## Architecture
 
@@ -136,6 +136,61 @@ share the same signing key as the Auth Server:
 | Gateway + Auth Server as separate processes | Set `JWT_SECRET=<random-secret>` for **both** processes — Auth Server signs with it, Gateway verifies with it |
 
 Without a shared `JWT_SECRET`, the Auth Server generates a random key at startup while the Gateway uses its own random key, so every token fails signature verification with `bad_signature`.
+
+## Full Stack Quickstart (Docker)
+
+Bring up all 12 services — gateway, auth, Redis (×4), Kafka, Zookeeper, Jaeger, Prometheus, Grafana, and Caddy — with one command:
+
+```bash
+# Optional: set a shared JWT secret (defaults to dev-secret-change-in-production)
+export JWT_SECRET=$(openssl rand -hex 32)
+
+docker compose --profile full up -d
+```
+
+Wait for all services to reach healthy state:
+
+```bash
+docker compose --profile full ps
+# Every row should show "(healthy)" — Kafka takes ~30 s to start
+```
+
+Verify the stack with the smoke test script:
+
+```bash
+bash scripts/smoke_test.sh
+# === All checks passed ===
+```
+
+Open the UIs:
+
+| Service | URL | Default credentials |
+|---------|-----|---------------------|
+| MCP Gateway | http://localhost:8000/health | — |
+| Auth Server | http://localhost:8001/.well-known/oauth-authorization-server | — |
+| Jaeger traces | http://localhost:16686 | — |
+| Prometheus | http://localhost:9090 | — |
+| Grafana dashboards | http://localhost:3000 | admin / admin |
+
+To call a tool without OAuth (development only):
+
+```bash
+# Restart gateway with dev mode
+MCP_DEV_MODE=1 docker compose --profile full up -d gateway
+
+curl -s -X POST http://localhost:8000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"}}}' \
+  | python3 -m json.tool
+```
+
+Tear down:
+
+```bash
+docker compose --profile full down
+```
+
+---
 
 ## External Client Integration
 
@@ -675,7 +730,7 @@ asyncio.run(main())
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 336 tests collected (11 skipped without Docker) — no external services required
+pytest tests/ -v          # 370 tests collected (2 skipped without Docker; live-provider acceptance tests need Ollama/OpenAI running)
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -687,9 +742,10 @@ pytest tests/test_m006_streams.py tests/test_m006_eventlog.py tests/test_m006_ga
 pytest tests/test_m007_kafka.py tests/test_m007_redlock.py tests/test_m007_scaling.py   # M007 (unit)
 pytest tests/test_m008_integration.py                                                   # M008
 pytest tests/test_m009_s01.py tests/test_m009_s02.py tests/test_m009_s03.py tests/test_m009_s04.py tests/test_m009_s05.py  # M009
+pytest tests/test_otel_spans.py                                                          # M011: OTel unit tests (6)
 
-# Integration tests — requires docker-compose up -d
-pytest -m integration -v  # 8 tests: KafkaEventLog, Redlock quorum, multi-process scaling
+# Integration tests — requires docker compose --profile full up -d
+pytest -m integration -v  # KafkaEventLog, Redlock quorum, multi-process scaling, OTel→Jaeger traces
 ```
 
 ## Project Layout
@@ -818,6 +874,8 @@ tests/
 | Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
 | KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; `add_phrase` / `has_affinity` / `phrases` topic-affinity API via Redis sets; tested with `fakeredis` | +13 (273 unit) |
 | M009 | Model agnosticism: `UnifiedRouter` (OpenAI / Anthropic / Ollama + auto-fallback), `PIIGate` scrubbing, `ContextPruner`, `AsyncIdempotencyGuard` prompt cache, `token.usage` EventLog schema, Caddy TLS in docker-compose | +63 (336 total) |
+| M010 | Production analyst demo (`scripts/demo_analyst.py`), provider-switch env var, OpenTelemetry setup | +0 (336) |
+| M011 | Dockerized observable reference architecture: `docker compose --profile full` brings up 12 services; OTel traces in Jaeger; Prometheus + Grafana dashboards; smoke test script | +22 (358 unit + 12 integration = 370 total) |
 
 ## Security Notes
 

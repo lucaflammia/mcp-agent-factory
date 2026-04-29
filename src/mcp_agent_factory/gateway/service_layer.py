@@ -17,6 +17,7 @@ from mcp_agent_factory.streams.async_idempotency import AsyncIdempotencyGuard
 from .pruner import ContextPruner
 from .router import LLMRequest, UnifiedRouter
 from .sampling import SamplingHandler
+from .telemetry import get_tracer
 from .validation import PIIGate, ValidationGate
 
 
@@ -64,6 +65,27 @@ class InternalServiceLayer:
             pydantic.ValidationError: when tool arguments fail schema validation.
             ValueError: when *tool_name* is not recognised.
         """
+        tracer = get_tracer()
+        with tracer.start_as_current_span(f"tool.{tool_name}") as span:
+            span.set_attribute("tool.name", tool_name)
+            try:
+                return await self._handle_inner(tool_name, args, claims, span)
+            except Exception as exc:
+                span.record_exception(exc)
+                try:
+                    from opentelemetry.trace import StatusCode
+                    span.set_status(StatusCode.ERROR, str(exc))
+                except ImportError:
+                    pass
+                raise
+
+    async def _handle_inner(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        claims: dict[str, Any] | None,
+        _span,
+    ) -> dict[str, Any]:
         # PII gate — raises PIIViolation (ValueError subclass) on blocked fields
         self._pii_gate.scrub(args)
 

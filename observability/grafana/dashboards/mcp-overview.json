@@ -2,7 +2,7 @@
   "title": "MCP Agent Factory — Overview",
   "uid": "mcp-overview",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
   "panels": [
@@ -14,8 +14,8 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(http_requests_total{job=\"mcp-gateway\"}[1m])) by (path, method)",
-          "legendFormat": "{{method}} {{path}}"
+          "expr": "sum(rate(http_requests_total{job=\"mcp-gateway\"}[1m])) by (handler, method)",
+          "legendFormat": "{{method}} {{handler}}"
         }
       ]
     },
@@ -27,16 +27,29 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"mcp-gateway\"}[1m])) by (le, path))",
-          "legendFormat": "P99 {{path}}"
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"mcp-gateway\"}[1m])) by (le, handler))",
+          "legendFormat": "P99 {{handler}}"
         }
       ]
     },
     {
       "id": 3,
-      "title": "HTTP Error Rate (%)",
+      "title": "HTTP Latency P50 (s)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"mcp-gateway\"}[1m])) by (le, handler))",
+          "legendFormat": "P50 {{handler}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "HTTP Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -46,10 +59,23 @@
       ]
     },
     {
-      "id": 4,
+      "id": 5,
+      "title": "MCP Tool Call Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(http_requests_total{job=\"mcp-gateway\",handler=\"/mcp\",method=\"POST\"}[1m]))",
+          "legendFormat": "POST /mcp"
+        }
+      ]
+    },
+    {
+      "id": 6,
       "title": "Auction Bids (total)",
       "type": "stat",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
         {
           "datasource": "Prometheus",

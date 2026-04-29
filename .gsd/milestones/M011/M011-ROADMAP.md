@@ -12,16 +12,16 @@
 
 ## Slices
 
-- [ ] **S01: Full-stack Compose profile** `risk:medium` `depends:[]`
+- [x] **S01: S01** `risk:medium` `depends:[]`
   > After this: docker compose --profile full up; docker compose ps shows all services healthy
 
-- [ ] **S02: OpenTelemetry instrumentation** `risk:medium` `depends:[S01]`
+- [x] **S02: S02** `risk:medium` `depends:[]`
   > After this: Send one query_knowledge_base request; Jaeger UI at localhost:16686 shows a complete trace with child spans
 
-- [ ] **S03: Prometheus metrics and Grafana dashboard** `risk:low` `depends:[S02]`
+- [x] **S03: S03** `risk:low` `depends:[]`
   > After this: Open Grafana at localhost:3000; dashboard shows live request rate, latency percentiles, and auction bid count
 
-- [ ] **S04: Smoke test and README quickstart** `risk:low` `depends:[S03]`
+- [x] **S04: S04** `risk:low` `depends:[]`
   > After this: bash scripts/smoke_test.sh exits 0 against a running stack; README quickstart accurate
 
 ## Boundary Map

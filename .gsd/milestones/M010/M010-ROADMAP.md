@@ -13,13 +13,13 @@
 
 ## Slices
 
-- [ ] **S01: LLM Provider Infrastructure** `risk:high` `depends:[]`
+- [x] **S01: S01** `risk:high` `depends:[]`
   > After this: LLM_PROVIDER=gemini returns a Gemini response; switch to anthropic → Anthropic responds; GEMINI_API_KEY unset → EventLog warning + Ollama fallback; unit tests for GeminiHandler mapping and factory routing pass
 
-- [ ] **S02: AnalystAgent Document Pipeline** `risk:medium` `depends:[S01]`
+- [x] **S02: S02** `risk:medium` `depends:[]`
   > After this: AnalystAgent.run() with a PDF task calls the local tool, prunes context, scrubs PII, routes to UnifiedRouter — verified by tests with the sample PDF fixture
 
-- [ ] **S03: Demo Script & Integration Proof** `risk:low` `depends:[S01,S02]`
+- [x] **S03: S03** `risk:low` `depends:[]`
   > After this: python scripts/demo_analyst.py runs end-to-end: Phase 1 token reduction, Phase 2 KPIs and risks, Phase 3 provider footer; switches LLM_PROVIDER and re-runs showing new provider
 
 ## Boundary Map

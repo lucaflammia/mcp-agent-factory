@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-04-28T09:18:47Z | Files: 115 | Described: 0/115
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-28T09:18:47Z","fingerprint":"f247c2b1aaa3259695975b8ea26b7aab065379bf","fileCount":115,"truncated":false} -->
+Generated: 2026-04-29T05:43:26Z | Files: 125 | Described: 0/125
+<!-- gsd:codebase-meta {"generatedAt":"2026-04-29T05:43:26Z","fingerprint":"63bbc690a8ca4432b868b8de63d22137a96b284b","fileCount":125,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -9,13 +9,30 @@ Generated: 2026-04-28T09:18:47Z | Files: 115 | Described: 0/115
 - `.mcp.json.template`
 - `Caddyfile`
 - `docker-compose.yml`
+- `Dockerfile`
 - `mcp.json`
 - `pyproject.toml`
 - `README.md`
 - `setup-mcp.sh`
 
+### data/samples/
+- `data/samples/finance_q3_2024.pdf`
+
 ### docs/
 - `docs/security_audit.md`
+
+### observability/
+- `observability/prometheus.yml`
+
+### observability/grafana/dashboards/
+- `observability/grafana/dashboards/dashboard.yml`
+- `observability/grafana/dashboards/mcp-overview.json`
+
+### observability/grafana/datasources/
+- `observability/grafana/datasources/prometheus.yml`
+
+### scripts/
+- `scripts/demo_analyst.py`
 
 ### src/
 - `src/.gitignore`
@@ -83,6 +100,7 @@ Generated: 2026-04-28T09:18:47Z | Files: 115 | Described: 0/115
 - `src/mcp_agent_factory/knowledge/__init__.py`
 - `src/mcp_agent_factory/knowledge/embedder.py`
 - `src/mcp_agent_factory/knowledge/ingest.py`
+- `src/mcp_agent_factory/knowledge/pdf_tool.py`
 - `src/mcp_agent_factory/knowledge/tools.py`
 - `src/mcp_agent_factory/knowledge/vector_store.py`
 
@@ -111,4 +129,4 @@ Generated: 2026-04-28T09:18:47Z | Files: 115 | Described: 0/115
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(40 files: 40 .py)*
+- *(42 files: 42 .py)*

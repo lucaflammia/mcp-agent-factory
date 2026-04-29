@@ -14,8 +14,32 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+try:
+    from opentelemetry import trace as _otel_trace
+    def _get_tracer(): return _otel_trace.get_tracer("mcp_auction")
+except ImportError:
+    class _NoOpSpan:
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def set_attribute(self, *_): pass
+    class _FallbackTracer:
+        def start_as_current_span(self, *_, **__): return _NoOpSpan()
+    _fallback = _FallbackTracer()
+    def _get_tracer(): return _fallback
+
 import numpy as np
 from pydantic import BaseModel
+
+try:
+    from prometheus_client import Counter
+    _auction_bids = Counter(
+        "mcp_auction_bids_total",
+        "Total number of bids submitted in all auctions",
+        ["agent_id"],
+    )
+    _PROM_ENABLED = True
+except ImportError:
+    _PROM_ENABLED = False
 
 from mcp_agent_factory.agents.models import AgentTask
 from mcp_agent_factory.economics.utility import AgentProfile, UtilityFunction
@@ -63,6 +87,24 @@ class Auction:
 		if not profiles:
 			raise ValueError("Auction requires at least one agent profile")
 
+		tracer = _get_tracer()
+		with tracer.start_as_current_span("auction.run") as span:
+			span.set_attribute("auction.task_id", task.id)
+			span.set_attribute("auction.task_name", task.name)
+			span.set_attribute("auction.profile_count", len(profiles))
+			result = self._run_inner(task, profiles, store, query_vector, owner_id)
+			span.set_attribute("auction.winner_id", result.winner_id)
+			span.set_attribute("auction.winning_bid", round(result.winning_bid, 4))
+			return result
+
+	def _run_inner(
+		self,
+		task: AgentTask,
+		profiles: list[AgentProfile],
+		store: VectorStore | None,
+		query_vector,
+		owner_id: str,
+	) -> BidResult:
 		knowledge_boost = False
 		if store is not None and query_vector is not None:
 			results = store.search(owner_id=owner_id, query_vector=query_vector, top_k=1)
@@ -72,6 +114,10 @@ class Auction:
 			profile.agent_id: self._utility.score(task, profile, knowledge_boost=knowledge_boost)
 			for profile in profiles
 		}
+
+		if _PROM_ENABLED:
+			for agent_id in bids:
+				_auction_bids.labels(agent_id=agent_id).inc()
 
 		# Winner: highest score; tie-break by alphabetically lowest agent_id
 		winner_id = max(
