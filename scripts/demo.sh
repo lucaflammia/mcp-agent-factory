@@ -79,6 +79,18 @@ CONTAINER_PDF_PATH="/app/${PDF_PATH}"
 PARAMS="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\"}"
 PARAMS_OPENAI="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"openai\"}"
 
+# Check Ollama is reachable (gateway connects to host Ollama via host.docker.internal)
+if ! curl -sf "http://localhost:11434/" >/dev/null 2>&1; then
+  echo "ERROR: Ollama is not running on localhost:11434."
+  echo ""
+  echo "  Start Ollama and pull the required model, then retry:"
+  echo "    ollama serve &"
+  echo "    ollama pull llama3.2"
+  echo ""
+  echo "  Or set OLLAMA_MODEL to a model you have already pulled."
+  exit 1
+fi
+
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
 
 hdr "PHASE 1 — Privacy-First RAG (agents/analyze)"
