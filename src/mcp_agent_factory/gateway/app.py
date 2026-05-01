@@ -54,6 +54,25 @@ from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
 from .telemetry import configure_telemetry, get_tracer
 
+# ---------------------------------------------------------------------------
+# Provider key validation for agents/* dispatch
+# ---------------------------------------------------------------------------
+
+_PROVIDER_KEY_MAP: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+
+
+class ProviderNotConfiguredError(Exception):
+    """Raised when a provider is explicitly requested but its API key is absent."""
+
+    def __init__(self, provider: str, env_var: str) -> None:
+        self.provider = provider
+        self.env_var = env_var
+        super().__init__(f"{env_var} not set for provider '{provider}'")
+
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format="%(message)s")
 logger = logging.getLogger("mcp_gateway")
 
@@ -248,6 +267,63 @@ def _err(req_id: Any, code: int, message: str) -> MCPResponse:
 	return MCPResponse(id=req_id, error={"code": code, "message": message})
 
 
+def _validate_provider(provider: str | None = None) -> None:
+    """Raise ProviderNotConfiguredError if the requested provider lacks its API key.
+
+    When provider is None, falls back to the LLM_PROVIDER env var.
+    ollama never raises (no key required).
+    """
+    resolved = (provider or os.getenv("LLM_PROVIDER", "anthropic")).lower()
+    env_var = _PROVIDER_KEY_MAP.get(resolved)
+    if env_var and not os.getenv(env_var):
+        raise ProviderNotConfiguredError(resolved, env_var)
+
+
+async def _agents_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse:
+    """Handle all agents/* JSON-RPC methods."""
+    from mcp_agent_factory.agents.analyst import AnalystAgent, DocumentAnalysisTask
+
+    method = req.method
+    params = req.params or {}
+    req_id = req.id
+
+    if method == "agents/analyze":
+        pdf_path: str = params.get("pdf_path", "")
+        query: str = params.get("query", "Identify key KPIs and risk areas")
+        max_pages: int = int(params.get("max_pages", 20))
+        provider: str | None = params.get("provider") or None
+
+        if not pdf_path:
+            return _err(req_id, -32602, "Invalid params: pdf_path is required")
+
+        # Validate provider key when: an explicit provider was requested (always),
+        # or auth is enforced (DEV_MODE off) and the server default provider needs a key.
+        if provider is not None or not DEV_MODE:
+            try:
+                _validate_provider(provider)
+            except ProviderNotConfiguredError as exc:
+                return _err(req_id, -32602, str(exc))
+
+        try:
+            task = DocumentAnalysisTask(pdf_path=pdf_path, query=query, max_pages=max_pages, provider=provider)
+            result = await AnalystAgent().analyze_document(task)
+            return _ok(req_id, {
+                "summary": result.summary,
+                "provider": result.provider,
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+                "cost_usd": result.cost_usd,
+                "pages_read": result.pages_read,
+                "total_pages": result.total_pages,
+                "chunks_before_pruning": result.chunks_before_pruning,
+                "chunks_after_pruning": result.chunks_after_pruning,
+            })
+        except Exception as exc:
+            return _err(req_id, -32603, f"agents/analyze failed: {exc}")
+
+    return _err(req_id, -32601, f"Method not found: {method}")
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -333,6 +409,12 @@ async def _mcp_dispatch_inner(req: MCPRequest, _claims: dict | None, _span) -> M
 	# tools/list — public (read-only discovery)
 	if method == "tools/list":
 		return _ok(req_id, {"tools": TOOLS})
+
+	# agents/* — requires valid Bearer token (bypassed in DEV_MODE)
+	if method.startswith("agents/"):
+		if _claims is None and not DEV_MODE:
+			return _err(req_id, -32001, "Authentication required for agents/*")
+		return await _agents_dispatch(req, _claims)
 
 	# tools/call — requires valid Bearer token (bypassed in DEV_MODE)
 	if method == "tools/call":

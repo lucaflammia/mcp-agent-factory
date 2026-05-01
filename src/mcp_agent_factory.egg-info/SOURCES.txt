@@ -67,6 +67,7 @@ src/mcp_agent_factory/streams/kafka_adapter.py
 src/mcp_agent_factory/streams/redlock.py
 src/mcp_agent_factory/streams/worker.py
 tests/test_adapters.py
+tests/test_agents_dispatch.py
 tests/test_auth.py
 tests/test_cursor_connect.py
 tests/test_e2e_routing.py

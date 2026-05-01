@@ -18,6 +18,7 @@ from typing import Any
 from mcp_agent_factory.agents.models import AgentTask, AnalysisResult, MCPContext
 from mcp_agent_factory.gateway.router import LLMRequest, provider_factory
 from mcp_agent_factory.gateway.pruner import ContextPruner
+from mcp_agent_factory.gateway.telemetry import get_tracer
 from mcp_agent_factory.gateway.validation import PIIGate, _default_allow_list
 from mcp_agent_factory.knowledge.embedder import StubEmbedder
 from mcp_agent_factory.knowledge.pdf_tool import file_context_extractor
@@ -29,6 +30,7 @@ class DocumentAnalysisTask:
 	pdf_path: str
 	query: str = "Identify key KPIs and risk areas"
 	max_pages: int = 20
+	provider: str | None = None  # override LLM_PROVIDER for this request
 	extra_context: dict[str, Any] = field(default_factory=dict)
 
 
@@ -112,27 +114,41 @@ class AnalystAgent:
 				ctx.log(msg)
 
 		_log(f"analyst: reading PDF '{task.pdf_path}'")
+		tracer = get_tracer("mcp_gateway.analyst")
 
-		extraction = file_context_extractor(task.pdf_path, query=task.query, max_pages=task.max_pages)
-		raw_chunks = [s["text"] for s in extraction["snippets"]]
-		chunks_before = len(raw_chunks)
+		with tracer.start_as_current_span("agent.pdf_extract") as pdf_span:
+			extraction = file_context_extractor(task.pdf_path, query=task.query, max_pages=task.max_pages)
+			raw_chunks = [s["text"] for s in extraction["snippets"]]
+			chunks_before = len(raw_chunks)
+			pdf_span.set_attribute("pages_read", extraction["pages_read"])
+			pdf_span.set_attribute("total_pages", extraction["total_pages"])
+			pdf_span.set_attribute("chunk_count", chunks_before)
 
 		_log(f"analyst: extracted {chunks_before} pages, pruning for relevance")
 
-		pruner = ContextPruner()
-		pruned = pruner.prune(task.query, raw_chunks, StubEmbedder())
-		# Fall back to all chunks if pruner discards everything (low-signal stub embedder)
-		if not pruned:
-			pruned = raw_chunks
-		chunks_after = len(pruned)
+		with tracer.start_as_current_span("agent.prune") as prune_span:
+			prune_span.set_attribute("input_chunks", chunks_before)
+			pruner = ContextPruner()
+			pruned = pruner.prune(task.query, raw_chunks, StubEmbedder())
+			# Fall back to all chunks if pruner discards everything (low-signal stub embedder)
+			if not pruned:
+				pruned = raw_chunks
+			chunks_after = len(pruned)
+			prune_span.set_attribute("output_chunks", chunks_after)
+			# Approximate token counts: ~4 chars per token
+			prune_span.set_attribute("input_tokens", sum(len(c) for c in raw_chunks) // 4)
+			prune_span.set_attribute("output_tokens", sum(len(c) for c in pruned) // 4)
 
 		_log(f"analyst: {chunks_before} → {chunks_after} chunks after pruning")
 
-		gate = PIIGate()
-		context_text = "\n\n".join(pruned)
-		allow = _default_allow_list() | frozenset({"context"})
-		scrubbed = gate.scrub({"context": context_text}, allow_list=allow)
-		clean_context = scrubbed["context"]
+		with tracer.start_as_current_span("agent.pii_scrub") as pii_span:
+			gate = PIIGate()
+			context_text = "\n\n".join(pruned)
+			allow = _default_allow_list() | frozenset({"context"})
+			scrubbed = gate.scrub({"context": context_text}, allow_list=allow)
+			clean_context = scrubbed["context"]
+			pii_span.set_attribute("input_tokens", len(context_text) // 4)
+			pii_span.set_attribute("output_tokens", len(clean_context) // 4)
 
 		prompt = (
 			f"You are a financial analyst. Based on the following document excerpts, "
@@ -144,11 +160,17 @@ class AnalystAgent:
 			f"3. Brief executive summary"
 		)
 
-		_log(f"analyst: routing to LLM (provider={_current_provider()})")
+		active_provider = task.provider or _current_provider()
+		_log(f"analyst: routing to LLM (provider={active_provider})")
 
-		router = provider_factory()
-		req = LLMRequest(tool_name="analyze_document", args={}, prompt=prompt)
-		response = await router.route(req)
+		with tracer.start_as_current_span("agent.llm_route") as llm_span:
+			llm_span.set_attribute("provider", active_provider)
+			llm_span.set_attribute("input_tokens", len(prompt) // 4)
+			router = provider_factory(provider=task.provider)
+			req = LLMRequest(tool_name="analyze_document", args={}, prompt=prompt)
+			response = await router.route(req)
+			llm_span.set_attribute("output_tokens", response.get("output_tokens", 0))
+			llm_span.set_attribute("cost_usd", response.get("cost_usd", 0.0))
 
 		_log("analyst: LLM response received")
 

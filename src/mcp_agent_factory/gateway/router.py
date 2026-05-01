@@ -274,7 +274,7 @@ class GeminiHandler(LLMHandler):
 # Provider factory — re-read LLM_PROVIDER on every call for live switching
 # ---------------------------------------------------------------------------
 
-def provider_factory(event_log: EventLog | None = None) -> "UnifiedRouter":
+def provider_factory(event_log: EventLog | None = None, provider: str | None = None) -> "UnifiedRouter":
 	"""Build a UnifiedRouter with handler order driven by LLM_PROVIDER env var.
 
 	LLM_PROVIDER=anthropic → [AnthropicHandler, OllamaHandler]
@@ -282,8 +282,10 @@ def provider_factory(event_log: EventLog | None = None) -> "UnifiedRouter":
 	LLM_PROVIDER=ollama    → [OllamaHandler]
 	LLM_PROVIDER=openai    → [OpenAIHandler, OllamaHandler]
 	default (unset)        → [AnthropicHandler, OllamaHandler]
+
+	Pass provider explicitly to override the env var for a single request.
 	"""
-	provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+	provider = (provider or os.getenv("LLM_PROVIDER", "anthropic")).lower()
 	ollama = OllamaHandler()
 
 	if provider == "gemini":

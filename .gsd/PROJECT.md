@@ -47,4 +47,6 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [x] M007: Real Infrastructure — docker-compose stack, Kafka integration, Redlock 3-node quorum, multi-process horizontal scaling
 - [x] M008: Production-Grade Infrastructure Wiring — replace all in-memory/fake defaults with env-driven real implementations
 - [x] M009: Model Agnosticism & Token Economy — unified provider router, PII gate, context pruning, async caching, Caddy TLS
-- [ ] M010: Production Analyst & Provider Switch — AnalystAgent document pipeline, GeminiHandler, per-request provider routing, live demo script
+- [x] M010: Production Analyst & Provider Switch — AnalystAgent document pipeline, GeminiHandler, per-request provider routing, live demo script
+- [x] M011: Dockerized Observable Reference Architecture — full-stack Compose profile, 12 services healthy, OTel/Jaeger/Prometheus/Grafana
+- [ ] M012: Live Demonstration — agents/analyze dispatch, full OTel pipeline instrumentation, zero-touch demo.sh

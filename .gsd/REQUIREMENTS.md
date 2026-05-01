@@ -2,6 +2,80 @@
 
 This file is the explicit capability and coverage contract for the project.
 
+## Active
+
+### R013 — `agents/analyze` JSON-RPC 2.0 method on the MCP gateway, dispatched via a new `_agents_dispatch()` sub-router delegated from `_mcp_dispatch_inner()`
+- Class: core-capability
+- Status: active
+- Description: `agents/analyze` JSON-RPC 2.0 method on the MCP gateway, dispatched via a new `_agents_dispatch()` sub-router delegated from `_mcp_dispatch_inner()`
+- Why it matters: Elevates the demo narrative from function execution to autonomous agent delegation — the core MCP value proposition; establishes the pattern for future agent interaction types
+- Source: user
+- Primary owning slice: M012/S01
+- Validation: unmapped
+
+### R014 — `_agents_dispatch()` sub-router in gateway app — all `agents/*` methods delegate to it; clean separation from `tools/call` dispatch
+- Class: core-capability
+- Status: active
+- Description: `_agents_dispatch()` sub-router in gateway app — all `agents/*` methods delegate to it; clean separation from `tools/call` dispatch
+- Why it matters: Maintains separation of concerns in `_mcp_dispatch_inner()`; makes gateway code maintainable as agent catalog grows; enables future streaming/long-running agent patterns
+- Source: user
+- Primary owning slice: M012/S01
+- Validation: unmapped
+
+### R015 — JSON-RPC error codes: `-32602` for provider-not-configured (user config error), `-32603` for pipeline failures (system error) — each with a phase-identifying message
+- Class: failure-visibility
+- Status: active
+- Description: JSON-RPC error codes: `-32602` for provider-not-configured (user config error), `-32603` for pipeline failures (system error) — each with a phase-identifying message
+- Why it matters: Audible distinction between config errors and system crashes; OTel spans record the exception at the exact failed phase making Jaeger traces diagnostic
+- Source: user
+- Primary owning slice: M012/S01
+- Validation: unmapped
+
+### R016 — OTel spans wired across the full agent pipeline: 4 child spans under `mcp.agents/analyze` — `agent.pdf_extract`, `agent.prune`, `agent.pii_scrub`, `agent.llm_route` — each carrying input/output token counts as span attributes
+- Class: operability
+- Status: active
+- Description: OTel spans wired across the full agent pipeline: 4 child spans under `mcp.agents/analyze` — `agent.pdf_extract`, `agent.prune`, `agent.pii_scrub`, `agent.llm_route` — each carrying input/output token counts as span attributes
+- Why it matters: Transforms the Jaeger trace from a simple call chain into a cost-optimization story; proves that context pruning and PII scrubbing happen locally before the LLM is engaged
+- Source: user
+- Primary owning slice: M012/S02
+- Validation: unmapped
+
+### R017 — `demo.sh` zero-touch execution with `MCP_DEV_MODE=1` — runs all three demo phases (locked data problem, MCP orchestration, live provider switch) without manual intervention
+- Class: primary-user-loop
+- Status: active
+- Description: `demo.sh` zero-touch execution with `MCP_DEV_MODE=1` — runs all three demo phases (locked data problem, MCP orchestration, live provider switch) without manual intervention
+- Why it matters: Eliminates the "demo effect" — manual config errors during a live presentation; focuses audience on agent capabilities not environment troubleshooting
+- Source: user
+- Primary owning slice: M012/S03
+- Validation: unmapped
+
+### R018 — Provider switch demo: two sequential requests in `demo.sh` with different `LLM_PROVIDER` values; fail-fast `-32602` error (not silent Ollama fallback) when requested provider key is absent
+- Class: core-capability
+- Status: active
+- Description: Provider switch demo: two sequential requests in `demo.sh` with different `LLM_PROVIDER` values; fail-fast `-32602` error (not silent Ollama fallback) when requested provider key is absent
+- Why it matters: Honest demo — audience sees exactly which model generated the response; a silent fallback would confuse the narrative about model-agnosticism
+- Source: user
+- Primary owning slice: M012/S03
+- Validation: unmapped
+
+### R019 — Contract test for `agents/analyze` dispatch: validates response shape, correct error codes (-32602 and -32603), and that `_agents_dispatch()` routing is exercised
+- Class: quality-attribute
+- Status: active
+- Description: Contract test for `agents/analyze` dispatch: validates response shape, correct error codes (-32602 and -32603), and that `_agents_dispatch()` routing is exercised
+- Why it matters: The dispatch router refactor is the most fragile change in M012; a contract guard prevents a typo from breaking downstream clients after the demo looks good in rehearsal
+- Source: user
+- Primary owning slice: M012/S01
+- Validation: unmapped
+
+### R020 — Jaeger "perfect trace" showing `Gateway → AnalystAgent → LibrarianAgent → VectorStore` span chain with token count attributes visible in the UI at `:16686`
+- Class: operability
+- Status: active
+- Description: Jaeger "perfect trace" showing `Gateway → AnalystAgent → LibrarianAgent → VectorStore` span chain with token count attributes visible in the UI at `:16686`
+- Why it matters: Visual proof that the heavy lifting (extraction, pruning, PII scrubbing) happens locally before the LLM is engaged — the core "Privacy-First RAG" story for the demo audience
+- Source: user
+- Primary owning slice: M012/S02
+- Validation: unmapped
+
 ## Validated
 
 ### R001 — Local PDF text extraction via MCP tool `file_context_extractor` using pypdf — processes PDF on-device and returns targeted page snippets
@@ -129,10 +203,18 @@ This file is the explicit capability and coverage contract for the project.
 | R010 | core-capability | validated | M010/S01 | none | M010/S01: provider_factory() reads LLM_PROVIDER on every route() call; first-wins ordering confirmed in router.py |
 | R011 | observability | validated | M010/S01 | none | M010/S01: GeminiHandler.complete() logs EventLog warning on missing key before raising ProviderError; fallback chain picks up Ollama |
 | R012 | primary-user-loop | validated | M010/S03 | M010/S01, M010/S02 | M010/S03: demo_analyst.py delivers Phase 1 (extraction), Phase 2 (analysis), Phase 3 (provider metadata footer) with live switch mid-session |
+| R013 | core-capability | active | M012/S01 | none | unmapped |
+| R014 | core-capability | active | M012/S01 | none | unmapped |
+| R015 | failure-visibility | active | M012/S01 | none | unmapped |
+| R016 | operability | active | M012/S02 | none | unmapped |
+| R017 | primary-user-loop | active | M012/S03 | none | unmapped |
+| R018 | core-capability | active | M012/S03 | none | unmapped |
+| R019 | quality-attribute | active | M012/S01 | none | unmapped |
+| R020 | operability | active | M012/S02 | none | unmapped |
 
 ## Coverage Summary
 
-- Active requirements: 0
-- Mapped to slices: 0
+- Active requirements: 8
+- Mapped to slices: 8
 - Validated: 12 (R001, R002, R003, R004, R005, R006, R007, R008, R009, R010, R011, R012)
 - Unmapped active requirements: 0
