@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-01T14:57:53Z | Files: 129 | Described: 0/129
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-01T14:57:53Z","fingerprint":"eaf2b28006555a6fd5b674d33721e306f458edcd","fileCount":129,"truncated":false} -->
+Generated: 2026-05-01T16:12:16Z | Files: 132 | Described: 0/132
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-01T16:12:16Z","fingerprint":"c59c60c554d1e9a56e53ef6bbe382e7d1a7a9fe8","fileCount":132,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -11,6 +11,7 @@ Generated: 2026-05-01T14:57:53Z | Files: 129 | Described: 0/129
 - `docker-compose.yml`
 - `Dockerfile`
 - `mcp.json`
+- `Miniconda3-latest-Linux-x86_64.sh`
 - `pyproject.toml`
 - `README.md`
 - `setup-mcp.sh`
@@ -33,6 +34,7 @@ Generated: 2026-05-01T14:57:53Z | Files: 129 | Described: 0/129
 
 ### scripts/
 - `scripts/demo_analyst.py`
+- `scripts/demo.sh`
 - `scripts/smoke_test.sh`
 
 ### src/
@@ -131,4 +133,4 @@ Generated: 2026-05-01T14:57:53Z | Files: 129 | Described: 0/129
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(44 files: 44 .py)*
+- *(45 files: 45 .py)*
