@@ -94,7 +94,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 # Generate machine-specific .mcp.json (run once after cloning or moving the repo)
 ./setup-mcp.sh
 
-pip install -e .          # core deps: redis, python-dotenv
+pip install -e .          # core deps: fastapi, uvicorn, pydantic, authlib, redis, sse-starlette, numpy, python-dotenv
 pip install -e ".[ml]"   # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
 
 # STDIO server
@@ -876,6 +876,7 @@ tests/
 | M009 | Model agnosticism: `UnifiedRouter` (OpenAI / Anthropic / Ollama + auto-fallback), `PIIGate` scrubbing, `ContextPruner`, `AsyncIdempotencyGuard` prompt cache, `token.usage` EventLog schema, Caddy TLS in docker-compose | +63 (336 total) |
 | M010 | Production analyst demo (`scripts/demo_analyst.py`), provider-switch env var, OpenTelemetry setup | +0 (336) |
 | M011 | Dockerized observable reference architecture: `docker compose --profile full` brings up 12 services; OTel traces in Jaeger; Prometheus + Grafana dashboards; smoke test script | +22 (358 unit + 12 integration = 370 total) |
+| Hotfix | OTel integration tests now skip automatically when the Jaeger/Collector stack is down (`@pytest.mark.integration`); `pip install -e .` on a fresh machine now installs all required runtime deps (fastapi, uvicorn, pydantic, authlib, sse-starlette, numpy previously missing from `pyproject.toml`) | +0 (370) |
 
 ## Security Notes
 

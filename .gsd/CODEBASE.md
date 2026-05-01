@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-04-29T05:43:26Z | Files: 125 | Described: 0/125
-<!-- gsd:codebase-meta {"generatedAt":"2026-04-29T05:43:26Z","fingerprint":"63bbc690a8ca4432b868b8de63d22137a96b284b","fileCount":125,"truncated":false} -->
+Generated: 2026-05-01T09:27:15Z | Files: 129 | Described: 0/129
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-01T09:27:15Z","fingerprint":"eaf2b28006555a6fd5b674d33721e306f458edcd","fileCount":129,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -33,6 +33,7 @@ Generated: 2026-04-29T05:43:26Z | Files: 125 | Described: 0/125
 
 ### scripts/
 - `scripts/demo_analyst.py`
+- `scripts/smoke_test.sh`
 
 ### src/
 - `src/.gitignore`
@@ -94,6 +95,7 @@ Generated: 2026-04-29T05:43:26Z | Files: 125 | Described: 0/125
 - `src/mcp_agent_factory/gateway/run.py`
 - `src/mcp_agent_factory/gateway/sampling.py`
 - `src/mcp_agent_factory/gateway/service_layer.py`
+- `src/mcp_agent_factory/gateway/telemetry.py`
 - `src/mcp_agent_factory/gateway/validation.py`
 
 ### src/mcp_agent_factory/knowledge/
@@ -129,4 +131,4 @@ Generated: 2026-04-29T05:43:26Z | Files: 125 | Described: 0/125
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(42 files: 42 .py)*
+- *(44 files: 44 .py)*
