@@ -9,6 +9,7 @@ Run with:
 """
 from __future__ import annotations
 
+import socket
 import time
 
 import httpx
@@ -16,6 +17,27 @@ import pytest
 
 GATEWAY_URL = "http://localhost:8000"
 JAEGER_URL = "http://localhost:16686"
+
+
+def _port_open(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Return True if a TCP connection to host:port succeeds within timeout."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect((host, port))
+        s.close()
+        return True
+    except (ConnectionRefusedError, OSError):
+        return False
+
+
+@pytest.fixture(autouse=True, scope="class")
+def require_full_stack():
+    """Skip entire test class when gateway or Jaeger is not reachable."""
+    if not _port_open("localhost", 8000):
+        pytest.skip("MCP gateway not reachable at localhost:8000 — run: docker compose --profile full up -d")
+    if not _port_open("localhost", 16686):
+        pytest.skip("Jaeger not reachable at localhost:16686 — run: docker compose --profile full up -d")
 
 
 def _jaeger_traces(service: str = "mcp-gateway", limit: int = 20) -> list[dict]:
