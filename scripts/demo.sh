@@ -86,8 +86,18 @@ echo ""
 PHASE1=$(mcp_call "agents/analyze" "$PARAMS")
 
 if echo "$PHASE1" | jq -e '.error' >/dev/null 2>&1; then
-  echo "ERROR from gateway:"
-  echo "$PHASE1" | jq '.error'
+  ERROR_CODE=$(echo "$PHASE1" | jq -r '.error.code // empty')
+  if [ "$ERROR_CODE" = "-32601" ]; then
+    echo "ERROR: Method not found — the gateway image is stale."
+    echo ""
+    echo "  Rebuild and restart with:"
+    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+    echo ""
+    echo "  (The agents/analyze handler was added after this image was built.)"
+  else
+    echo "ERROR from gateway:"
+    echo "$PHASE1" | jq '.error'
+  fi
   exit 1
 fi
 

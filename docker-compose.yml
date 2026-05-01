@@ -120,6 +120,7 @@ services:
       start_period: 10s
 
   # MCP API Gateway
+  # After code changes, rebuild before starting: docker compose --profile full up --build -d
   gateway:
     build: .
     profiles: [full]
