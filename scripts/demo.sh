@@ -73,8 +73,11 @@ if [ ! -f "$PDF_PATH" ]; then
   exit 1
 fi
 
-PARAMS="{\"pdf_path\":\"$(pwd)/$PDF_PATH\",\"query\":\"$QUERY\"}"
-PARAMS_OPENAI="{\"pdf_path\":\"$(pwd)/$PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"openai\"}"
+# Gateway runs in Docker; ./data is mounted at /app/data inside the container.
+# Strip the leading "data/" prefix and prepend the container mount point.
+CONTAINER_PDF_PATH="/app/${PDF_PATH}"
+PARAMS="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\"}"
+PARAMS_OPENAI="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"openai\"}"
 
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
 
