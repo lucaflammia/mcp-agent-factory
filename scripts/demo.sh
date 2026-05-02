@@ -79,6 +79,20 @@ CONTAINER_PDF_PATH="/app/${PDF_PATH}"
 PARAMS="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\"}"
 PARAMS_OPENAI="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"openai\"}"
 
+# Verify the gateway started with MCP_DEV_MODE=1 (auth bypass).
+GATEWAY_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-gateway" --format "{{.Names}}" 2>/dev/null | head -1)
+if [ -n "$GATEWAY_CONTAINER" ]; then
+  GW_DEV_MODE=$(docker exec "$GATEWAY_CONTAINER" sh -c 'echo $MCP_DEV_MODE' 2>/dev/null)
+  if [ "$GW_DEV_MODE" != "1" ]; then
+    echo "ERROR: Gateway is running without MCP_DEV_MODE=1 — auth is enforced."
+    echo ""
+    echo "  Restart the stack with:"
+    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+    echo ""
+    exit 1
+  fi
+fi
+
 # Check Ollama is reachable on the host.
 if ! curl -sf "http://localhost:11434/" >/dev/null 2>&1; then
   echo "ERROR: Ollama is not running on localhost:11434."
@@ -93,7 +107,6 @@ fi
 
 # Verify the gateway container can reach Ollama.
 # On Linux, Ollama must bind to 0.0.0.0 (not just 127.0.0.1) for host.docker.internal to work.
-GATEWAY_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-gateway" --format "{{.Names}}" 2>/dev/null | head -1)
 if [ -n "$GATEWAY_CONTAINER" ]; then
   if ! docker exec "$GATEWAY_CONTAINER" wget -qO- "http://host.docker.internal:11434/" >/dev/null 2>&1; then
     echo "ERROR: Gateway container cannot reach Ollama at host.docker.internal:11434."
@@ -125,6 +138,12 @@ if echo "$PHASE1" | jq -e '.error' >/dev/null 2>&1; then
     echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
     echo ""
     echo "  (The agents/analyze handler was added after this image was built.)"
+  elif [ "$ERROR_CODE" = "-32001" ]; then
+    echo "ERROR: Authentication required — gateway started without MCP_DEV_MODE=1."
+    echo ""
+    echo "  Restart the stack with:"
+    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+    echo ""
   else
     echo "ERROR from gateway:"
     echo "$PHASE1" | jq '.error'
