@@ -95,7 +95,7 @@ fi
 # On Linux, Ollama must bind to 0.0.0.0 (not just 127.0.0.1) for host.docker.internal to work.
 GATEWAY_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-gateway" --format "{{.Names}}" 2>/dev/null | head -1)
 if [ -n "$GATEWAY_CONTAINER" ]; then
-  if ! docker exec "$GATEWAY_CONTAINER" curl -sf "http://host.docker.internal:11434/" >/dev/null 2>&1; then
+  if ! docker exec "$GATEWAY_CONTAINER" wget -qO- "http://host.docker.internal:11434/" >/dev/null 2>&1; then
     echo "ERROR: Gateway container cannot reach Ollama at host.docker.internal:11434."
     echo ""
     echo "  On Linux, Ollama must listen on all interfaces, not just 127.0.0.1."
