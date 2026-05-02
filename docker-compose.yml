@@ -131,6 +131,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
       AUTH_SERVER_URL: http://auth:8001
       MCP_DEV_MODE: ${MCP_DEV_MODE:-0}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317

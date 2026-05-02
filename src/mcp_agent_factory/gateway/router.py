@@ -115,8 +115,8 @@ class OpenAIHandler(LLMHandler):
 				resp = await client.post(
 					f"{self._base_url}/chat/completions", json=payload, headers=headers
 				)
-			except httpx.ConnectError as exc:
-				raise ProviderError("openai", detail=str(exc)) from exc
+			except (httpx.ConnectError, httpx.TimeoutException) as exc:
+				raise ProviderError("openai", detail=str(exc) or type(exc).__name__) from exc
 
 		if resp.status_code == 429:
 			raise ProviderError("openai", status=429, detail="rate limited")
@@ -161,8 +161,8 @@ class AnthropicHandler(LLMHandler):
 				resp = await client.post(
 					f"{self._base_url}/messages", json=payload, headers=headers
 				)
-			except httpx.ConnectError as exc:
-				raise ProviderError("anthropic", detail=str(exc)) from exc
+			except (httpx.ConnectError, httpx.TimeoutException) as exc:
+				raise ProviderError("anthropic", detail=str(exc) or type(exc).__name__) from exc
 
 		if resp.status_code == 429:
 			raise ProviderError("anthropic", status=429, detail="rate limited")
@@ -203,8 +203,8 @@ class OllamaHandler(LLMHandler):
 		async with httpx.AsyncClient(timeout=60.0) as client:
 			try:
 				resp = await client.post(f"{self._base_url}/api/chat", json=payload)
-			except httpx.ConnectError as exc:
-				raise ProviderError("ollama", detail=str(exc)) from exc
+			except (httpx.ConnectError, httpx.TimeoutException) as exc:
+				raise ProviderError("ollama", detail=str(exc) or type(exc).__name__) from exc
 
 		if resp.status_code == 429:
 			raise ProviderError("ollama", status=429, detail="rate limited")
@@ -246,8 +246,8 @@ class GeminiHandler(LLMHandler):
 		async with httpx.AsyncClient(timeout=30.0) as client:
 			try:
 				resp = await client.post(url, json=payload)
-			except httpx.ConnectError as exc:
-				raise ProviderError("gemini", detail=str(exc)) from exc
+			except (httpx.ConnectError, httpx.TimeoutException) as exc:
+				raise ProviderError("gemini", detail=str(exc) or type(exc).__name__) from exc
 
 		if resp.status_code == 429:
 			raise ProviderError("gemini", status=429, detail="rate limited")
