@@ -105,6 +105,18 @@ if ! curl -sf "http://localhost:11434/" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Check the required Ollama model is pulled.
+OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
+if ! curl -sf "http://localhost:11434/api/tags" 2>/dev/null | grep -q "\"${OLLAMA_MODEL}\""; then
+  echo "ERROR: Ollama model \"${OLLAMA_MODEL}\" is not pulled."
+  echo ""
+  echo "  Pull it with:"
+  echo "    ollama pull ${OLLAMA_MODEL}"
+  echo ""
+  echo "  Or set OLLAMA_MODEL to a model you already have (e.g. llama3.1)."
+  exit 1
+fi
+
 # Verify the gateway container can reach Ollama.
 # On Linux, Ollama must bind to 0.0.0.0 (not just 127.0.0.1) for host.docker.internal to work.
 if [ -n "$GATEWAY_CONTAINER" ]; then
