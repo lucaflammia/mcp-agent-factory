@@ -79,16 +79,32 @@ CONTAINER_PDF_PATH="/app/${PDF_PATH}"
 PARAMS="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\"}"
 PARAMS_OPENAI="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"openai\"}"
 
-# Check Ollama is reachable (gateway connects to host Ollama via host.docker.internal)
+# Check Ollama is reachable on the host.
 if ! curl -sf "http://localhost:11434/" >/dev/null 2>&1; then
   echo "ERROR: Ollama is not running on localhost:11434."
   echo ""
   echo "  Start Ollama and pull the required model, then retry:"
-  echo "    ollama serve &"
+  echo "    OLLAMA_HOST=0.0.0.0 ollama serve &"
   echo "    ollama pull llama3.2"
   echo ""
   echo "  Or set OLLAMA_MODEL to a model you have already pulled."
   exit 1
+fi
+
+# Verify the gateway container can reach Ollama.
+# On Linux, Ollama must bind to 0.0.0.0 (not just 127.0.0.1) for host.docker.internal to work.
+GATEWAY_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-gateway" --format "{{.Names}}" 2>/dev/null | head -1)
+if [ -n "$GATEWAY_CONTAINER" ]; then
+  if ! docker exec "$GATEWAY_CONTAINER" curl -sf "http://host.docker.internal:11434/" >/dev/null 2>&1; then
+    echo "ERROR: Gateway container cannot reach Ollama at host.docker.internal:11434."
+    echo ""
+    echo "  On Linux, Ollama must listen on all interfaces, not just 127.0.0.1."
+    echo "  Restart Ollama with:"
+    echo "    OLLAMA_HOST=0.0.0.0 ollama serve"
+    echo ""
+    echo "  Then retry the demo."
+    exit 1
+  fi
 fi
 
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
