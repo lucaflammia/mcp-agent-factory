@@ -15,7 +15,7 @@
 #
 # Phase 1: Privacy-First RAG  — agents/analyze on the local PDF
 # Phase 2: Jaeger trace link  — shows the full span chain
-# Phase 3: Provider switch    — re-runs with LLM_PROVIDER=openai; shows -32602 on missing key
+# Phase 3: Provider switch    — re-runs with LLM_PROVIDER=gemini; shows -32602 on missing key
 
 set -euo pipefail
 
@@ -77,7 +77,7 @@ fi
 # Strip the leading "data/" prefix and prepend the container mount point.
 CONTAINER_PDF_PATH="/app/${PDF_PATH}"
 PARAMS="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\"}"
-PARAMS_OPENAI="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"openai\"}"
+PARAMS_GEMINI="{\"pdf_path\":\"$CONTAINER_PDF_PATH\",\"query\":\"$QUERY\",\"provider\":\"gemini\"}"
 
 # Verify the gateway started with MCP_DEV_MODE=1 (auth bypass).
 GATEWAY_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-gateway" --format "{{.Names}}" 2>/dev/null | head -1)
@@ -193,10 +193,10 @@ echo "      └─ agent.llm_route     [provider, cost_usd]"
 # ── Phase 3: Provider Switch ──────────────────────────────────────────────────
 
 hdr "PHASE 3 — Live Provider Switch (fail-fast on missing key)"
-echo "  Requesting provider=openai with no OPENAI_API_KEY configured on the gateway..."
+echo "  Requesting provider=gemini with no GEMINI_API_KEY configured on the gateway..."
 echo ""
 
-PHASE3=$(mcp_call "agents/analyze" "$PARAMS_OPENAI" || true)
+PHASE3=$(mcp_call "agents/analyze" "$PARAMS_GEMINI" || true)
 
 echo "Gateway response:"
 echo "$PHASE3" | jq '{code: .error.code, message: .error.message}' 2>/dev/null \
