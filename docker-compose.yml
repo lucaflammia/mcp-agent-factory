@@ -196,6 +196,7 @@ services:
       PROMETHEUS_QUERY_NORMALIZE_CALLS: "true"
       PROMETHEUS_QUERY_NORMALIZE_DURATION: "true"
       PROMETHEUS_QUERY_NAMESPACE: traces
+      PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR: "true"
     ports:
       - "16686:16686"   # Jaeger UI
       - "14269:14269"   # Admin/health

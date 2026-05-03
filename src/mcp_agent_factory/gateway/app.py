@@ -115,13 +115,6 @@ def _make_event_log():
 
 @asynccontextmanager
 async def _gateway_lifespan(app: FastAPI):
-	configure_telemetry()
-	# FastAPI auto-instrumentation — must run after tracer provider is set
-	try:
-		from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-		FastAPIInstrumentor.instrument_app(app)
-	except ImportError:
-		pass
 	PrivacyConfig().assert_no_egress()
 	secret = os.getenv("JWT_SECRET")
 	if secret:
@@ -206,6 +199,15 @@ _WWW_AUTH_VALUE = (
 )
 
 gateway_app = FastAPI(lifespan=_gateway_lifespan, title="MCP API Gateway")
+
+# OTel — configure tracer provider and instrument FastAPI at module level so
+# SERVER spans are generated for every inbound request (Jaeger Monitor requires them).
+configure_telemetry()
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    FastAPIInstrumentor.instrument_app(gateway_app)
+except ImportError:
+    pass
 
 # Prometheus — must be wired before app starts (adds middleware)
 try:

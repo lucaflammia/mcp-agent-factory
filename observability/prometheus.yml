@@ -13,5 +13,6 @@ scrape_configs:
     metrics_path: /metrics
 
   - job_name: otel-collector
+    honor_labels: true
     static_configs:
       - targets: [otel-collector:8889]
