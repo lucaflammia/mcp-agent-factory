@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-03T07:32:34Z | Files: 132 | Described: 0/132
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-03T07:32:34Z","fingerprint":"c59c60c554d1e9a56e53ef6bbe382e7d1a7a9fe8","fileCount":132,"truncated":false} -->
+Generated: 2026-05-03T15:59:27Z | Files: 132 | Described: 0/132
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-03T15:59:27Z","fingerprint":"cb5476557d346c16fb0a261a017386fcd6369d90","fileCount":132,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -11,7 +11,6 @@ Generated: 2026-05-03T07:32:34Z | Files: 132 | Described: 0/132
 - `docker-compose.yml`
 - `Dockerfile`
 - `mcp.json`
-- `Miniconda3-latest-Linux-x86_64.sh`
 - `pyproject.toml`
 - `README.md`
 - `setup-mcp.sh`
@@ -23,6 +22,7 @@ Generated: 2026-05-03T07:32:34Z | Files: 132 | Described: 0/132
 - `docs/security_audit.md`
 
 ### observability/
+- `observability/otel-collector.yml`
 - `observability/prometheus.yml`
 
 ### observability/grafana/dashboards/
