@@ -15,7 +15,7 @@
 #
 # Phase 1: Privacy-First RAG  — agents/analyze on the local PDF
 # Phase 2: Jaeger trace link  — shows the full span chain
-# Phase 3: Provider switch    — re-runs with LLM_PROVIDER=gemini; shows -32602 on missing key
+# Phase 3: Provider switch    — re-runs with provider=gemini (uses GEMINI_API_KEY if set)
 
 set -euo pipefail
 
@@ -181,7 +181,7 @@ echo "$PHASE1" | jq -r '.result.summary'
 hdr "PHASE 2 — Observe the Trace (Jaeger)"
 echo "  Open Jaeger and search for service 'mcp-gateway':"
 echo ""
-echo "    http://localhost:16686/search?service=mcp-gateway&operation=agents%2Fanalyze"
+echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze"
 echo ""
 echo "  Expected span chain:"
 echo "    mcp.agents/analyze"
@@ -192,22 +192,54 @@ echo "      └─ agent.llm_route     [provider, cost_usd]"
 
 # ── Phase 3: Provider Switch ──────────────────────────────────────────────────
 
-hdr "PHASE 3 — Live Provider Switch (fail-fast on missing key)"
-echo "  Requesting provider=gemini with no GEMINI_API_KEY configured on the gateway..."
+hdr "PHASE 3 — Live Provider Switch (Gemini)"
+
+# Check whether the container has GEMINI_API_KEY (requires the key to be set
+# in the environment BEFORE docker compose up, or added to a .env file).
+if [ -n "$GATEWAY_CONTAINER" ]; then
+  CONTAINER_GEMINI=$(docker exec "$GATEWAY_CONTAINER" sh -c 'echo $GEMINI_API_KEY' 2>/dev/null)
+  if [ -z "$CONTAINER_GEMINI" ]; then
+    echo "  ✗ GEMINI_API_KEY is not set in the gateway container."
+    echo ""
+    echo "  To fix, add it to your .env file (copy from .env.example) and rebuild:"
+    echo "    echo 'GEMINI_API_KEY=<your-key>' >> .env"
+    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+    hr
+    echo "  Demo complete."
+    hr
+    echo ""
+    exit 0
+  fi
+fi
+
+echo "  Requesting provider=gemini..."
 echo ""
 
 PHASE3=$(mcp_call "agents/analyze" "$PARAMS_GEMINI" || true)
 
-echo "Gateway response:"
-echo "$PHASE3" | jq '{code: .error.code, message: .error.message}' 2>/dev/null \
-  || echo "$PHASE3"
-
 if echo "$PHASE3" | jq -e '.error.code == -32602' >/dev/null 2>&1; then
+  echo "Gateway response:"
+  echo "$PHASE3" | jq '{code: .error.code, message: .error.message}'
   echo ""
-  echo "  ✓ Correct: -32602 Invalid params — provider not configured."
+  echo "  ✗ GEMINI_API_KEY not set — set it in your environment and rebuild to use Gemini."
+elif echo "$PHASE3" | jq -e '.result' >/dev/null 2>&1; then
+  PHASE3_CONTENT=$(echo "$PHASE3" | jq -r '.result.summary // empty')
+  PHASE3_PROVIDER=$(echo "$PHASE3" | jq -r '.result.provider // "unknown"')
+  PHASE3_META=$(echo "$PHASE3" | jq '{provider: .result.provider, output_tokens: .result.output_tokens, cost_usd: .result.cost_usd}' 2>/dev/null || true)
+  echo "$PHASE3_META"
+  echo ""
+  echo "EXECUTIVE SUMMARY:"
+  echo "$PHASE3_CONTENT"
+  echo ""
+  if echo "$PHASE3_PROVIDER" | grep -qi "gemini"; then
+    echo "  ✓ Gemini responded successfully."
+  else
+    echo "  ✗ Gemini fell back to Ollama (provider=$PHASE3_PROVIDER)."
+    echo "    Check gateway logs: docker logs \$(docker ps -qf name=gateway) 2>&1 | grep -i gemini"
+  fi
 else
-  echo ""
-  echo "  NOTE: Expected -32602 but got a different response."
+  echo "Gateway response:"
+  echo "$PHASE3"
 fi
 
 hr

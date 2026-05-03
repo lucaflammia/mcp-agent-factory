@@ -136,7 +136,10 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:0.6b-q4_K_M}
       OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-600}
       OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-1024}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: mcp-gateway
     depends_on:
       redis:
@@ -145,7 +148,7 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      jaeger:
+      otel-collector:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -183,14 +186,41 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.57
     profiles: [full]
+    depends_on:
+      prometheus:
+        condition: service_healthy
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
+      METRICS_STORAGE_TYPE: prometheus
+      PROMETHEUS_SERVER_URL: http://prometheus:9090
+      PROMETHEUS_QUERY_NORMALIZE_CALLS: "true"
+      PROMETHEUS_QUERY_NORMALIZE_DURATION: "true"
     ports:
       - "16686:16686"   # Jaeger UI
-      - "4317:4317"     # OTLP gRPC
-      - "4318:4318"     # OTLP HTTP
+      - "14269:14269"   # Admin/health
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # OTel Collector — receives OTLP from gateway, generates span metrics for Prometheus, forwards traces to Jaeger
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    profiles: [full]
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otel-collector.yml:ro
+    command: ["--config=/etc/otel-collector.yml"]
+    depends_on:
+      jaeger:
+        condition: service_healthy
+    ports:
+      - "4317:4317"   # OTLP gRPC (gateway sends here)
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics exporter
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "--version"]
       interval: 10s
       timeout: 5s
       retries: 5

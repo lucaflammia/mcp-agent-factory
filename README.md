@@ -187,8 +187,23 @@ Open the UIs:
 | MCP Gateway | http://localhost:8000/health | — |
 | Auth Server | http://localhost:8001/.well-known/oauth-authorization-server | — |
 | Jaeger traces | http://localhost:16686 | — |
+| Jaeger SPM (RED metrics) | http://localhost:16686/monitor | — |
 | Prometheus | http://localhost:9090 | — |
 | Grafana dashboards | http://localhost:3000 | admin / admin |
+
+### Service Performance Monitoring (Jaeger SPM)
+
+The stack is wired for Jaeger's RED metrics dashboard (`/monitor`) out of the box:
+
+```
+gateway → otel-collector:4317 (OTLP/gRPC)
+              ├─ spanmetrics connector → prometheus exporter :8889
+              └─ otlp/jaeger exporter → jaeger:4317
+prometheus scrapes otel-collector:8889
+jaeger queries prometheus for SPM data
+```
+
+After the stack is up, run `./scripts/demo.sh` to generate spans, then wait ~15 s for Prometheus to scrape. The `/monitor` tab in Jaeger will show per-service, per-operation rate/error/duration (RED) metrics. The OTel Collector configuration lives in `observability/otel-collector.yml`.
 
 To call a tool without OAuth (development only):
 

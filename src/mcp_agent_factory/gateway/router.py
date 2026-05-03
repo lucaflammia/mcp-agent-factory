@@ -242,7 +242,7 @@ class GeminiHandler(LLMHandler):
 
 	def __init__(self) -> None:
 		self._api_key = os.getenv("GEMINI_API_KEY", "")
-		self._model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+		self._model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 		self._base_url = "https://generativelanguage.googleapis.com/v1beta"
 
 	async def call(self, request: LLMRequest) -> dict[str, Any]:
