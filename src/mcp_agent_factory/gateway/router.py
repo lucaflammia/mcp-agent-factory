@@ -88,6 +88,14 @@ def _prompt_from(request: LLMRequest) -> str:
 	return request.prompt or request.args.get("text", str(request.args))
 
 
+import re as _re
+_THINK_RE = _re.compile(r"<think>.*?</think>", _re.DOTALL)
+
+def _strip_think(text: str) -> str:
+	"""Remove <think>...</think> blocks emitted by reasoning models (e.g. qwen3)."""
+	return _THINK_RE.sub("", text).strip()
+
+
 # ---------------------------------------------------------------------------
 # OpenAI handler
 # ---------------------------------------------------------------------------
@@ -217,7 +225,7 @@ class OllamaHandler(LLMHandler):
 		data = resp.json()
 		message = data.get("message", {})
 		return {
-			"content": message.get("content", ""),
+			"content": _strip_think(message.get("content", "")),
 			"model": data.get("model", self._model),
 			# Ollama uses prompt_eval_count / eval_count for token counts
 			"input_tokens": data.get("prompt_eval_count", 0),
