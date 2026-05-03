@@ -1,0 +1,33 @@
+{
+  "template": "dep-upgrade",
+  "templateName": "Dependency Upgrade",
+  "description": "\"Monitoring and Observability Infrastructure Enhancement: Overview This feature addresses the current visibility gaps in our observability stack. Currently, system performance metrics and distributed trace architectures are not surfacing in our monitoring tools, making it difficult to debug the agents/analyze dispatch pipeline or verify the OTel instrumentation. Objectives Metric Visibility (Grafana & Prometheus): Expose and visualize gateway and agent process metrics (CPU, Memory, Request Latency) on existing Grafana dashboards. Ensure Prometheus successfully scrapes the /metrics endpoints for all active containers in the docker compose stack. Trace Monitoring (Jaeger): Fix the Monitor section in Jaeger to display service metrics derived from spans. Enable the System Architecture graph to visualize the topological relationships between the gateway, redis, and worker processes.\"",
+  "branch": "gsd/dep-upgrade/monitoring-and-observability-infrastruct",
+  "phases": [
+    {
+      "name": "assess",
+      "index": 0,
+      "status": "complete"
+    },
+    {
+      "name": "upgrade",
+      "index": 1,
+      "status": "complete"
+    },
+    {
+      "name": "fix",
+      "index": 2,
+      "status": "complete"
+    },
+    {
+      "name": "verify",
+      "index": 3,
+      "status": "complete"
+    }
+  ],
+  "currentPhase": 3,
+  "startedAt": "2026-05-03T15:09:04.169Z",
+  "updatedAt": "2026-05-03T17:00:00.000Z",
+  "completedAt": "2026-05-03T17:00:00.000Z",
+  "artifactDir": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/workflows/upgrades/260503-3-monitoring-and-observability-infrastruct"
+}
