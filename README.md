@@ -81,7 +81,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
-| **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub |
+| **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub. Ollama defaults: `LLM_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:0.6b-q4_K_M`, `OLLAMA_TIMEOUT=300` (seconds), `OLLAMA_NUM_PREDICT=1024` |
 | **PII Gate** | `gateway/validation.py` | `PIIGate` deny-list regex scrubbing (email, API keys, private IPs, JWTs); `MCP_ALLOWED_FIELDS` env override |
 | **Context Pruner** | `gateway/pruner.py` | `ContextPruner.prune()` — cosine-similarity threshold filters irrelevant chunks before LLM dispatch |
 | **Async Prompt Cache** | `streams/async_idempotency.py` | `AsyncIdempotencyGuard` — SHA-256 cache key, async Redis SET NX; avoids redundant LLM calls for identical prompts |
@@ -142,11 +142,17 @@ Without a shared `JWT_SECRET`, the Auth Server generates a random key at startup
 With the full Docker stack running (`docker compose --profile full up -d`):
 
 ```bash
+# Pull the default local model first (lightweight, ~400 MB)
+ollama pull qwen3:0.6b-q4_K_M
+
 # Three-phase zero-touch demo:
 #   Phase 1 — Privacy-First RAG: agents/analyze with locked data
 #   Phase 2 — OTel trace: Jaeger at :16686 shows Gateway→AnalystAgent→LibrarianAgent→VectorStore span chain
 #   Phase 3 — Provider switch: per-request provider override, -32602 fail-fast on missing key
 ./scripts/demo.sh
+
+# Override the model if you already have a different one pulled:
+OLLAMA_MODEL=llama3.2 ./scripts/demo.sh
 ```
 
 ## Full Stack Quickstart (Docker)

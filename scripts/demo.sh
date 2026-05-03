@@ -106,14 +106,14 @@ if ! curl -sf "http://localhost:11434/" >/dev/null 2>&1; then
 fi
 
 # Check the required Ollama model is pulled.
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b-q4_K_M}"
 if ! curl -sf "http://localhost:11434/api/tags" 2>/dev/null | grep -q "\"${OLLAMA_MODEL}"; then
   echo "ERROR: Ollama model \"${OLLAMA_MODEL}\" is not pulled."
   echo ""
   echo "  Pull it with:"
   echo "    ollama pull ${OLLAMA_MODEL}"
   echo ""
-  echo "  Or set OLLAMA_MODEL to a model you already have (e.g. llama3.1)."
+  echo "  Or set OLLAMA_MODEL to a model you already have (e.g. qwen3:0.6b-q4_K_M)."
   exit 1
 fi
 

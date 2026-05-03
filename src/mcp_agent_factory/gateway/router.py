@@ -192,15 +192,18 @@ class OllamaHandler(LLMHandler):
 
 	def __init__(self) -> None:
 		self._base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-		self._model = os.getenv("OLLAMA_MODEL", "llama3.2")
+		self._model = os.getenv("OLLAMA_MODEL", "qwen3:0.6b-q4_K_M")
 
 	async def call(self, request: LLMRequest) -> dict[str, Any]:
+		num_predict = int(os.getenv("OLLAMA_NUM_PREDICT", "1024"))
 		payload = {
 			"model": self._model,
 			"messages": [{"role": "user", "content": _prompt_from(request)}],
 			"stream": False,
+			"options": {"num_predict": num_predict},
 		}
-		async with httpx.AsyncClient(timeout=60.0) as client:
+		timeout = float(os.getenv("OLLAMA_TIMEOUT", "300"))
+		async with httpx.AsyncClient(timeout=timeout) as client:
 			try:
 				resp = await client.post(f"{self._base_url}/api/chat", json=payload)
 			except (httpx.ConnectError, httpx.TimeoutException) as exc:
