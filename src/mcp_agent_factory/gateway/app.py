@@ -48,6 +48,7 @@ from mcp_agent_factory.messaging.sse_router import create_sse_router
 from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS
 from mcp_agent_factory.session.manager import RedisSessionManager
+from mcp_agent_factory.kv.store import RedisKVStore
 
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
@@ -148,6 +149,12 @@ _vector_store: InMemoryVectorStore = InMemoryVectorStore()
 _embedder: LocalEmbedder = LocalEmbedder()
 _event_log = _make_event_log()
 
+# KV topics: comma-separated KV_TOPICS env var, defaults to "default"
+_kv_topics: list[str] = [
+    t.strip() for t in os.getenv("KV_TOPICS", "default").split(",") if t.strip()
+]
+_kv_store: RedisKVStore = RedisKVStore(_redis_client, topics=_kv_topics)
+
 _unified_router: UnifiedRouter = UnifiedRouter(
     handlers=[AnthropicHandler(), OllamaHandler()],
     event_log=_event_log,
@@ -156,6 +163,7 @@ _unified_router: UnifiedRouter = UnifiedRouter(
 _service_layer: InternalServiceLayer = InternalServiceLayer(
 	bus, session, sampling_handler, _vector_store, _embedder, _event_log,
 	router=_unified_router,
+	kv_store=_kv_store,
 )
 
 # ---------------------------------------------------------------------------
@@ -185,6 +193,13 @@ def set_embedder(embedder: Any) -> None:
 def set_pruner(pruner: Any) -> None:
 	"""Inject a custom ContextPruner for tests (e.g. threshold=0.0 with StubEmbedder)."""
 	_service_layer._pruner = pruner
+
+
+def set_kv_store(store: Any) -> None:
+	"""Inject a custom RedisKVStore for tests."""
+	global _kv_store
+	_kv_store = store
+	_service_layer._kv_store = store
 
 
 # ---------------------------------------------------------------------------

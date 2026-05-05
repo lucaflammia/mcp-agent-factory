@@ -91,6 +91,30 @@ TOOLS: list[dict] = [
 			"required": ["query"],
 		},
 	},
+	{
+		"name": "kv/add_phrase",
+		"description": "Register a phrase as belonging to a topic in Redis for affinity checks.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"topic": {"type": "string", "description": "Topic name (must be a registered KV topic)"},
+				"phrase": {"type": "string", "description": "Phrase to register under this topic"},
+			},
+			"required": ["topic", "phrase"],
+		},
+	},
+	{
+		"name": "kv/check_affinity",
+		"description": "Check whether a phrase belongs to a given topic in Redis.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"topic": {"type": "string", "description": "Topic name to check against"},
+				"phrase": {"type": "string", "description": "Phrase to test for membership"},
+			},
+			"required": ["topic", "phrase"],
+		},
+	},
 ]
 
 

@@ -40,6 +40,7 @@ class InternalServiceLayer:
         event_log: EventLog | None = None,
         router: UnifiedRouter | None = None,
         prompt_cache: AsyncIdempotencyGuard | None = None,
+        kv_store: Any = None,
     ) -> None:
         self._bus = bus
         self._session = session
@@ -49,6 +50,7 @@ class InternalServiceLayer:
         self._event_log = event_log
         self._router = router
         self._prompt_cache = prompt_cache
+        self._kv_store = kv_store
         self._gate = ValidationGate()
         self._pii_gate = PIIGate()
         self._pruner = ContextPruner()
@@ -162,6 +164,26 @@ class InternalServiceLayer:
                 ),
             )
             outcome = {"content": [{"type": "text", "text": str(chunks)}]}
+
+        elif tool_name == "kv/add_phrase":
+            if self._kv_store is None:
+                raise ValueError("KV store not configured")
+            topic = args.get("topic", "")
+            phrase = args.get("phrase", "")
+            if not topic or not phrase:
+                raise ValueError("kv/add_phrase requires 'topic' and 'phrase'")
+            await self._kv_store.add_phrase(topic, phrase)
+            outcome = {"content": [{"type": "text", "text": f"Registered {phrase!r} under topic {topic!r}"}]}
+
+        elif tool_name == "kv/check_affinity":
+            if self._kv_store is None:
+                raise ValueError("KV store not configured")
+            topic = args.get("topic", "")
+            phrase = args.get("phrase", "")
+            if not topic or not phrase:
+                raise ValueError("kv/check_affinity requires 'topic' and 'phrase'")
+            result = await self._kv_store.has_affinity(topic, phrase)
+            outcome = {"content": [{"type": "text", "text": str(result).lower()}]}
 
         else:
             raise ValueError(f"Unknown tool: {tool_name}")

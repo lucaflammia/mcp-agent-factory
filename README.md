@@ -137,6 +137,42 @@ share the same signing key as the Auth Server:
 
 Without a shared `JWT_SECRET`, the Auth Server generates a random key at startup while the Gateway uses its own random key, so every token fails signature verification with `bad_signature`.
 
+### Topic Affinity — Populate Redis and Check Phrase Membership
+
+Two MCP tools let you tag phrases under topics in Redis and test membership at inference time.
+Topics are registered at gateway startup via the `KV_TOPICS` env var (comma-separated, defaults to `"default"`).
+
+```bash
+# Start the gateway with custom topics
+KV_TOPICS=sports,finance,tech python -m mcp_agent_factory.gateway.run
+```
+
+```python
+import httpx, json
+
+BASE = "http://localhost:8000/mcp"
+HEADERS = {"Content-Type": "application/json"}
+
+def rpc(method, **params):
+    body = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+    return httpx.post(BASE, json=body, headers=HEADERS).json()["result"]
+
+# Populate Redis — register phrases under a topic
+rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "hat trick"})
+rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "penalty shootout"})
+rpc("tools/call", name="kv/add_phrase", arguments={"topic": "finance", "phrase": "hedge fund"})
+
+# Check topic affinity
+rpc("tools/call", name="kv/check_affinity", arguments={"topic": "sports", "phrase": "hat trick"})
+# → {"content": [{"type": "text", "text": "true"}]}
+
+rpc("tools/call", name="kv/check_affinity", arguments={"topic": "finance", "phrase": "hat trick"})
+# → {"content": [{"type": "text", "text": "false"}]}
+```
+
+Phrases are stored in Redis Sets (`kv:<topic>:__phrases__`) and survive restarts when `REDIS_URL` is set.
+In dev/test mode (no `REDIS_URL`) they live in an in-process `FakeRedis` instance.
+
 ### Live Demo (M012)
 
 With the full Docker stack running (`docker compose --profile full up -d`):
