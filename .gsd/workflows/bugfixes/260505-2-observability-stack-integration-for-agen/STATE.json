@@ -1,0 +1,32 @@
+{
+  "template": "bugfix",
+  "templateName": "Bug Fix",
+  "description": "\"Observability Stack Integration for Agent Live Demo: Overview This feature aims to resolve the \"empty dashboard\" state in Grafana (as seen in the public dashboards view) and the lack of architectural visibility in Jaeger. By integrating the scripts/demo.sh execution flow with the monitoring stack, we will ensure that every phase of the \"AI Agents at Work\" demo generates visible, real-time metrics and topological traces. Objectives Grafana Dashboard Population: Initialize and populate the Public Dashboards section with pre-configured templates for the mcp-gateway and agent-pipeline. Visualize key performance indicators (KPIs) extracted from the agents/analyze method, including: Pages Read and Chunk Counts (from agent.pdf_extract). Token Consumption (Input/Output) and Cost in USD (from agent.llm_route). Provider Distribution (Ollama vs. Gemini) based on live switches in Phase 3 of the demo. Jaeger Monitor & Architecture Fix: Enable the System Architecture page to dynamically render the service dependency graph (Gateway → Redis → Agent Workers → LLM Providers). Populate the Monitor section with span-derived metrics (RED metrics: Rate, Errors, Duration) for every request triggered by the demo script. Technical Implementation OTel Collector & Prometheus Export: Configure the OpenTelemetry Collector to scrape metrics from the gateway process and export them to Prometheus as the primary data source for Grafana. Ensure all logs and metrics follow the English language standard for professional consistency. Span Instrumentation: Modify the agents/analyze handler to include metadata tags (attributes) that Jaeger requires for architectural mapping. Implement 2-tab indentation in all updated docker-compose.yml profiles and configuration files. Infrastructure Consistency: Update the demo.sh \"Preflight\" check to verify not only the gateway health but also the availability of the monitoring backend (Prometheus/Jaeger) before execution.\"",
+  "branch": "gsd/bugfix/observability-stack-integration-for-agen",
+  "phases": [
+    {
+      "name": "triage",
+      "index": 0,
+      "status": "complete"
+    },
+    {
+      "name": "fix",
+      "index": 1,
+      "status": "complete"
+    },
+    {
+      "name": "verify",
+      "index": 2,
+      "status": "complete"
+    },
+    {
+      "name": "ship",
+      "index": 3,
+      "status": "active"
+    }
+  ],
+  "currentPhase": 3,
+  "startedAt": "2026-05-05T06:52:09.278Z",
+  "updatedAt": "2026-05-05T12:40:00.000Z",
+  "artifactDir": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/workflows/bugfixes/260505-2-observability-stack-integration-for-agen"
+}
