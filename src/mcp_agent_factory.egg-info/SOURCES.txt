@@ -77,6 +77,7 @@ tests/test_ingest.py
 tests/test_integration.py
 tests/test_knowledge_auction.py
 tests/test_kv_store.py
+tests/test_kv_tools.py
 tests/test_langchain_bridge.py
 tests/test_m004_auth_pkce.py
 tests/test_m004_client_bridge.py

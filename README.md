@@ -799,7 +799,7 @@ asyncio.run(main())
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 351+ tests (2 skipped without Docker; live-provider acceptance tests need Ollama/OpenAI running)
+pytest tests/ -v          # 375+ tests (2 skipped without Docker; live-provider acceptance tests need Ollama/OpenAI running)
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -916,6 +916,7 @@ tests/
 ├── test_m007_redlock.py            # M007: RedlockClient 3-node quorum
 ├── test_m007_scaling.py            # M007: Multi-process StreamWorker scaling
 ├── test_kv_store.py                # KV: RedisKVStore topic namespacing + CRUD
+├── test_kv_tools.py                # KV: kv/add_phrase and kv/check_affinity MCP tool dispatch
 ├── test_m009_s01.py                # M009: UnifiedRouter + provider handlers
 ├── test_m009_s02.py                # M009: PIIGate scrubbing
 ├── test_m009_s03.py                # M009: ContextPruner cosine filtering
@@ -946,12 +947,13 @@ tests/
 | Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
 | Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
 | KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; `add_phrase` / `has_affinity` / `phrases` topic-affinity API via Redis sets; tested with `fakeredis` | +13 (273 unit) |
+| KV Tools | `kv/add_phrase` and `kv/check_affinity` exposed as MCP tools on the gateway; dispatch tested end-to-end in dev mode | +8 (281 unit) |
 | M009 | Model agnosticism: `UnifiedRouter` (OpenAI / Anthropic / Ollama + auto-fallback), `PIIGate` scrubbing, `ContextPruner`, `AsyncIdempotencyGuard` prompt cache, `token.usage` EventLog schema, Caddy TLS in docker-compose | +63 (336 total) |
 | M010 | Production analyst demo (`scripts/demo_analyst.py`), provider-switch env var, OpenTelemetry setup | +0 (336) |
 | M011 | Dockerized observable reference architecture: `docker compose --profile full` brings up 12 services; OTel traces in Jaeger; Prometheus + Grafana dashboards; smoke test script | +22 (358 unit + 12 integration = 370 total) |
 | Hotfix | OTel integration tests now skip automatically when the Jaeger/Collector stack is down (`@pytest.mark.integration`); `pip install -e .` on a fresh machine now installs all required runtime deps (fastapi, uvicorn, pydantic, authlib, sse-starlette, numpy previously missing from `pyproject.toml`) | +0 (370) |
-| M012 | Live demo: `agents/analyze` JSON-RPC method via `_agents_dispatch()` sub-router; 4 OTel child spans (pdf_extract, prune, pii_scrub, llm_route) with token count attributes visible in Jaeger; `scripts/demo.sh` three-phase zero-touch demo (Privacy-First RAG → OTel trace → provider switch with -32602 fail-fast); contract tests cover response shape, -32602, and -32603 | +3 (351 unit + 12 integration) |
-| Hotfix | Auth server OTel instrumentation: `FastAPIInstrumentor` wired into `auth_app`; docker-compose auth service exports `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_SERVICE_NAME=mcp-auth` so auth server spans appear alongside gateway spans in Jaeger | +0 (351 unit + 12 integration) |
+| M012 | Live demo: `agents/analyze` JSON-RPC method via `_agents_dispatch()` sub-router; 4 OTel child spans (pdf_extract, prune, pii_scrub, llm_route) with token count attributes visible in Jaeger; `scripts/demo.sh` three-phase zero-touch demo (Privacy-First RAG → OTel trace → provider switch with -32602 fail-fast); contract tests cover response shape, -32602, and -32603 | +3 (361 unit + 14 integration) |
+| Hotfix | Auth server OTel instrumentation: `FastAPIInstrumentor` wired into `auth_app`; docker-compose auth service exports `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_SERVICE_NAME=mcp-auth` so auth server spans appear alongside gateway spans in Jaeger | +0 (361 unit + 14 integration) |
 
 ## Security Notes
 

@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-05T12:33:53Z | Files: 132 | Described: 0/132
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-05T12:33:53Z","fingerprint":"cb5476557d346c16fb0a261a017386fcd6369d90","fileCount":132,"truncated":false} -->
+Generated: 2026-05-05T14:14:26Z | Files: 133 | Described: 0/133
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-05T14:14:26Z","fingerprint":"4ae611f30506bae7ed2803f86f4b205f81f6a714","fileCount":133,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -133,4 +133,4 @@ Generated: 2026-05-05T12:33:53Z | Files: 132 | Described: 0/132
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(45 files: 45 .py)*
+- *(46 files: 46 .py)*

@@ -7,26 +7,26 @@
     {
       "name": "assess",
       "index": 0,
-      "status": "active"
+      "status": "complete"
     },
     {
       "name": "upgrade",
       "index": 1,
-      "status": "pending"
+      "status": "complete"
     },
     {
       "name": "fix",
       "index": 2,
-      "status": "pending"
+      "status": "complete"
     },
     {
       "name": "verify",
       "index": 3,
-      "status": "pending"
+      "status": "complete"
     }
   ],
-  "currentPhase": 0,
+  "currentPhase": 3,
   "startedAt": "2026-04-26T10:08:15.641Z",
-  "updatedAt": "2026-04-26T10:08:15.641Z",
-  "artifactDir": "/home/luca/Documents/Fargin/mcp-agent-factory/.gsd/workflows/upgrades/260426-2-i-need-to-populate-redis-within-the-mcp"
+  "updatedAt": "2026-05-05T12:47:00.000Z",
+  "artifactDir": "/home/luca/Documents/Misc/PersonalProjects/mcp-agent-factory/.gsd/workflows/upgrades/260426-2-i-need-to-populate-redis-within-the-mcp"
 }
