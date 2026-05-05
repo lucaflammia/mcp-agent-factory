@@ -10,6 +10,11 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
 connectors:
   spanmetrics:
     histogram:
@@ -19,6 +24,13 @@ connectors:
       - name: http.method
       - name: http.status_code
       - name: rpc.method
+      # agent pipeline dimensions — populates Grafana agent-pipeline panels
+      - name: agent.provider
+      - name: agent.pages_read
+      - name: agent.chunk_count
+      - name: agent.input_tokens
+      - name: agent.output_tokens
+      - name: agent.cost_usd
     exemplars:
       enabled: true
 
@@ -37,8 +49,10 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
+      processors: [batch]
       exporters: [otlp/jaeger, spanmetrics]
 
     metrics:
       receivers: [spanmetrics]
+      processors: [batch]
       exporters: [prometheus]

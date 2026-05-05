@@ -122,6 +122,119 @@
           "min": 0
         }
       }
+    },
+    {
+      "id": 9,
+      "title": "Agent Pipeline — Span Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=~\"agent\\..*\"}[1m])) by (span_name)",
+          "legendFormat": "{{span_name}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Agent Pipeline — Span Latency P99 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{span_name=~\"agent\\..*\"}[1m])) by (le, span_name)) / 1000",
+          "legendFormat": "P99 {{span_name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 11,
+      "title": "Pages Read per Analyze Call",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.pdf_extract\"}[1m])) by (agent_pages_read)",
+          "legendFormat": "pages={{agent_pages_read}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Chunk Count (before/after pruning)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.pdf_extract\"}[1m])) by (agent_chunk_count)",
+          "legendFormat": "chunks={{agent_chunk_count}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Token Consumption (Input + Output)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_input_tokens)",
+          "legendFormat": "input={{agent_input_tokens}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_output_tokens)",
+          "legendFormat": "output={{agent_output_tokens}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Cost per Request (USD)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_cost_usd)",
+          "legendFormat": "cost=${{agent_cost_usd}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+    },
+    {
+      "id": 15,
+      "title": "Provider Distribution (Ollama vs Gemini)",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}) by (agent_provider)",
+          "legendFormat": "{{agent_provider}}"
+        }
+      ],
+      "options": { "pieType": "pie" }
+    },
+    {
+      "id": 16,
+      "title": "Agent Pipeline — Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "100 * sum(rate(traces_spanmetrics_calls_total{span_name=~\"agent\\..*\",status_code=\"STATUS_CODE_ERROR\"}[1m])) / sum(rate(traces_spanmetrics_calls_total{span_name=~\"agent\\..*\"}[1m]))",
+          "legendFormat": "Error %"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 } }
     }
   ]
 }

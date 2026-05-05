@@ -50,6 +50,37 @@ check_health() {
   echo " ready."
 }
 
+check_monitoring() {
+  local prometheus_url="${PROMETHEUS_URL:-http://localhost:9090}"
+  local jaeger_url="${JAEGER_URL:-http://localhost:16686}"
+
+  printf 'Checking Prometheus at %s ' "$prometheus_url"
+  if ! curl -sf "${prometheus_url}/-/healthy" >/dev/null 2>&1; then
+    echo ""
+    echo "ERROR: Prometheus is not reachable at ${prometheus_url}."
+    echo ""
+    echo "  Start the full observability stack with:"
+    echo "    MCP_DEV_MODE=1 docker compose --profile full up -d"
+    echo ""
+    echo "  Or set PROMETHEUS_URL if it runs on a different host/port."
+    exit 1
+  fi
+  echo " ready."
+
+  printf 'Checking Jaeger at %s ' "$jaeger_url"
+  if ! curl -sf "${jaeger_url}/api/services" >/dev/null 2>&1; then
+    echo ""
+    echo "ERROR: Jaeger is not reachable at ${jaeger_url}."
+    echo ""
+    echo "  Start the full observability stack with:"
+    echo "    MCP_DEV_MODE=1 docker compose --profile full up -d"
+    echo ""
+    echo "  Or set JAEGER_URL if it runs on a different host/port."
+    exit 1
+  fi
+  echo " ready."
+}
+
 mcp_call() {
   # mcp_call <method> <params_json> [extra_curl_opts...]
   local method="$1"
@@ -67,6 +98,7 @@ require_cmd curl
 require_cmd jq
 
 check_health
+check_monitoring
 
 if [ ! -f "$PDF_PATH" ]; then
   echo "ERROR: PDF not found at '$PDF_PATH'. Set PDF_PATH to a valid path."
