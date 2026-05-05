@@ -53,7 +53,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "100 * sum(rate(http_requests_total{job=\"mcp-gateway\",status=~\"5..\"}[1m])) / sum(rate(http_requests_total{job=\"mcp-gateway\"}[1m]))",
+          "expr": "100 * sum(rate(http_requests_total{job=\"mcp-gateway\",status=\"5xx\"}[1m])) / sum(rate(http_requests_total{job=\"mcp-gateway\"}[1m]))",
           "legendFormat": "5xx %"
         }
       ]
@@ -131,7 +131,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=~\"agent\\..*\"}[1m])) by (span_name)",
+          "expr": "sum(rate(traces_calls_total{span_name=~\"agent\\..*\"}[1m])) by (span_name)",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -144,7 +144,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{span_name=~\"agent\\..*\"}[1m])) by (le, span_name)) / 1000",
+          "expr": "histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{span_name=~\"agent\\..*\"}[1m])) by (le, span_name)) / 1000",
           "legendFormat": "P99 {{span_name}}"
         }
       ],
@@ -158,7 +158,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.pdf_extract\"}[1m])) by (agent_pages_read)",
+          "expr": "sum(rate(traces_calls_total{span_name=\"agent.pdf_extract\"}[1m])) by (agent_pages_read)",
           "legendFormat": "pages={{agent_pages_read}}"
         }
       ]
@@ -171,7 +171,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.pdf_extract\"}[1m])) by (agent_chunk_count)",
+          "expr": "sum(rate(traces_calls_total{span_name=\"agent.pdf_extract\"}[1m])) by (agent_chunk_count)",
           "legendFormat": "chunks={{agent_chunk_count}}"
         }
       ]
@@ -184,12 +184,12 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_input_tokens)",
+          "expr": "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_input_tokens)",
           "legendFormat": "input={{agent_input_tokens}}"
         },
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_output_tokens)",
+          "expr": "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_output_tokens)",
           "legendFormat": "output={{agent_output_tokens}}"
         }
       ]
@@ -202,7 +202,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_cost_usd)",
+          "expr": "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[1m])) by (agent_cost_usd)",
           "legendFormat": "cost=${{agent_cost_usd}}"
         }
       ],
@@ -216,7 +216,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(traces_spanmetrics_calls_total{span_name=\"agent.llm_route\"}) by (agent_provider)",
+          "expr": "sum(traces_calls_total{span_name=\"agent.llm_route\"}) by (agent_provider)",
           "legendFormat": "{{agent_provider}}"
         }
       ],
@@ -230,7 +230,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "100 * sum(rate(traces_spanmetrics_calls_total{span_name=~\"agent\\..*\",status_code=\"STATUS_CODE_ERROR\"}[1m])) / sum(rate(traces_spanmetrics_calls_total{span_name=~\"agent\\..*\"}[1m]))",
+          "expr": "100 * sum(rate(traces_calls_total{span_name=~\"agent\\..*\",status_code=\"STATUS_CODE_ERROR\"}[1m])) / sum(rate(traces_calls_total{span_name=~\"agent\\..*\"}[1m]))",
           "legendFormat": "Error %"
         }
       ],

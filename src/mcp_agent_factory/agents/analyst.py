@@ -120,9 +120,9 @@ class AnalystAgent:
 			extraction = file_context_extractor(task.pdf_path, query=task.query, max_pages=task.max_pages)
 			raw_chunks = [s["text"] for s in extraction["snippets"]]
 			chunks_before = len(raw_chunks)
-			pdf_span.set_attribute("pages_read", extraction["pages_read"])
-			pdf_span.set_attribute("total_pages", extraction["total_pages"])
-			pdf_span.set_attribute("chunk_count", chunks_before)
+			pdf_span.set_attribute("agent.pages_read", extraction["pages_read"])
+			pdf_span.set_attribute("agent.total_pages", extraction["total_pages"])
+			pdf_span.set_attribute("agent.chunk_count", chunks_before)
 
 		_log(f"analyst: extracted {chunks_before} pages, pruning for relevance")
 
@@ -164,13 +164,13 @@ class AnalystAgent:
 		_log(f"analyst: routing to LLM (provider={active_provider})")
 
 		with tracer.start_as_current_span("agent.llm_route") as llm_span:
-			llm_span.set_attribute("provider", active_provider)
-			llm_span.set_attribute("input_tokens", len(prompt) // 4)
+			llm_span.set_attribute("agent.provider", active_provider)
+			llm_span.set_attribute("agent.input_tokens", len(prompt) // 4)
 			router = provider_factory(provider=task.provider)
 			req = LLMRequest(tool_name="analyze_document", args={}, prompt=prompt)
 			response = await router.route(req)
-			llm_span.set_attribute("output_tokens", response.get("output_tokens", 0))
-			llm_span.set_attribute("cost_usd", response.get("cost_usd", 0.0))
+			llm_span.set_attribute("agent.output_tokens", response.get("output_tokens", 0))
+			llm_span.set_attribute("agent.cost_usd", response.get("cost_usd", 0.0))
 
 		_log("analyst: LLM response received")
 
