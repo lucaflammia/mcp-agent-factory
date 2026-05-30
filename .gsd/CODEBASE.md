@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-05T14:14:26Z | Files: 133 | Described: 0/133
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-05T14:14:26Z","fingerprint":"4ae611f30506bae7ed2803f86f4b205f81f6a714","fileCount":133,"truncated":false} -->
+Generated: 2026-05-30T10:20:37Z | Files: 133 | Described: 0/133
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-30T10:20:37Z","fingerprint":"4ae611f30506bae7ed2803f86f4b205f81f6a714","fileCount":133,"truncated":false} -->
 
 ### (root)/
 - `.env.example`

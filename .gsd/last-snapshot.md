@@ -1,3 +1,8 @@
-# GSD context snapshot (2026-04-26T14:03:37.462Z)
+# GSD context snapshot (2026-05-30T09:39:54.555Z)
 
-_No durable memories, active context, or exec history to surface._
+## Top project memories
+- [MEM001] (architecture) GSD Framework for prototyping Chose: Use GSD for rapid MVP development. Rationale: Maximizes efficiency and speed..
+- [MEM002] (architecture) Slice ordering for M001 Chose: S01 (MCP lifecycle) → S02 (ReAct loop) → S03 (schema + privacy); S02 and S03 both depend on S01 but are independent of each other. Rationale: S01 is the highest-risk slice because a broken STDIO transport or missed capability negotiation silently breaks all downstream work. Proving the full MCP lifecycle first gives S02 and S03 a stable, t….
+- [MEM003] (architecture) MCPOrchestrator connect() design Chose: connect() performs the initialize handshake internally; _rpc() uses single-outstanding-request pattern. Rationale: Callers get a ready client immediately after connect() with no extra ceremony. Single-outstanding-request simplifies the implementation at the cost of concurrency — acceptable for the current synchro….
+- [MEM004] (architecture) TaskScheduler inbox mechanism Chose: asyncio.Queue (in-process) — producers push TaskItem objects directly. External queue infrastructure (Redis/HTTP) deferred.. Rationale: Keeps the scheduler testable in isolation without any external service. The scheduler architecture is the thing being proven — the queue backend is an infrastructure concern for a later milestone..
+- [MEM005] (architecture) Redis Session Manager test strategy Chose: Real redis client (redis-py) with fakeredis for tests. Rationale: Provides a real Redis interface from day one so production swap-in is zero-cost. fakeredis allows fast, dependency-free unit tests without a running Redis instance..
