@@ -133,9 +133,11 @@ pip install -e ".[infra]"          # aiokafka extra
 REDIS_URL=redis://localhost:6379 pytest -m integration -v
 ```
 
-> **Note:** The Kafka integration test (`test_kafka_append_read`) requires the Kafka container
-> to be fully healthy. If it hangs, check `docker compose ps` — the kafka container may still
-> be starting. Run `docker compose logs kafka` to inspect.
+> **Note:** The Kafka integration tests (`test_kafka_append_read`, `test_kafka_consumer_group`,
+> `test_kafka_multi_partition`) require the Kafka container to be fully healthy before running.
+> Each test is time-bounded (2 s consumer poll) and will fail fast with a connection error rather
+> than hang if Kafka isn't ready. If tests fail, check `docker compose ps` — the kafka container
+> may still be starting (~30 s). Run `docker compose logs kafka` to inspect.
 
 ### Other server modes
 
@@ -165,42 +167,6 @@ share the same signing key as the Auth Server:
 | Gateway + Auth Server as separate processes | Set `JWT_SECRET=<random-secret>` for **both** processes — Auth Server signs with it, Gateway verifies with it |
 
 Without a shared `JWT_SECRET`, the Auth Server generates a random key at startup while the Gateway uses its own random key, so every token fails signature verification with `bad_signature`.
-
-### Topic Affinity — Populate Redis and Check Phrase Membership
-
-Two MCP tools let you tag phrases under topics in Redis and test membership at inference time.
-Topics are registered at gateway startup via the `KV_TOPICS` env var (comma-separated, defaults to `"default"`).
-
-```bash
-# Start the gateway with custom topics
-KV_TOPICS=sports,finance,tech python -m mcp_agent_factory.gateway.run
-```
-
-```python
-import httpx, json
-
-BASE = "http://localhost:8000/mcp"
-HEADERS = {"Content-Type": "application/json"}
-
-def rpc(method, **params):
-    body = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
-    return httpx.post(BASE, json=body, headers=HEADERS).json()["result"]
-
-# Populate Redis — register phrases under a topic
-rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "hat trick"})
-rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "penalty shootout"})
-rpc("tools/call", name="kv/add_phrase", arguments={"topic": "finance", "phrase": "hedge fund"})
-
-# Check topic affinity
-rpc("tools/call", name="kv/check_affinity", arguments={"topic": "sports", "phrase": "hat trick"})
-# → {"content": [{"type": "text", "text": "true"}]}
-
-rpc("tools/call", name="kv/check_affinity", arguments={"topic": "finance", "phrase": "hat trick"})
-# → {"content": [{"type": "text", "text": "false"}]}
-```
-
-Phrases are stored in Redis Sets (`kv:<topic>:__phrases__`) and survive restarts when `REDIS_URL` is set.
-In dev/test mode (no `REDIS_URL`) they live in an in-process `FakeRedis` instance.
 
 ### Live Demo (M012)
 
@@ -799,9 +765,57 @@ if not guard.already_seen(task.id):        # Skip if already processed
 
 ## Topic Affinity — Checking Phrase Membership in Redis
 
-Populate a topic with representative phrases, then check whether an incoming
-phrase belongs to it.  Uses Redis native sets (`SADD` / `SISMEMBER`) so the
-membership test is O(1) regardless of vocabulary size.
+Two MCP tools let you tag phrases under topics in Redis and test membership at inference time.
+Topics are registered at gateway startup via the `KV_TOPICS` env var (comma-separated, defaults to `"default"`).
+Uses Redis native sets (`SADD` / `SISMEMBER`) so the membership test is O(1) regardless of vocabulary size.
+
+### Via the gateway (MCP tools)
+
+Start the gateway with `MCP_DEV_MODE=1` (required — the `rpc()` helper below reads `response["result"]`
+and will raise `KeyError` if auth is enforced) and optionally point it at a real Redis so phrases survive restarts:
+
+```bash
+# In-memory fakeredis (phrases reset on restart)
+MCP_DEV_MODE=1 KV_TOPICS=sports,finance,tech python -m mcp_agent_factory.gateway.run
+
+# Real Redis (phrases persist across restarts)
+MCP_DEV_MODE=1 REDIS_URL=redis://localhost:6379 KV_TOPICS=sports,finance,tech python -m mcp_agent_factory.gateway.run
+```
+
+```python
+import httpx
+
+BASE = "http://localhost:8000/mcp"
+HEADERS = {"Content-Type": "application/json"}
+
+def rpc(method, **params):
+    body = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+    return httpx.post(BASE, json=body, headers=HEADERS).json()["result"]
+
+# Populate Redis — register phrases under a topic
+rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "hat trick"})
+rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "penalty shootout"})
+rpc("tools/call", name="kv/add_phrase", arguments={"topic": "finance", "phrase": "hedge fund"})
+
+# Check topic affinity
+rpc("tools/call", name="kv/check_affinity", arguments={"topic": "sports", "phrase": "hat trick"})
+# → {"content": [{"type": "text", "text": "true"}]}
+
+rpc("tools/call", name="kv/check_affinity", arguments={"topic": "finance", "phrase": "hat trick"})
+# → {"content": [{"type": "text", "text": "false"}]}
+```
+
+Phrases are stored in Redis Sets (`kv:<topic>:__phrases__`). When `REDIS_URL` is set they survive restarts
+and are visible via `redis-cli`:
+
+```
+redis-cli TYPE "kv:sports:__phrases__"     # → set
+redis-cli SMEMBERS "kv:sports:__phrases__" # → hat trick, penalty shootout
+```
+
+Without `REDIS_URL` phrases live only in the in-process `FakeRedis` instance and `redis-cli` will show nothing.
+
+### Direct Python usage
 
 ```python
 import asyncio
@@ -833,15 +847,8 @@ asyncio.run(main())
 
 > **Note:** `add_phrase` / `has_affinity` / `phrases` use a dedicated internal
 > Redis set key (`kv:<topic>:__phrases__`) that is hidden from `keys()`, so
-> the standard CRUD surface stays clean.
->
-> **Verifying with `redis-cli`:** phrases are stored in `kv:<topic>:__phrases__`
-> (a Redis Set), not `kv:<topic>`. Use the correct key name:
-> ```
-> redis-cli TYPE "kv:climate:__phrases__"   # → set
-> redis-cli SMEMBERS "kv:climate:__phrases__"  # → phrase list
-> ```
-> `TYPE "kv:climate"` returns `none` because that key does not exist — this is expected.
+> the standard CRUD surface stays clean. The above example uses `fakeredis`
+> (in-memory) — nothing is written to a real Redis instance.
 
 ## Running Tests
 

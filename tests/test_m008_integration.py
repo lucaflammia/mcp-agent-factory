@@ -272,28 +272,36 @@ def test_auth_redis_persistence_across_restart(real_redis):
 
 
 @pytest.mark.integration
-def test_kafka_event_log_tools_call(real_kafka_bootstrap):
+def test_kafka_event_log_tools_call(real_kafka_bootstrap, monkeypatch):
 	"""tools/call with KAFKA_BOOTSTRAP_SERVERS set produces a Kafka event."""
-	import os
 	import mcp_agent_factory.gateway.app as _app
 	from mcp_agent_factory.streams.kafka_adapter import KafkaEventLog
 
+	# Disable auth so tools/call succeeds without credentials.
+	monkeypatch.setattr(_app, "DEV_MODE", True)
+
+	# KafkaEventLog starts lazily on first append() — no pre-start needed.
+	# This avoids binding the aiokafka producer to a different loop than the
+	# one TestClient/anyio uses internally.
 	kafka_log = KafkaEventLog(bootstrap_servers=real_kafka_bootstrap)
-	asyncio.run(kafka_log.start())
 
 	original = _app._service_layer._event_log
 	_app._service_layer._event_log = kafka_log
 
 	try:
-		gw_client = TestClient(_app.gateway_app)
-		resp = gw_client.post("/mcp", json={
-			"jsonrpc": "2.0",
-			"id": 2,
-			"method": "tools/call",
-			"params": {"name": "echo", "arguments": {"text": "kafka-test"}},
-		})
-		assert resp.status_code == 200
-		assert resp.json().get("result") is not None
+		# Use TestClient as a context manager so the anyio event loop stays alive
+		# during cleanup — the producer was started on that loop during append().
+		with TestClient(_app.gateway_app) as gw_client:
+			resp = gw_client.post("/mcp", json={
+				"jsonrpc": "2.0",
+				"id": 2,
+				"method": "tools/call",
+				"params": {"name": "echo", "arguments": {"text": "kafka-test"}},
+			})
+			assert resp.status_code == 200
+			assert resp.json().get("result") is not None
+			# Stop the producer while anyio's loop is still alive (inside the context).
+			if kafka_log._producer is not None:
+				gw_client.portal.call(kafka_log.stop)
 	finally:
-		asyncio.run(kafka_log.stop())
 		_app._service_layer._event_log = original

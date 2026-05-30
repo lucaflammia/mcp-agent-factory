@@ -59,7 +59,7 @@ class KafkaEventLog:
 	async def append(self, topic: str, event: dict[str, Any]) -> str:
 		"""Publish *event* as JSON to *topic*; return the Kafka offset as str."""
 		if self._producer is None:
-			raise RuntimeError("KafkaEventLog.start() must be called before append()")
+			await self.start()
 		value = json.dumps(event).encode()
 		record_metadata = await self._producer.send_and_wait(topic, value)
 		msg_id = str(record_metadata.offset)
@@ -70,21 +70,25 @@ class KafkaEventLog:
 		return msg_id
 
 	async def read(self, topic: str, offset: str = "0") -> list[tuple[str, dict[str, Any]]]:
-		"""Read events from *topic* from *offset* (simple single-poll fetch)."""
+		"""Read events from *topic* from *offset* (bounded single-poll fetch)."""
 		if not _AIOKAFKA_AVAILABLE:
 			raise RuntimeError("aiokafka is not installed")
 		start_offset = int(offset)
 		consumer = AIOKafkaConsumer(
 			topic,
 			bootstrap_servers=self._bootstrap_servers,
+			auto_offset_reset="earliest",
 		)
 		await consumer.start()
 		results: list[tuple[str, dict[str, Any]]] = []
 		try:
-			async for msg in consumer:
-				if msg.offset < start_offset:
-					continue
-				results.append((str(msg.offset), json.loads(msg.value)))
+			# getmany returns only messages already in the broker — no indefinite wait.
+			batches = await consumer.getmany(timeout_ms=2000)
+			for msgs in batches.values():
+				for msg in msgs:
+					if msg.offset < start_offset:
+						continue
+					results.append((str(msg.offset), json.loads(msg.value)))
 		finally:
 			await consumer.stop()
 		return results
