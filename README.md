@@ -188,6 +188,9 @@ MCP_DEV_MODE=1 docker compose --profile full up -d
 
 Then run the demo:
 
+> **Linux only:** Ollama must listen on all interfaces so the gateway container can reach it.
+> Start (or restart) Ollama with `OLLAMA_HOST=0.0.0.0 ollama serve` before running the demo.
+
 ```bash
 # Pull the default local model first (lightweight, ~400 MB)
 ollama pull qwen3:0.6b-q4_K_M
