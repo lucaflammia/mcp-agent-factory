@@ -40,7 +40,7 @@ check_health() {
   until curl -sf "$url" >/dev/null 2>&1; do
     if [ "$waited" -ge "$max_wait" ]; then
       echo ""
-      echo "ERROR: Gateway not ready after ${max_wait}s. Run: docker compose up -d"
+      echo "ERROR: Gateway not ready after ${max_wait}s. Run: MCP_DEV_MODE=1 docker compose --profile full up -d"
       exit 1
     fi
     printf '.'

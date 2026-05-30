@@ -175,7 +175,18 @@ In dev/test mode (no `REDIS_URL`) they live in an in-process `FakeRedis` instanc
 
 ### Live Demo (M012)
 
-With the full Docker stack running (`docker compose --profile full up -d`):
+**Prerequisites:** Docker Compose **v2** is required (`docker compose version` must show v2.x).
+The legacy `docker-compose` v1 binary is not supported and will crash with a `ContainerConfig`
+error on modern Docker Engine versions. Install the Compose v2 plugin:
+https://docs.docker.com/compose/install/
+
+Start the full stack with auth bypass enabled (required by the demo script):
+
+```bash
+MCP_DEV_MODE=1 docker compose --profile full up -d
+```
+
+Then run the demo:
 
 ```bash
 # Pull the default local model first (lightweight, ~400 MB)
@@ -195,11 +206,15 @@ OLLAMA_MODEL=llama3.2 ./scripts/demo.sh
 
 Bring up all 12 services — gateway, auth, Redis (×4), Kafka, Zookeeper, Jaeger, Prometheus, Grafana, and Caddy — with one command:
 
+> **Requires Docker Compose v2** (`docker compose version` → v2.x). The legacy
+> `docker-compose` v1 binary is not supported.
+
 ```bash
 # Optional: set a shared JWT secret (defaults to dev-secret-change-in-production)
 export JWT_SECRET=$(openssl rand -hex 32)
 
-docker compose --profile full up -d
+# MCP_DEV_MODE=1 enables auth bypass (required for the live demo)
+MCP_DEV_MODE=1 docker compose --profile full up -d
 ```
 
 Wait for all services to reach healthy state:
