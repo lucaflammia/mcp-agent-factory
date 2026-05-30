@@ -92,7 +92,7 @@ class InternalServiceLayer:
         self._pii_gate.scrub(args)
 
         if tool_name == "echo":
-            text = args.get("text", "")
+            text = args.get("message", args.get("text", ""))
             outcome = {"content": [{"type": "text", "text": text}]}
 
         elif tool_name == "add":

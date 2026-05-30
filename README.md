@@ -90,38 +90,67 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 
 ## Quick Start
 
+### 1. Install
+
 ```bash
 # Generate machine-specific .mcp.json (run once after cloning or moving the repo)
 ./setup-mcp.sh
 
 pip install -e .          # core deps: fastapi, uvicorn, pydantic, authlib, redis, sse-starlette, numpy, python-dotenv
 pip install -e ".[ml]"   # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
+```
 
-# STDIO server
+### 2. Run the gateway (terminal 1)
+
+The bridge and integration tests both require the gateway to be running first.
+
+```bash
+# In-memory mode — no Redis required, auth bypassed
+MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run
+
+# With real Redis (required for kv/* tools and stream workers)
+MCP_DEV_MODE=1 REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
+```
+
+### 3. Run the bridge smoke test (terminal 2)
+
+```bash
+# Requires the gateway from step 2 to be running
+MCP_DEV_MODE=1 python -m mcp_agent_factory.bridge
+# Expected: lists 5 available tools and prints "Echo result: hello from bridge"
+```
+
+### 4. Integration tests (Kafka + Redis cluster)
+
+> **Prerequisite:** Docker Compose v2 (`docker compose version` — must be ≥ 2.0).
+> Install: https://docs.docker.com/compose/install/
+
+```bash
+# Start infrastructure (Kafka, Redis cluster, Prometheus, Jaeger)
+MCP_DEV_MODE=1 docker compose up -d
+
+pip install -e ".[infra]"          # aiokafka extra
+REDIS_URL=redis://localhost:6379 pytest -m integration -v
+```
+
+> **Note:** The Kafka integration test (`test_kafka_append_read`) requires the Kafka container
+> to be fully healthy. If it hangs, check `docker compose ps` — the kafka container may still
+> be starting. Run `docker compose logs kafka` to inspect.
+
+### Other server modes
+
+```bash
+# Minimal STDIO server (no HTTP)
 python -m mcp_agent_factory.server
 
-# HTTP server (unauthenticated)
+# HTTP server (unauthenticated, no gateway)
 uvicorn mcp_agent_factory.server_http:app --reload
 
 # HTTP server (OAuth-secured)
 uvicorn mcp_agent_factory.server_http_secured:secured_app --reload
 
-# MCP API Gateway (full stack, port 8000)
-python -m mcp_agent_factory.gateway.run
-
-# Python client bridge CLI demo
-python -m mcp_agent_factory.bridge
-
-# Gateway with real Redis (M008)
-REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
-
-# Gateway with a shared JWT secret (required when Bridge or external clients send real tokens)
-JWT_SECRET=<same-secret-used-by-auth-server> python -m mcp_agent_factory.gateway.run
-
-# Real infrastructure (Kafka + Redis cluster) — M007
-docker compose up -d
-pip install -e ".[infra]"          # aiokafka extra
-pytest -m integration -v           # 8 integration tests against live services
+# Gateway with a shared JWT secret (production — Bridge and gateway must share the same value)
+JWT_SECRET=<random-secret> python -m mcp_agent_factory.gateway.run
 ```
 
 ### JWT_SECRET and the Gateway / Auth Server handshake
