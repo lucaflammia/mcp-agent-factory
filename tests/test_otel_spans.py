@@ -22,8 +22,10 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 # ---------------------------------------------------------------------------
 
 # OTEL SDK only allows set_tracer_provider() once per process — subsequent
-# calls are silently ignored with a warning.  Wire the exporter once at module
-# level and clear it between tests instead.
+# calls are silently ignored with a warning.  To handle test ordering where
+# gateway tests may call configure_telemetry() first (installing an OTLP
+# provider), we forcibly re-inject _PROVIDER into OTEL's internal proxy before
+# each span-asserting test.
 _EXPORTER = InMemorySpanExporter()
 _PROVIDER = TracerProvider()
 _PROVIDER.add_span_processor(SimpleSpanProcessor(_EXPORTER))
@@ -32,7 +34,11 @@ trace.set_tracer_provider(_PROVIDER)
 
 @pytest.fixture(autouse=True)
 def span_exporter():
-    """Clear the shared exporter before each test and yield it."""
+    """Re-inject _PROVIDER as the active global provider, clear the exporter, yield it."""
+    import opentelemetry.trace as _trace_module
+    # Forcibly replace the global provider so spans land on _EXPORTER regardless
+    # of what other test modules installed earlier.
+    _trace_module._TRACER_PROVIDER = _PROVIDER  # type: ignore[attr-defined]
     _EXPORTER.clear()
     yield _EXPORTER
 
