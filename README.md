@@ -1008,6 +1008,7 @@ tests/
 | Hotfix | OTel integration tests now skip automatically when the Jaeger/Collector stack is down (`@pytest.mark.integration`); `pip install -e .` on a fresh machine now installs all required runtime deps (fastapi, uvicorn, pydantic, authlib, sse-starlette, numpy previously missing from `pyproject.toml`) | +0 (370) |
 | M012 | Live demo: `agents/analyze` JSON-RPC method via `_agents_dispatch()` sub-router; 4 OTel child spans (pdf_extract, prune, pii_scrub, llm_route) with token count attributes visible in Jaeger; `scripts/demo.sh` three-phase zero-touch demo (Privacy-First RAG → OTel trace → provider switch with -32602 fail-fast); contract tests cover response shape, -32602, and -32603 | +3 (361 unit + 14 integration) |
 | Hotfix | Auth server OTel instrumentation: `FastAPIInstrumentor` wired into `auth_app`; docker-compose auth service exports `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_SERVICE_NAME=mcp-auth` so auth server spans appear alongside gateway spans in Jaeger | +0 (361 unit + 14 integration) |
+| Hotfix | `test_m010_s01.py`: updated Gemini model reference from `gemini-1.5-flash` to `gemini-2.5-flash`; `test_m011_otel_integration.py`: `require_full_stack` fixture now probes gateway dev mode and skips with an actionable message when auth is enforced — prevents `AssertionError: assert None == 'otel-test-...'` masking an infrastructure misconfiguration | +0 (361 unit + 14 integration) |
 
 ## Security Notes
 

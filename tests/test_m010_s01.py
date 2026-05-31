@@ -32,7 +32,7 @@ def _make_request(prompt: str = "test prompt") -> LLMRequest:
 	return LLMRequest(tool_name="test", args={}, prompt=prompt)
 
 
-def _gemini_response_payload(text: str = "hello", model: str = "gemini-1.5-flash") -> dict:
+def _gemini_response_payload(text: str = "hello", model: str = "gemini-2.5-flash") -> dict:
 	return {
 		"candidates": [
 			{"content": {"parts": [{"text": text}]}}
@@ -99,7 +99,7 @@ class TestGeminiHandlerMapping:
 
 		result = await _patched_call()
 		assert result["content"] == "Analysis complete."
-		assert result["model"] == "gemini-1.5-flash"
+		assert result["model"] == "gemini-2.5-flash"
 		assert result["input_tokens"] == 10
 		assert result["output_tokens"] == 5
 

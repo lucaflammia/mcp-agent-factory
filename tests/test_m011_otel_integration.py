@@ -33,11 +33,19 @@ def _port_open(host: str, port: int, timeout: float = 2.0) -> bool:
 
 @pytest.fixture(autouse=True, scope="class")
 def require_full_stack():
-    """Skip entire test class when gateway or Jaeger is not reachable."""
+    """Skip entire test class when gateway or Jaeger is not reachable or dev mode is off."""
     if not _port_open("localhost", 8000):
         pytest.skip("MCP gateway not reachable at localhost:8000 — run: docker compose --profile full up -d")
     if not _port_open("localhost", 16686):
         pytest.skip("Jaeger not reachable at localhost:16686 — run: docker compose --profile full up -d")
+    # Verify gateway is in dev mode (unauthenticated calls allowed)
+    probe = httpx.post(
+        f"{GATEWAY_URL}/mcp",
+        json={"jsonrpc": "2.0", "id": 0, "method": "tools/call", "params": {"name": "echo", "arguments": {"text": "probe"}}},
+        timeout=5,
+    )
+    if probe.status_code == 200 and probe.json().get("error", {}).get("code") == -32001:
+        pytest.skip("Gateway is in auth mode — restart with MCP_DEV_MODE=1: MCP_DEV_MODE=1 docker compose up -d --no-deps gateway")
 
 
 def _jaeger_traces(service: str = "mcp-gateway", limit: int = 20) -> list[dict]:
