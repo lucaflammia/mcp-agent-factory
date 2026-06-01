@@ -185,7 +185,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_calls_total{span_name=~\"agent\\..*\"}[5m])) by (span_name)",
+          "expr": "sum(rate(traces_calls_total{span_name=~\"agent[.].*\"}[5m])) by (span_name)",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -203,7 +203,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{span_name=~\"agent\\..*\"}[5m])) by (le, span_name)) / 1000",
+          "expr": "histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{span_name=~\"agent[.].*\"}[5m])) by (le, span_name)) / 1000",
           "legendFormat": "P99 {{span_name}}"
         }
       ],
@@ -329,7 +329,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "100 * sum(rate(traces_calls_total{span_name=~\"agent\\..*\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / sum(rate(traces_calls_total{span_name=~\"agent\\..*\"}[5m]))",
+          "expr": "100 * sum(rate(traces_calls_total{span_name=~\"agent[.].*\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / sum(rate(traces_calls_total{span_name=~\"agent[.].*\"}[5m]))",
           "legendFormat": "Error %"
         }
       ],
