@@ -171,12 +171,30 @@ echo "  PDF:   $PDF_PATH"
 echo "  Query: $QUERY"
 echo ""
 
-# Run 3 warm-up calls so Prometheus rate windows have enough data for Grafana
-# "Agent Pipeline" and "Auction Bids" panels (rate() needs at least 2 samples).
-echo "  Warming up agent pipeline (3 calls for Grafana rate windows)..."
-for _i in 1 2 3; do
-  mcp_call "agents/analyze" "$PARAMS" >/dev/null 2>&1 || true
+# Seed Grafana panels by spreading calls across 2+ Prometheus scrape intervals.
+# Prometheus scrapes every 15s; rate() needs counter increments at ≥2 distinct
+# scrape points within the [1m] window. We run 4 calls spaced ~12s apart (~36s
+# total) before the display call so all 5 panels have data by the time Phase 1
+# output prints.
+#
+# Each agents/analyze call:
+#   • increments mcp_auction_bids_total × 3 (analyst, summarizer, extractor)
+#   • emits agent.pdf_extract / agent.prune / agent.pii_scrub / agent.llm_route spans
+#     → OTel collector converts to traces_calls_total (Agent Pipeline, Pages Read,
+#       Token Consumption panels)
+echo "  Seeding Grafana metric panels (4 calls spread over ~36s)..."
+for _i in 1 2 3 4; do
+  printf "    call %d/4 … " "$_i"
+  if mcp_call "agents/analyze" "$PARAMS" >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "warn: call failed (non-fatal)"
+  fi
+  [ "$_i" -lt 4 ] && sleep 12
 done
+echo ""
+echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
+sleep 20
 echo ""
 
 PHASE1=$(mcp_call "agents/analyze" "$PARAMS")
@@ -285,4 +303,41 @@ fi
 hr
 echo "  Demo complete."
 hr
+
+# ── Grafana verification ───────────────────────────────────────────────────────
+
+PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:9090}"
+
+echo ""
+echo "  Verifying Grafana panel metrics in Prometheus …"
+echo ""
+
+_prom_check() {
+  local label="$1"
+  local query="$2"
+  local result
+  result=$(curl -sf "${PROMETHEUS_URL}/api/v1/query" \
+    --data-urlencode "query=${query}" 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); v=d.get('data',{}).get('result',[]); print('ok' if v else 'no-data')" 2>/dev/null || echo "unreachable")
+  printf "    %-35s %s\n" "$label" "$result"
+}
+
+_prom_check "Auction Bids" \
+  "sum(mcp_auction_bids_total{job=\"mcp-gateway\"})"
+
+_prom_check "Agent Pipeline (calls rate)" \
+  "sum(rate(traces_calls_total{span_name=~\"agent\\..*\"}[5m]))"
+
+_prom_check "Pages Read (pdf_extract rate)" \
+  "sum(rate(traces_calls_total{span_name=\"agent.pdf_extract\"}[5m]))"
+
+_prom_check "Token Consumption (llm_route rate)" \
+  "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[5m]))"
+
+echo ""
+echo "  Grafana dashboard (refreshes every 10s):"
+echo "    http://localhost:3000/d/mcp-overview/mcp-agent-factory-e28094-overview?orgId=1&refresh=10s"
+echo ""
+echo "  If any check shows 'no-data', wait 30s and refresh Grafana — Prometheus"
+echo "  may still be in its next scrape interval."
 echo ""

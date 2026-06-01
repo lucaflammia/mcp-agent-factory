@@ -1009,6 +1009,8 @@ tests/
 | M012 | Live demo: `agents/analyze` JSON-RPC method via `_agents_dispatch()` sub-router; 4 OTel child spans (pdf_extract, prune, pii_scrub, llm_route) with token count attributes visible in Jaeger; `scripts/demo.sh` three-phase zero-touch demo (Privacy-First RAG → OTel trace → provider switch with -32602 fail-fast); contract tests cover response shape, -32602, and -32603 | +3 (361 unit + 14 integration) |
 | Hotfix | Auth server OTel instrumentation: `FastAPIInstrumentor` wired into `auth_app`; docker-compose auth service exports `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_SERVICE_NAME=mcp-auth` so auth server spans appear alongside gateway spans in Jaeger | +0 (361 unit + 14 integration) |
 | Hotfix | `test_m010_s01.py`: updated Gemini model reference from `gemini-1.5-flash` to `gemini-2.5-flash`; `test_m011_otel_integration.py`: `require_full_stack` fixture now probes gateway dev mode and skips with an actionable message when auth is enforced — prevents `AssertionError: assert None == 'otel-test-...'` masking an infrastructure misconfiguration | +0 (361 unit + 14 integration) |
+| Hotfix | Smoke test skips (not fails) the unauthenticated auth check when `MCP_DEV_MODE=1` — dev mode bypasses auth by design, so a 200 response is correct and should not be treated as a failure | +0 (361 unit + 14 integration) |
+| Hotfix | Grafana dashboard: rate windows widened from `[1m]` to `[5m]` and default time range extended to `now-30m` so Auction Bids, Agent Pipeline, Pages Read, and Token Consumption panels stay populated after `demo.sh` finishes; `demo.sh` now spaces its four gateway calls 12 s apart and sleeps 20 s post-call to give Prometheus time to scrape before the user opens Grafana | +0 (361 unit + 14 integration) |
 
 ## Security Notes
 
