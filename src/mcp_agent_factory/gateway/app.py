@@ -322,6 +322,21 @@ async def _agents_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse
                 return _err(req_id, -32602, str(exc))
 
         try:
+            from mcp_agent_factory.agents.models import AgentTask
+            from mcp_agent_factory.economics.utility import AgentProfile
+
+            auction_task = AgentTask(
+                name="document_analysis",
+                complexity=0.6,
+                required_capability="document_analysis",
+            )
+            _profiles = [
+                AgentProfile(agent_id="analyst", capabilities=["document_analysis", "knowledge_retrieval"], expertise_score=0.9, cost_per_unit=1.2),
+                AgentProfile(agent_id="summarizer", capabilities=["summarization"], expertise_score=0.7, cost_per_unit=0.8),
+                AgentProfile(agent_id="extractor", capabilities=["document_analysis", "extraction"], expertise_score=0.75, cost_per_unit=1.0),
+            ]
+            Auction().run(auction_task, _profiles)
+
             task = DocumentAnalysisTask(pdf_path=pdf_path, query=query, max_pages=max_pages, provider=provider)
             result = await AnalystAgent().analyze_document(task)
             return _ok(req_id, {

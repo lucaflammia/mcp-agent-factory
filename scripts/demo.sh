@@ -171,6 +171,14 @@ echo "  PDF:   $PDF_PATH"
 echo "  Query: $QUERY"
 echo ""
 
+# Run 3 warm-up calls so Prometheus rate windows have enough data for Grafana
+# "Agent Pipeline" and "Auction Bids" panels (rate() needs at least 2 samples).
+echo "  Warming up agent pipeline (3 calls for Grafana rate windows)..."
+for _i in 1 2 3; do
+  mcp_call "agents/analyze" "$PARAMS" >/dev/null 2>&1 || true
+done
+echo ""
+
 PHASE1=$(mcp_call "agents/analyze" "$PARAMS")
 
 if echo "$PHASE1" | jq -e '.error' >/dev/null 2>&1; then
