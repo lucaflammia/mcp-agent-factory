@@ -1,16 +1,24 @@
 {
-  "title": "MCP Agent Factory — Overview",
+  "title": "MCP Agent Factory \u2014 Overview",
   "uid": "mcp-overview",
   "schemaVersion": 38,
   "version": 2,
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "title": "HTTP Request Rate (req/s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -23,7 +31,12 @@
       "id": 2,
       "title": "HTTP Latency P99 (s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -36,7 +49,12 @@
       "id": 3,
       "title": "HTTP Latency P50 (s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -49,7 +67,12 @@
       "id": 4,
       "title": "HTTP Error Rate (%)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -62,7 +85,12 @@
       "id": 5,
       "title": "MCP Tool Call Rate (req/s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -75,7 +103,12 @@
       "id": 6,
       "title": "Auction Bids (total)",
       "type": "stat",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -83,13 +116,24 @@
           "legendFormat": "Total bids"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 7,
       "title": "Gateway CPU Usage (%)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -108,7 +152,12 @@
       "id": 8,
       "title": "Gateway Memory RSS (MB)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -125,9 +174,14 @@
     },
     {
       "id": 9,
-      "title": "Agent Pipeline — Span Rate (req/s)",
+      "title": "Agent Pipeline \u2014 Span Rate (req/s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -138,9 +192,14 @@
     },
     {
       "id": 10,
-      "title": "Agent Pipeline — Span Latency P99 (s)",
+      "title": "Agent Pipeline \u2014 Span Latency P99 (s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -148,13 +207,22 @@
           "legendFormat": "P99 {{span_name}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
     },
     {
       "id": 11,
       "title": "Pages Read per Analyze Call",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -167,7 +235,12 @@
       "id": 12,
       "title": "Chunk Count (before/after pruning)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -180,17 +253,22 @@
       "id": 13,
       "title": "Token Consumption (Input + Output)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
       "targets": [
         {
-          "datasource": "Prometheus",
-          "expr": "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[5m])) by (agent_input_tokens)",
-          "legendFormat": "input={{agent_input_tokens}}"
+          "expr": "sum(rate(mcp_agent_input_tokens_total[5m])) by (provider)",
+          "legendFormat": "input {{provider}}",
+          "refId": "A"
         },
         {
-          "datasource": "Prometheus",
-          "expr": "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[5m])) by (agent_output_tokens)",
-          "legendFormat": "output={{agent_output_tokens}}"
+          "expr": "sum(rate(mcp_agent_output_tokens_total[5m])) by (provider)",
+          "legendFormat": "output {{provider}}",
+          "refId": "B"
         }
       ]
     },
@@ -198,7 +276,12 @@
       "id": 14,
       "title": "Cost per Request (USD)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -206,13 +289,22 @@
           "legendFormat": "cost=${{agent_cost_usd}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        }
+      }
     },
     {
       "id": 15,
       "title": "Provider Distribution (Ollama vs Gemini)",
       "type": "piechart",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -220,13 +312,20 @@
           "legendFormat": "{{agent_provider}}"
         }
       ],
-      "options": { "pieType": "pie" }
+      "options": {
+        "pieType": "pie"
+      }
     },
     {
       "id": 16,
-      "title": "Agent Pipeline — Error Rate (%)",
+      "title": "Agent Pipeline \u2014 Error Rate (%)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -234,7 +333,12 @@
           "legendFormat": "Error %"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        }
+      }
     }
   ]
 }

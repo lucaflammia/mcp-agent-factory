@@ -17,6 +17,22 @@ from typing import Any
 
 from mcp_agent_factory.agents.models import AgentTask, AnalysisResult, MCPContext
 from mcp_agent_factory.gateway.router import LLMRequest, provider_factory
+
+try:
+    from prometheus_client import Counter as _Counter
+    _agent_input_tokens = _Counter(
+        "mcp_agent_input_tokens_total",
+        "Cumulative LLM input tokens processed by the analyst agent",
+        ["provider"],
+    )
+    _agent_output_tokens = _Counter(
+        "mcp_agent_output_tokens_total",
+        "Cumulative LLM output tokens produced by the analyst agent",
+        ["provider"],
+    )
+except Exception:
+    _agent_input_tokens = None  # type: ignore[assignment]
+    _agent_output_tokens = None  # type: ignore[assignment]
 from mcp_agent_factory.gateway.pruner import ContextPruner
 from mcp_agent_factory.gateway.telemetry import get_tracer
 from mcp_agent_factory.gateway.validation import PIIGate, _default_allow_list
@@ -169,8 +185,14 @@ class AnalystAgent:
 			router = provider_factory(provider=task.provider)
 			req = LLMRequest(tool_name="analyze_document", args={}, prompt=prompt)
 			response = await router.route(req)
-			llm_span.set_attribute("agent.output_tokens", response.get("output_tokens", 0))
+			out_tokens = response.get("output_tokens", 0)
+			in_tokens = response.get("input_tokens", len(prompt) // 4)
+			llm_span.set_attribute("agent.output_tokens", out_tokens)
 			llm_span.set_attribute("agent.cost_usd", response.get("cost_usd", 0.0))
+			if _agent_input_tokens is not None:
+				_agent_input_tokens.labels(provider=active_provider).inc(in_tokens)
+			if _agent_output_tokens is not None:
+				_agent_output_tokens.labels(provider=active_provider).inc(out_tokens)
 
 		_log("analyst: LLM response received")
 

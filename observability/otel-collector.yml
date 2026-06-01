@@ -24,13 +24,11 @@ connectors:
       - name: http.method
       - name: http.status_code
       - name: rpc.method
-      # agent pipeline dimensions — populates Grafana agent-pipeline panels
+      # agent pipeline dimensions — low-cardinality only; high-cardinality values
+      # (token counts, cost) are tracked via dedicated Prometheus counters instead
       - name: agent.provider
       - name: agent.pages_read
       - name: agent.chunk_count
-      - name: agent.input_tokens
-      - name: agent.output_tokens
-      - name: agent.cost_usd
     exemplars:
       enabled: true
 
