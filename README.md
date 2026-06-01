@@ -225,9 +225,11 @@ docker compose --profile full ps
 Verify the stack with the smoke test script:
 
 ```bash
-bash scripts/smoke_test.sh
+MCP_DEV_MODE=1 bash scripts/smoke_test.sh
 # === All checks passed ===
 ```
+
+> **Note:** `MCP_DEV_MODE=1` is required — it enables the auth bypass that the smoke test endpoints expect.
 
 Open the UIs:
 
