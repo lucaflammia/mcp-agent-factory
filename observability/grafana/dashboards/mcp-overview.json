@@ -261,11 +261,13 @@
       },
       "targets": [
         {
+          "datasource": "Prometheus",
           "expr": "sum(rate(mcp_agent_input_tokens_total[5m])) by (provider)",
           "legendFormat": "input {{provider}}",
           "refId": "A"
         },
         {
+          "datasource": "Prometheus",
           "expr": "sum(rate(mcp_agent_output_tokens_total[5m])) by (provider)",
           "legendFormat": "output {{provider}}",
           "refId": "B"
@@ -274,19 +276,73 @@
     },
     {
       "id": 14,
-      "title": "Cost per Request (USD)",
-      "type": "timeseries",
+      "title": "Cost per Request — Aggregate (USD/s)",
+      "type": "stat",
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 4,
+        "w": 6,
         "x": 12,
         "y": 48
       },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[5m])) by (agent_cost_usd)",
-          "legendFormat": "cost=${{agent_cost_usd}}"
+          "expr": "sum(rate(mcp_agent_cost_usd_total[5m]))",
+          "legendFormat": "Total USD/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Cost per Provider (USD/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 48
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(mcp_agent_cost_usd_total[5m])) by (provider)",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Cumulative Cost by Provider (USD)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(mcp_agent_cost_usd_total) by (provider)",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
@@ -297,7 +353,7 @@
     },
     {
       "id": 15,
-      "title": "Provider Distribution (Ollama vs Gemini)",
+      "title": "Provider Distribution",
       "type": "piechart",
       "gridPos": {
         "h": 8,
@@ -308,8 +364,15 @@
       "targets": [
         {
           "datasource": "Prometheus",
+          "expr": "sum(mcp_agent_cost_usd_total) by (provider)",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        },
+        {
+          "datasource": "Prometheus",
           "expr": "sum(traces_calls_total{span_name=\"agent.llm_route\"}) by (agent_provider)",
-          "legendFormat": "{{agent_provider}}"
+          "legendFormat": "{{agent_provider}} (calls)",
+          "refId": "B"
         }
       ],
       "options": {

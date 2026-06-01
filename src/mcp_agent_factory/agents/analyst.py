@@ -30,9 +30,15 @@ try:
         "Cumulative LLM output tokens produced by the analyst agent",
         ["provider"],
     )
+    _agent_cost_usd = _Counter(
+        "mcp_agent_cost_usd_total",
+        "Cumulative LLM cost in USD incurred by the analyst agent",
+        ["provider"],
+    )
 except Exception:
     _agent_input_tokens = None  # type: ignore[assignment]
     _agent_output_tokens = None  # type: ignore[assignment]
+    _agent_cost_usd = None  # type: ignore[assignment]
 from mcp_agent_factory.gateway.pruner import ContextPruner
 from mcp_agent_factory.gateway.telemetry import get_tracer
 from mcp_agent_factory.gateway.validation import PIIGate, _default_allow_list
@@ -193,6 +199,8 @@ class AnalystAgent:
 				_agent_input_tokens.labels(provider=active_provider).inc(in_tokens)
 			if _agent_output_tokens is not None:
 				_agent_output_tokens.labels(provider=active_provider).inc(out_tokens)
+			if _agent_cost_usd is not None:
+				_agent_cost_usd.labels(provider=active_provider).inc(response.get("cost_usd", 0.0))
 
 		_log("analyst: LLM response received")
 
