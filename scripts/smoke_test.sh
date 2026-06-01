@@ -33,13 +33,18 @@ echo "--- Gateway ---"
 check_http "GET /health"                           "$GATEWAY/health"
 check_http "GET /.well-known/oauth-authorization-server" "$GATEWAY/.well-known/oauth-authorization-server"
 # POST /mcp tools/call without auth must return a JSON-RPC auth error (dev mode off in the full stack)
-CALL_RESP=$(curl -s -X POST "$GATEWAY/mcp" \
-    -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"message":"test"}}}')
-if echo "$CALL_RESP" | grep -q 'Authentication required'; then
-    pass "POST /mcp tools/call unauthenticated → auth error"
+DEV_MODE=${MCP_DEV_MODE:-0}
+if [ "$DEV_MODE" = "1" ]; then
+    echo "  SKIP  POST /mcp tools/call unauthenticated auth check (MCP_DEV_MODE=1 bypasses auth by design)"
 else
-    fail "POST /mcp tools/call unauthenticated expected auth error, got: $CALL_RESP"
+    CALL_RESP=$(curl -s -X POST "$GATEWAY/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"message":"test"}}}')
+    if echo "$CALL_RESP" | grep -q 'Authentication required'; then
+        pass "POST /mcp tools/call unauthenticated → auth error"
+    else
+        fail "POST /mcp tools/call unauthenticated expected auth error, got: $CALL_RESP"
+    fi
 fi
 
 echo ""
@@ -49,7 +54,6 @@ echo "--- Dev-mode tool call ---"
 # variant: spin up a quick in-process gateway using python and confirm the echo tool.
 # In CI / default full stack MCP_DEV_MODE=0, so we skip the tool call and just verify
 # that /health and auth are coherent.
-DEV_MODE=${MCP_DEV_MODE:-0}
 if [ "$DEV_MODE" = "1" ]; then
     TOOL_RESP=$(curl -s -X POST "$GATEWAY/mcp" \
         -H "Content-Type: application/json" \
