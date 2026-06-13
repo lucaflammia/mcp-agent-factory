@@ -326,7 +326,7 @@ _prom_check "Auction Bids" \
   "sum(mcp_auction_bids_total{job=\"mcp-gateway\"})"
 
 _prom_check "Agent Pipeline (calls rate)" \
-  "sum(rate(traces_calls_total{span_name=~\"agent\\..*\"}[5m]))"
+  "sum(rate(traces_calls_total{span_name=~\"agent[.].*\"}[5m]))"
 
 _prom_check "Pages Read (pdf_extract rate)" \
   "sum(rate(traces_calls_total{span_name=\"agent.pdf_extract\"}[5m]))"

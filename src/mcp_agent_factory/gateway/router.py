@@ -76,6 +76,11 @@ _COST_PER_M: dict[str, tuple[float, float]] = {
 	"gpt-4o-mini": (0.15, 0.60),
 	"claude-3-5-sonnet-20241022": (3.0, 15.0),
 	"claude-3-haiku-20240307": (0.25, 1.25),
+	# Gemini pricing (USD per 1M tokens, as of 2025-06)
+	"gemini-2.5-flash": (0.15, 0.60),
+	"gemini-2.5-pro": (1.25, 10.0),
+	"gemini-1.5-flash": (0.075, 0.30),
+	"gemini-1.5-pro": (1.25, 5.0),
 }
 
 
