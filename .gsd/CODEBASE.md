@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-06-01T09:41:19Z | Files: 133 | Described: 0/133
-<!-- gsd:codebase-meta {"generatedAt":"2026-06-01T09:41:19Z","fingerprint":"4ae611f30506bae7ed2803f86f4b205f81f6a714","fileCount":133,"truncated":false} -->
+Generated: 2026-06-13T12:56:11Z | Files: 134 | Described: 0/134
+<!-- gsd:codebase-meta {"generatedAt":"2026-06-13T12:56:11Z","fingerprint":"2f5d330a49a34e32606e57f65eb5ab3735867c0c","fileCount":134,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -19,6 +19,7 @@ Generated: 2026-06-01T09:41:19Z | Files: 133 | Described: 0/133
 - `data/samples/finance_q3_2024.pdf`
 
 ### docs/
+- `docs/demo-walkthrough.md`
 - `docs/security_audit.md`
 
 ### observability/
