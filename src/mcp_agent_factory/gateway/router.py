@@ -344,6 +344,11 @@ class UnifiedRouter:
 		for handler in self._handlers:
 			try:
 				result = await handler.call(request)
+				result["cost_usd"] = _cost_usd(
+					result.get("model", ""),
+					result.get("input_tokens", 0),
+					result.get("output_tokens", 0),
+				)
 				await self._emit_token_usage(result, request)
 				return result
 			except ProviderError as exc:
@@ -367,11 +372,7 @@ class UnifiedRouter:
 			"model": result.get("model", "unknown"),
 			"input_tokens": result.get("input_tokens", 0),
 			"output_tokens": result.get("output_tokens", 0),
-			"cost_usd": _cost_usd(
-				result.get("model", ""),
-				result.get("input_tokens", 0),
-				result.get("output_tokens", 0),
-			),
+			"cost_usd": result.get("cost_usd", 0.0),
 			"sub": sub,
 			"ts": int(time.time()),
 		}
