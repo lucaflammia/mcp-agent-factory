@@ -283,7 +283,8 @@ if echo "$PHASE3" | jq -e '.error.code == -32602' >/dev/null 2>&1; then
 elif echo "$PHASE3" | jq -e '.result' >/dev/null 2>&1; then
   PHASE3_CONTENT=$(echo "$PHASE3" | jq -r '.result.summary // empty')
   PHASE3_PROVIDER=$(echo "$PHASE3" | jq -r '.result.provider // "unknown"')
-  PHASE3_META=$(echo "$PHASE3" | jq '{provider: .result.provider, output_tokens: .result.output_tokens, cost_usd: .result.cost_usd}' 2>/dev/null || true)
+  PHASE3_COST=$(echo "$PHASE3" | jq -r '.result.cost_usd // 0')
+  PHASE3_META=$(echo "$PHASE3" | jq '{provider: .result.provider, input_tokens: .result.input_tokens, output_tokens: .result.output_tokens, cost_usd: .result.cost_usd}' 2>/dev/null || true)
   echo "$PHASE3_META"
   echo ""
   echo "EXECUTIVE SUMMARY:"
@@ -291,6 +292,9 @@ elif echo "$PHASE3" | jq -e '.result' >/dev/null 2>&1; then
   echo ""
   if echo "$PHASE3_PROVIDER" | grep -qi "gemini"; then
     echo "  ✓ Gemini responded successfully."
+    if [ "$PHASE3_COST" = "0" ] || [ "$PHASE3_COST" = "0.0" ]; then
+      echo "  ⚠ cost_usd=0 — gateway image may be stale. Rebuild: docker compose --profile full up --build -d"
+    fi
   else
     echo "  ✗ Gemini fell back to Ollama (provider=$PHASE3_PROVIDER)."
     echo "    Check gateway logs: docker logs \$(docker ps -qf name=gateway) 2>&1 | grep -i gemini"

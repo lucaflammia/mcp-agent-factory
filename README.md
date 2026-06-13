@@ -178,7 +178,8 @@ https://docs.docker.com/compose/install/
 Start the full stack with auth bypass enabled (required by the demo script):
 
 ```bash
-MCP_DEV_MODE=1 docker compose --profile full up -d
+# Always pass --build so the gateway image reflects the latest code changes
+MCP_DEV_MODE=1 docker compose --profile full up --build -d
 ```
 
 Then run the demo:
@@ -212,7 +213,8 @@ Bring up all 12 services — gateway, auth, Redis (×4), Kafka, Zookeeper, Jaege
 export JWT_SECRET=$(openssl rand -hex 32)
 
 # MCP_DEV_MODE=1 enables auth bypass (required for the live demo)
-MCP_DEV_MODE=1 docker compose --profile full up -d
+# --build ensures the gateway image is rebuilt from the latest source
+MCP_DEV_MODE=1 docker compose --profile full up --build -d
 ```
 
 Wait for all services to reach healthy state:
@@ -259,8 +261,8 @@ After the stack is up, run `./scripts/demo.sh` to generate spans, then wait ~15 
 To call a tool without OAuth (development only):
 
 ```bash
-# Restart gateway with dev mode
-MCP_DEV_MODE=1 docker compose --profile full up -d gateway
+# Rebuild and restart gateway with dev mode
+MCP_DEV_MODE=1 docker compose --profile full up --build -d gateway
 
 curl -s -X POST http://localhost:8000/mcp \
   -H "Content-Type: application/json" \

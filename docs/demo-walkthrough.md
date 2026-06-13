@@ -8,7 +8,7 @@
 
 | Requirement | How to satisfy |
 |---|---|
-| Docker stack running | `MCP_DEV_MODE=1 docker compose --profile full up -d` |
+| Docker stack running | `MCP_DEV_MODE=1 docker compose --profile full up --build -d` |
 | Ollama running on host | `OLLAMA_HOST=0.0.0.0 ollama serve` |
 | Ollama model pulled | `ollama pull qwen3:0.6b-q4_K_M` (or set `$OLLAMA_MODEL`) |
 | `curl` and `jq` installed | standard OS packages |
@@ -176,7 +176,7 @@ The dashboard auto-refreshes every 10 s. If panels show "No data" immediately af
 
 | Error | Cause | Fix |
 |---|---|---|
-| `Gateway not ready` | Stack not running | `MCP_DEV_MODE=1 docker compose --profile full up -d` |
+| `Gateway not ready` | Stack not running | `MCP_DEV_MODE=1 docker compose --profile full up --build -d` |
 | `auth is enforced` | Gateway started without `MCP_DEV_MODE=1` | Restart stack with the env var |
 | `Method not found (-32601)` | Stale gateway image | `docker compose --profile full up --build -d` |
 | `Ollama is not running` | Ollama process stopped | `OLLAMA_HOST=0.0.0.0 ollama serve` |
