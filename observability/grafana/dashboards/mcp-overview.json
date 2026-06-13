@@ -276,7 +276,7 @@
     },
     {
       "id": 14,
-      "title": "Cost per Request — Aggregate (USD/s)",
+      "title": "Cost per Request \u2014 Aggregate (USD/s)",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -294,12 +294,15 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD"
+          "unit": "currencyUSD",
+          "decimals": 6
         }
       },
       "options": {
         "reduceOptions": {
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         }
       }
     },
@@ -323,7 +326,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD"
+          "unit": "currencyUSD",
+          "decimals": 6
         }
       }
     },
@@ -347,7 +351,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD"
+          "unit": "currencyUSD",
+          "decimals": 6
         }
       }
     },
