@@ -1016,6 +1016,7 @@ tests/
 | Hotfix | Grafana Agent Pipeline panels: removed high-cardinality spanmetrics dimensions (`agent.input_tokens`, `agent.output_tokens`, `agent.cost_usd`) that produced single-point series with zero `rate()`; added `mcp_agent_input_tokens_total`, `mcp_agent_output_tokens_total`, and `mcp_agent_cost_usd_total` Prometheus counters (labelled by `provider`) incremented directly in `analyst.py` | +0 (361 unit + 14 integration) |
 | Hotfix | Grafana Agent Pipeline PromQL: replaced invalid `\.` RE2 escape sequences with `[.]` in all three regex matchers — Prometheus rejected the queries with `unknown escape sequence U+002E '.'` (400 bad_data) | +0 (361 unit + 14 integration) |
 | Hotfix | Grafana Token Consumption and Provider Distribution panels generalised to all providers (removed Gemini/Ollama hardcoding); Cost per Request section expanded with an aggregate USD/s stat, a per-provider rate timeseries, and a cumulative cost-by-provider timeseries using the new `mcp_agent_cost_usd_total` counter | +0 (361 unit + 14 integration) |
+| Hotfix | Grafana cost panels (Cost per Request, Cost per Provider, Cumulative Cost per Provider) updated to 4 decimal places so sub-cent Gemini costs display correctly (e.g. `$0.0003` instead of `$0.00`); `cost_usd` is now injected into the `route()` result dict so `analyst.py` increments the Prometheus counter with real values instead of 0 | +0 (361 unit + 14 integration) |
 
 ## Security Notes
 

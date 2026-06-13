@@ -295,7 +295,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "decimals": 3
+          "decimals": 4
         }
       },
       "options": {
@@ -327,7 +327,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "decimals": 3
+          "decimals": 4
         }
       }
     },
@@ -352,7 +352,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "decimals": 3
+          "decimals": 4
         }
       }
     },
