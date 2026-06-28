@@ -1025,29 +1025,52 @@ tests/
 
 ### Handling Non-Determinism
 
-LLMs are probabilistic by design — the same prompt can produce subtly different
-outputs on each invocation.  Left unchecked, this non-determinism bleeds into
-execution: a malformed tool name, a missing required field, or a wrong argument
-type can silently corrupt downstream state.
+#### The problem this solves
 
-`DeterministicOrchestrator` (in `orchestrator.py`) fixes this with a strict
-two-phase protocol:
+The v0.1.0 gateway already had a `ValidationGate` (in `gateway/validation.py`) that
+blocked malformed *client requests* — bad JSON-RPC payloads, PII in inputs, missing
+required fields on the HTTP boundary.  What it **did not** protect against was what
+the LLM produced *after* receiving a valid prompt.
 
-1. **Planning phase (cognitive)** — the LLM generates a raw plan dict.  This
-   phase is allowed to be creative and probabilistic.
-2. **Validation gate** — `DeterministicOrchestrator.plan(raw)` passes the plan
-   through `OrchestratorPlan`, a Pydantic v2 model.  If the plan does not
-   conform to the typed contract (missing `intent`, empty `steps`, duplicate
-   adjacent calls), a `ValidationError` is raised and execution is **blocked**.
-   The LLM is retried or the error is escalated — never silently ignored.
+LLMs are probabilistic by design: the same prompt can return a plan with a
+misspelled tool name, a missing required field, or a structurally duplicated step.
+In v0.1.0, that raw output went straight to execution — no gate, no type check.  A
+garbage plan would silently call tools with wrong arguments, write malformed events
+to Kafka, and leave corrupted state in Redis with no clear error pointing at the LLM
+as the source.
+
+#### How v1.0.0 fixes it
+
+`DeterministicOrchestrator` (in `orchestrator.py`) adds a strict two-phase protocol
+*between* the LLM and the execution layer:
+
+1. **Planning phase (cognitive)** — the LLM generates a raw plan dict.  This phase
+   is intentionally allowed to be probabilistic and creative.
+2. **Validation gate** — `DeterministicOrchestrator.plan(raw)` passes the raw dict
+   through `OrchestratorPlan`, a Pydantic v1.0.0 model.  If the plan does not conform
+   (missing `intent`, empty `steps`, duplicate adjacent calls, wrong types),
+   a `ValidationError` is raised and execution is **blocked**.  The error is
+   explicit, structured, and points at the LLM output — not the tool it would have
+   called.  The LLM is retried or the failure is escalated rather than silently
+   swallowed.
 3. **Execution phase (deterministic)** — `DeterministicOrchestrator.execute(orc, plan)`
-   accepts only a validated `OrchestratorPlan` instance, never a raw dict.
-   By the time execution starts, every field is typed, every constraint is
-   satisfied, and the plan is a first-class Python object — not a string.
+   accepts **only** a validated `OrchestratorPlan` instance, never a raw dict.
+   By the time execution starts, every field is typed, every constraint is satisfied,
+   and the plan is a first-class Python object.
 
-This pattern guarantees that only valid, structured JSON contracts flow into
-the enterprise message broker (Kafka `token.usage` events) and the Redis
-session store, preventing garbage-in / garbage-out cascades across services.
+#### What changed between v0.1.0 and v1.0.0
+
+| Concern | v0.1.0 (`ValidationGate`) | v1.0.0 (`DeterministicOrchestrator`) |
+|---------|----------------------|----------------------------------|
+| What is validated | Incoming *client* requests (JSON-RPC shape, PII) | *LLM output* plans before execution |
+| When it runs | At the HTTP boundary, before the LLM is called | After the LLM responds, before any tool fires |
+| What it blocks | Malformed client payloads, PII leakage | Malformed LLM plans, type violations, duplicate steps |
+| Error source | Client misbehaviour | LLM non-determinism |
+
+Both gates are active in v1.0.0 — they guard different points in the pipeline and are
+complementary, not redundant.  Only well-typed, schema-valid plans ever reach Kafka
+`token.usage` events and the Redis session store, preventing garbage-in / garbage-out
+cascades across services.
 
 ### The Critic-Actor Pattern
 

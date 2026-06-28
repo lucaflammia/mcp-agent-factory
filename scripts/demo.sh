@@ -164,6 +164,63 @@ if [ -n "$GATEWAY_CONTAINER" ]; then
   fi
 fi
 
+# ── Phase 0: Deterministic Orchestration ─────────────────────────────────────
+
+hdr "PHASE 0 — Deterministic Orchestration (ValidationGate on LLM output)"
+echo "  v0.1.0 gateway validated incoming *client* requests (JSON-RPC shape, PII)."
+echo "  v1.0.0 adds a second gate that validates what the *LLM* returns as a plan"
+echo "  before any tool is allowed to execute."
+echo ""
+echo "  Valid plan → plan object; invalid plan → ValidationError (execution blocked)."
+echo ""
+
+python3 - <<'PYEOF'
+from mcp_agent_factory.orchestrator import DeterministicOrchestrator
+from pydantic import ValidationError
+
+# ── CASE 1: valid LLM output passes the gate ─────────────────────────────────
+valid_raw = {
+  "intent": "extract KPIs from PDF",
+  "steps": [
+    {"tool_name": "pdf_extract", "arguments": {"path": "/app/data/report.pdf"}},
+    {"tool_name": "summarize",   "arguments": {"style": "bullet"}},
+  ],
+}
+try:
+  plan = DeterministicOrchestrator.plan(valid_raw)
+  print(f"  ✓ Valid plan accepted:  intent='{plan.intent}', steps={len(plan.steps)}")
+except ValidationError as exc:
+  print(f"  ✗ Unexpected rejection: {exc}")
+
+# ── CASE 2: LLM omits 'intent' — execution is blocked ────────────────────────
+malformed_raw = {
+  "steps": [{"tool_name": "summarize", "arguments": {}}],
+  # 'intent' missing — a real LLM hallucination
+}
+try:
+  DeterministicOrchestrator.plan(malformed_raw)
+  print("  ✗ Should have been rejected but wasn't")
+except ValidationError as exc:
+  fields = [e["loc"] for e in exc.errors()]
+  print(f"  ✓ Malformed plan blocked: missing fields {fields}")
+
+# ── CASE 3: duplicate adjacent steps — catches copy-paste LLM errors ──────────
+duplicate_raw = {
+  "intent": "echo twice",
+  "steps": [
+    {"tool_name": "echo", "arguments": {"message": "hi"}},
+    {"tool_name": "echo", "arguments": {"message": "hi"}},  # exact duplicate
+  ],
+}
+try:
+  DeterministicOrchestrator.plan(duplicate_raw)
+  print("  ✗ Duplicate steps should have been rejected")
+except ValidationError as exc:
+  print(f"  ✓ Duplicate adjacent step blocked: {exc.errors()[0]['msg']}")
+PYEOF
+
+echo ""
+
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
 
 hdr "PHASE 1 — Privacy-First RAG (agents/analyze)"
