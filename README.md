@@ -1019,6 +1019,76 @@ tests/
 | Hotfix | Grafana Agent Pipeline PromQL: replaced invalid `\.` RE2 escape sequences with `[.]` in all three regex matchers — Prometheus rejected the queries with `unknown escape sequence U+002E '.'` (400 bad_data) | +0 (361 unit + 14 integration) |
 | Hotfix | Grafana Token Consumption and Provider Distribution panels generalised to all providers (removed Gemini/Ollama hardcoding); Cost per Request section expanded with an aggregate USD/s stat, a per-provider rate timeseries, and a cumulative cost-by-provider timeseries using the new `mcp_agent_cost_usd_total` counter | +0 (361 unit + 14 integration) |
 | Hotfix | Grafana cost panels (Cost per Request, Cost per Provider, Cumulative Cost per Provider) updated to 4 decimal places so sub-cent Gemini costs display correctly (e.g. `$0.0003` instead of `$0.00`); `cost_usd` is now injected into the `route()` result dict so `analyst.py` increments the Prometheus counter with real values instead of 0 | +0 (361 unit + 14 integration) |
+| Feature | **Enterprise production patterns**: `DeterministicOrchestrator` + `OrchestratorPlan`/`OrchestratorResult` Pydantic contracts in `orchestrator.py` enforce strict two-phase planning→execution separation; new `evaluator.py` implements Critic-Actor pattern (`CriticActorEvaluator`, `EvaluationContract`, `EvaluationVerdict`) to prevent self-certification bias; `docker-compose.yml` adds Kafka UI (`:8085`) and Redis Commander (`:8086`) so the full infrastructure is browsable immediately; README expanded with Non-Determinism, Critic-Actor, and Enterprise Infrastructure sections | +0 (361 unit + 14 integration) |
+
+## Enterprise Production Patterns
+
+### Handling Non-Determinism
+
+LLMs are probabilistic by design — the same prompt can produce subtly different
+outputs on each invocation.  Left unchecked, this non-determinism bleeds into
+execution: a malformed tool name, a missing required field, or a wrong argument
+type can silently corrupt downstream state.
+
+`DeterministicOrchestrator` (in `orchestrator.py`) fixes this with a strict
+two-phase protocol:
+
+1. **Planning phase (cognitive)** — the LLM generates a raw plan dict.  This
+   phase is allowed to be creative and probabilistic.
+2. **Validation gate** — `DeterministicOrchestrator.plan(raw)` passes the plan
+   through `OrchestratorPlan`, a Pydantic v2 model.  If the plan does not
+   conform to the typed contract (missing `intent`, empty `steps`, duplicate
+   adjacent calls), a `ValidationError` is raised and execution is **blocked**.
+   The LLM is retried or the error is escalated — never silently ignored.
+3. **Execution phase (deterministic)** — `DeterministicOrchestrator.execute(orc, plan)`
+   accepts only a validated `OrchestratorPlan` instance, never a raw dict.
+   By the time execution starts, every field is typed, every constraint is
+   satisfied, and the plan is a first-class Python object — not a string.
+
+This pattern guarantees that only valid, structured JSON contracts flow into
+the enterprise message broker (Kafka `token.usage` events) and the Redis
+session store, preventing garbage-in / garbage-out cascades across services.
+
+### The Critic-Actor Pattern
+
+Autonomous agents have a fundamental conflict of interest: the agent that
+produces an output also wants that output to be judged correct.  This
+leads to systematic self-certification bias — the agent optimises for the
+*appearance* of correctness rather than actual correctness.
+
+`CriticActorEvaluator` (in `evaluator.py`) implements the **Trust but Verify**
+approach used in production QA systems:
+
+| Role | Responsibility | What it can see |
+|------|---------------|-----------------|
+| **Actor** | Produce the output (any agent) | Full task + context |
+| **Critic** | Evaluate the output | Original constraints only — not the actor's reasoning chain |
+
+The separation is enforced structurally:
+- The `EvaluationContract` is sealed at task creation time, before the actor runs.
+- The critic evaluates `actor_output` against `input_constraints` (word counts,
+  required terms, forbidden terms, required JSON fields) using deterministic
+  heuristics — no shared state with the actor.
+- For semantic correctness and hallucination detection, the critic can invoke an
+  independent LLM judge using a *different* provider or model, preventing
+  shared-model bias from inflating scores.
+
+The critic defaults to `needs_revision` — it requires explicit evidence to pass,
+not the absence of detected failures.  This "cynical default" catches subtle
+regressions that optimistic graders miss.
+
+### Enterprise Infrastructure
+
+| Component | Role in this stack | How to inspect |
+|-----------|-------------------|---------------|
+| **Kafka** (`kafka:29092`) | Durable event log for `token.usage` events; provides backpressure so fast producers cannot overwhelm slow consumers; survives gateway restarts | Kafka UI → `http://localhost:8085` |
+| **Redis** (`redis:6379`) | In-memory session state and cross-agent handoff store (`RedisSessionManager`); KV phrase affinity (`RedisKVStore`); idempotency cache (`AsyncIdempotencyGuard`) | Redis Commander → `http://localhost:8086` |
+| **Redis Redlock nodes** (`redis-node-1/2/3`, ports 6381–6383) | 3-node quorum for `RedlockClient` distributed locking — prevents split-brain during concurrent tool calls | Redis Commander → same UI, all four hosts pre-configured |
+| **MCP Server** (gateway `:8000`) | Decoupled, secure data access layer secured by OAuth 2.1 / PKCE S256; tool dispatch is stateless so any instance can handle any request | Gateway health → `http://localhost:8000/health` |
+| **Jaeger** (`:16686`) | Distributed trace visualisation — every `agents/analyze` call produces 4 child spans (`pdf_extract`, `prune`, `pii_scrub`, `llm_route`) with token count attributes | Jaeger UI → `http://localhost:16686` |
+| **Grafana** (`:3000`) | Real-time dashboards for token consumption, cost per provider, HTTP latency P50/P99, error rate, auction bids | Grafana → `http://localhost:3000` (admin / admin) |
+
+All infrastructure UIs start automatically with `docker compose --profile full up --build`.
 
 ## Security Notes
 
