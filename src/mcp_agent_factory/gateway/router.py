@@ -253,6 +253,12 @@ class GeminiHandler(LLMHandler):
 	async def call(self, request: LLMRequest) -> dict[str, Any]:
 		if not self._api_key:
 			logger.warning('{"event":"gemini_key_missing","detail":"GEMINI_API_KEY not set — falling back"}')
+			# In dev mode, simulate Gemini via Ollama so dashboards show realistic
+			# gemini-labelled data without requiring a real API key.
+			if os.getenv("MCP_DEV_MODE") == "1":
+				result = await OllamaHandler().call(request)
+				result["model"] = self._model
+				return result
 			raise ProviderError("gemini", detail="GEMINI_API_KEY not set")
 
 		url = f"{self._base_url}/models/{self._model}:generateContent?key={self._api_key}"

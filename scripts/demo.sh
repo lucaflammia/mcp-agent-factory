@@ -164,6 +164,46 @@ if [ -n "$GATEWAY_CONTAINER" ]; then
   fi
 fi
 
+# ── Infrastructure seed: Kafka topics + Redis KV data ───────────────────────
+
+hdr "INFRA SEED — Kafka topics + Redis KV store"
+
+KAFKA_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-kafka" --format "{{.Names}}" 2>/dev/null | head -1)
+if [ -n "$KAFKA_CONTAINER" ]; then
+  echo "  Creating Kafka topics (idempotent)..."
+  for TOPIC in agents.analyze token.usage gateway.tool_calls; do
+    docker exec "$KAFKA_CONTAINER" \
+      kafka-topics --bootstrap-server localhost:9092 \
+      --create --if-not-exists --topic "$TOPIC" \
+      --partitions 3 --replication-factor 1 >/dev/null 2>&1 && \
+      echo "    ✓ $TOPIC" || echo "    · $TOPIC (already exists)"
+  done
+  echo ""
+  echo "  Kafka UI topics    → http://localhost:8085/ui/clusters/local/topics"
+  echo "  Kafka UI consumers → http://localhost:8085/ui/clusters/local/consumer-groups"
+  echo "  (consumer group 'mcp-demo-consumer' appears ~20s after first agents/analyze call)"
+  echo ""
+else
+  echo "  ✗ Kafka container not found — skipping topic creation."
+  echo ""
+fi
+
+echo "  Seeding Redis KV store with demo phrases..."
+_kv_add() {
+  local topic="$1"; local phrase="$2"
+  curl -sf -X POST "$GATEWAY_URL/mcp" \
+    -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"kv/add_phrase\",\"arguments\":{\"topic\":\"$topic\",\"phrase\":\"$phrase\"}}}" \
+    >/dev/null 2>&1
+}
+_kv_add "finance" "EBITDA margin"
+_kv_add "finance" "revenue growth"
+_kv_add "finance" "operating cash flow"
+_kv_add "risk"    "liquidity risk"
+_kv_add "risk"    "market volatility"
+echo "  ✓ 5 phrases seeded → Redis Commander http://localhost:8086/"
+echo ""
+
 # ── Phase 0: Deterministic Orchestration ─────────────────────────────────────
 
 hdr "PHASE 0 — Deterministic Orchestration (ValidationGate on LLM output)"
@@ -294,9 +334,12 @@ echo "$PHASE1" | jq -r '.result.summary'
 # ── Phase 2: Jaeger Trace ─────────────────────────────────────────────────────
 
 hdr "PHASE 2 — Observe the Trace (Jaeger)"
-echo "  Open Jaeger and search for service 'mcp-gateway':"
+echo "  Jaeger Search — click 'Find Traces' after opening this URL:"
+echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze&limit=20&lookback=1h"
 echo ""
-echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze"
+echo "  Jaeger Monitor (SPM — live call rate / latency per operation):"
+echo "    http://localhost:16686/monitor"
+echo "    → select 'mcp-gateway' from the service dropdown"
 echo ""
 echo "  Expected span chain:"
 echo "    mcp.agents/analyze"
@@ -309,25 +352,38 @@ echo "      └─ agent.llm_route     [provider, cost_usd]"
 
 hdr "PHASE 3 — Live Provider Switch (Gemini)"
 
-# Check whether the container has GEMINI_API_KEY (requires the key to be set
-# in the environment BEFORE docker compose up, or added to a .env file).
+# Check whether the container has GEMINI_API_KEY.
+# In MCP_DEV_MODE=1, a missing key is allowed — the gateway simulates Gemini
+# via Ollama and still labels metrics as 'gemini' so Grafana panels show data.
 if [ -n "$GATEWAY_CONTAINER" ]; then
   CONTAINER_GEMINI=$(docker exec "$GATEWAY_CONTAINER" sh -c 'echo $GEMINI_API_KEY' 2>/dev/null)
   if [ -z "$CONTAINER_GEMINI" ]; then
-    echo "  ✗ GEMINI_API_KEY is not set in the gateway container."
+    echo "  ✗ GEMINI_API_KEY is not set — running in dev-mode simulation (Ollama backend, gemini label)."
     echo ""
-    echo "  To fix, add it to your .env file (copy from .env.example) and rebuild:"
+    echo "  To use the real Gemini API, add your key and rebuild:"
     echo "    echo 'GEMINI_API_KEY=<your-key>' >> .env"
     echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
-    hr
-    echo "  Demo complete."
-    hr
     echo ""
-    exit 0
   fi
 fi
 
-echo "  Requesting provider=gemini..."
+# Seed Grafana Gemini panels with 4 calls spread over ~36s (same cadence as Phase 1).
+echo "  Seeding Grafana Gemini panels (4 calls spread over ~36s)..."
+for _i in 1 2 3 4; do
+  printf "    call %d/4 … " "$_i"
+  if mcp_call "agents/analyze" "$PARAMS_GEMINI" >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "warn: call failed (non-fatal)"
+  fi
+  [ "$_i" -lt 4 ] && sleep 12
+done
+echo ""
+echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
+sleep 20
+echo ""
+
+echo "  Requesting provider=gemini (display call)..."
 echo ""
 
 PHASE3=$(mcp_call "agents/analyze" "$PARAMS_GEMINI" || true)
@@ -389,11 +445,14 @@ _prom_check "Auction Bids" \
 _prom_check "Agent Pipeline (calls rate)" \
   "sum(rate(traces_calls_total{span_name=~\"agent[.].*\"}[5m]))"
 
-_prom_check "Pages Read (pdf_extract rate)" \
-  "sum(rate(traces_calls_total{span_name=\"agent.pdf_extract\"}[5m]))"
+_prom_check "Token Consumption (cumulative)" \
+  "sum(mcp_agent_input_tokens_total) by (provider)"
 
-_prom_check "Token Consumption (llm_route rate)" \
-  "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[5m]))"
+_prom_check "Cost by Provider (cumulative)" \
+  "sum(mcp_agent_cost_usd_total) by (provider)"
+
+_prom_check "Gemini cost recorded" \
+  "mcp_agent_cost_usd_total{provider=\"gemini\"}"
 
 echo ""
 echo "  Grafana dashboard (refreshes every 10s):"
@@ -401,4 +460,37 @@ echo "    http://localhost:3000/d/mcp-overview/mcp-agent-factory-e28094-overview
 echo ""
 echo "  If any check shows 'no-data', wait 30s and refresh Grafana — Prometheus"
 echo "  may still be in its next scrape interval."
+echo ""
+
+echo "  Prometheus query shortcuts (paste into http://localhost:9090/graph):"
+echo "    Call rate:    rate(traces_calls_total{service_name=\"mcp-gateway\"}[1m])"
+echo "    Token cost:   sum(mcp_agent_cost_usd_total) by (provider)"
+echo "    Latency p99:  histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{service_name=\"mcp-gateway\"}[1m])) by (le))"
+echo ""
+
+# ── Background traffic keeper ─────────────────────────────────────────────────
+# Keeps Jaeger Monitor and Prometheus rate() panels alive for 5 minutes by
+# sending a lightweight health check every 15s. Without this, rate() windows
+# drop to zero ~2 minutes after the demo ends and the UI tabs look empty.
+hdr "TRAFFIC KEEPER — keeping metrics alive for 5 minutes"
+echo "  Sending a /health ping every 15s so Jaeger Monitor + Prometheus rate()"
+echo "  panels stay populated while you explore the UIs."
+echo "  Press Ctrl-C to stop early."
+echo ""
+
+_KEEPER_END=$(( $(date +%s) + 300 ))
+_KEEPER_N=0
+while [ "$(date +%s)" -lt "$_KEEPER_END" ]; do
+  _KEEPER_N=$((_KEEPER_N + 1))
+  _remaining=$(( _KEEPER_END - $(date +%s) ))
+  printf "  ping %2d — %ds remaining  " "$_KEEPER_N" "$_remaining"
+  if curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "warn: gateway unreachable"
+  fi
+  sleep 15
+done
+echo ""
+echo "  Traffic keeper done. All UI panels show 5 min of activity."
 echo ""

@@ -276,7 +276,7 @@ services:
 
   # Kafka UI — browse topics, consumer groups, and messages at http://localhost:8085
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:v0.7.2
     profiles: [full]
     depends_on:
       kafka:
@@ -284,9 +284,25 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      DYNAMIC_CONFIG_ENABLED: "true"
     ports:
       - "8085:8080"
+
+  # Kafka consumer — creates a visible consumer group for the Kafka UI consumer-groups page
+  kafka-consumer:
+    image: confluentinc/cp-kafka:7.5.0
+    profiles: [full]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "sleep 20 && kafka-console-consumer
+      --bootstrap-server kafka:29092
+      --topic agents.analyze
+      --group mcp-demo-consumer
+      --from-beginning
+      --timeout-ms 300000"
+    restart: unless-stopped
 
   # Redis Commander — inspect keys, streams, and pub/sub at http://localhost:8086
   redis-commander:
@@ -294,6 +310,12 @@ services:
     profiles: [full]
     depends_on:
       redis:
+        condition: service_healthy
+      redis-node-1:
+        condition: service_healthy
+      redis-node-2:
+        condition: service_healthy
+      redis-node-3:
         condition: service_healthy
     environment:
       REDIS_HOSTS: "main:redis:6379,node1:redis-node-1:6379,node2:redis-node-2:6379,node3:redis-node-3:6379"

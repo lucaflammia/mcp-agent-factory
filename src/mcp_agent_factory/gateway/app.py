@@ -313,9 +313,11 @@ async def _agents_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse
         if not pdf_path:
             return _err(req_id, -32602, "Invalid params: pdf_path is required")
 
-        # Validate provider key when: an explicit provider was requested (always),
-        # or auth is enforced (DEV_MODE off) and the server default provider needs a key.
-        if provider is not None or not DEV_MODE:
+        # Validate provider key when auth is enforced (DEV_MODE off).
+        # In DEV_MODE, missing provider keys are allowed — the router falls back
+        # to Ollama and still labels metrics with the requested provider so
+        # Grafana panels show activity without requiring cloud API keys.
+        if not DEV_MODE:
             try:
                 _validate_provider(provider)
             except ProviderNotConfiguredError as exc:
@@ -339,6 +341,28 @@ async def _agents_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse
 
             task = DocumentAnalysisTask(pdf_path=pdf_path, query=query, max_pages=max_pages, provider=provider)
             result = await AnalystAgent().analyze_document(task)
+            # Publish telemetry to Kafka (fire-and-forget — never blocks the response)
+            import time as _time
+            try:
+                await _event_log.append("agents.analyze", {
+                    "type": "agents.analyze",
+                    "provider": result.provider,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                    "cost_usd": result.cost_usd,
+                    "pages_read": result.pages_read,
+                    "ts": int(_time.time()),
+                })
+                await _event_log.append("token.usage", {
+                    "type": "token.usage",
+                    "model": result.provider,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                    "cost_usd": result.cost_usd,
+                    "ts": int(_time.time()),
+                })
+            except Exception as _log_exc:
+                logger.warning('{"event":"event_log_failure","detail":"%s"}', _log_exc)
             return _ok(req_id, {
                 "summary": result.summary,
                 "provider": result.provider,
