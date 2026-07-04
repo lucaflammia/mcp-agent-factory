@@ -324,6 +324,21 @@ services:
     ports:
       - "8086:8081"
 
+  # MCP Inspector — visual introspection of MCP tool boundaries and handshake
+  mcp-inspector:
+    image: node:20-alpine
+    command: >
+      sh -c "npm install -g @modelcontextprotocol/inspector &&
+             npx @modelcontextprotocol/inspector"
+    environment:
+      MCP_SERVER_URL: "http://gateway:8000/mcp"
+    ports:
+      - "6274:6274"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   caddy_data:
   caddy_config:

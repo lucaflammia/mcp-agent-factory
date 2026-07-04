@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = int(os.getenv("GRAPH_MAX_ITERATIONS", "5"))
+MAX_ITERATIONS = int(os.getenv("GRAPH_MAX_ITERATIONS", "15"))
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ class GraphOrchestrator:
 	  validate → plan → execute → evaluate → (done | retry→plan)
 
 	Retry loops are bounded by MAX_ITERATIONS. State is checkpointed
-	via LangGraph's MemorySaver for session recovery.
+	via LangGraph's RedisSaver for distributed session recovery.
 	"""
 	model_name: str = field(
 		default_factory=lambda: os.getenv("PYDANTIC_AI_MODEL", "google-gla:gemini-2.5-flash")
@@ -104,9 +104,15 @@ class GraphOrchestrator:
 		Returns the final GraphState as a dict.
 		"""
 		from langgraph.graph import StateGraph, END
-		from langgraph.checkpoint.memory import MemorySaver
 
-		checkpointer = MemorySaver()
+		redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+		try:
+			from langgraph.checkpoint.redis import RedisSaver
+			checkpointer = RedisSaver.from_conn_string(redis_url)
+		except Exception as exc:  # noqa: BLE001
+			logger.warning("RedisSaver unavailable (%s), falling back to MemorySaver", exc)
+			from langgraph.checkpoint.memory import MemorySaver
+			checkpointer = MemorySaver()
 
 		# -- Node functions --------------------------------------------------
 
