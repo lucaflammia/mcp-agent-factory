@@ -468,6 +468,56 @@ echo "    Token cost:   sum(mcp_agent_cost_usd_total) by (provider)"
 echo "    Latency p99:  histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{service_name=\"mcp-gateway\"}[1m])) by (le))"
 echo ""
 
+# ── Phase 4: Orchestrator Modes ──────────────────────────────────────────────
+
+hdr "PHASE 4 — Orchestrator Modes (pydantic_ai + langgraph)"
+echo "  Three orchestration backends are available via the 'orchestrate' tool:"
+echo "    legacy      — regex-based ReAct loop (v0.1.0 default)"
+echo "    pydantic_ai — LLM structured outputs with Pydantic validation"
+echo "    langgraph   — state-machine with validate→plan→execute→evaluate→done"
+echo ""
+
+ORCH_TASK="List the available tools and summarise what this agent can do"
+
+echo "  ── pydantic_ai mode ──────────────────────────────────────────────────"
+echo "  Task: $ORCH_TASK"
+echo ""
+ORCH_PA=$(mcp_call "tools/call" \
+  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK\",\"mode\":\"pydantic_ai\"}}" \
+  || true)
+
+if echo "$ORCH_PA" | jq -e '.result.content[0]' >/dev/null 2>&1; then
+  echo "$ORCH_PA" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
+elif echo "$ORCH_PA" | jq -e '.error' >/dev/null 2>&1; then
+  echo "  ✗ pydantic_ai mode error:"
+  echo "$ORCH_PA" | jq '.error'
+else
+  echo "$ORCH_PA"
+fi
+
+echo ""
+echo "  ── langgraph mode ───────────────────────────────────────────────────"
+echo "  Task: $ORCH_TASK"
+echo "  (State machine: validate → plan → execute → evaluate → done)"
+echo ""
+ORCH_LG=$(mcp_call "tools/call" \
+  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK\",\"mode\":\"langgraph\",\"thread_id\":\"demo-session-1\"}}" \
+  || true)
+
+if echo "$ORCH_LG" | jq -e '.result.content[0]' >/dev/null 2>&1; then
+  echo "$ORCH_LG" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
+elif echo "$ORCH_LG" | jq -e '.error' >/dev/null 2>&1; then
+  echo "  ✗ langgraph mode error:"
+  echo "$ORCH_LG" | jq '.error'
+else
+  echo "$ORCH_LG"
+fi
+
+echo ""
+echo "  Set ORCHESTRATOR_MODE=pydantic_ai or ORCHESTRATOR_MODE=langgraph in .env"
+echo "  to make a mode the default for all agents/analyze calls."
+echo ""
+
 # ── Background traffic keeper ─────────────────────────────────────────────────
 # Keeps Jaeger Monitor and Prometheus rate() panels alive for 5 minutes by
 # sending a lightweight health check every 15s. Without this, rate() windows

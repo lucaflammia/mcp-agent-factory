@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-06-13T13:17:03Z | Files: 134 | Described: 0/134
-<!-- gsd:codebase-meta {"generatedAt":"2026-06-13T13:17:03Z","fingerprint":"2f5d330a49a34e32606e57f65eb5ab3735867c0c","fileCount":134,"truncated":false} -->
+Generated: 2026-07-04T10:07:45Z | Files: 135 | Described: 0/135
+<!-- gsd:codebase-meta {"generatedAt":"2026-07-04T10:07:45Z","fingerprint":"ba726cc83b3188a53bab23a35c73b92d3b1d72f1","fileCount":135,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -44,6 +44,7 @@ Generated: 2026-06-13T13:17:03Z | Files: 134 | Described: 0/134
 ### src/mcp_agent_factory/
 - `src/mcp_agent_factory/__init__.py`
 - `src/mcp_agent_factory/adapters.py`
+- `src/mcp_agent_factory/evaluator.py`
 - `src/mcp_agent_factory/models.py`
 - `src/mcp_agent_factory/orchestrator.py`
 - `src/mcp_agent_factory/react_loop.py`

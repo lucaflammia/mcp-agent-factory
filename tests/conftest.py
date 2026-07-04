@@ -3,6 +3,7 @@ Shared pytest fixtures for mcp-agent-factory tests.
 """
 from __future__ import annotations
 
+import asyncio
 import socket
 import subprocess
 import sys
@@ -12,6 +13,15 @@ import queue
 from typing import Generator
 
 import pytest
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+	"""Session-scoped event loop — prevents httpx connection pool teardown
+	issues when multiple integration tests share an async HTTP client."""
+	loop = asyncio.new_event_loop()
+	yield loop
+	loop.close()
 
 
 class MCPServerProcess:

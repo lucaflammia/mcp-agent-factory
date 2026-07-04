@@ -15,13 +15,13 @@ and requires explicit evidence to pass.
 
 Usage::
 
-    contract = EvaluationContract(
-        task_description="Summarise the sales report",
-        input_constraints={"max_words": 100, "must_include": ["revenue", "Q3"]},
-        actor_output="Revenue grew 12% in Q3...",
-    )
-    verdict = CriticActorEvaluator.evaluate(contract)
-    assert verdict.passed or verdict.revision_notes
+	contract = EvaluationContract(
+		task_description="Summarise the sales report",
+		input_constraints={"max_words": 100, "must_include": ["revenue", "Q3"]},
+		actor_output="Revenue grew 12% in Q3...",
+	)
+	verdict = CriticActorEvaluator.evaluate(contract)
+	assert verdict.passed or verdict.revision_notes
 """
 from __future__ import annotations
 
@@ -40,58 +40,58 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class EvaluationContract(BaseModel):
-    """
-    Ground truth provided at task creation time.
+	"""
+	Ground truth provided at task creation time.
 
-    The contract is sealed before the actor runs — the critic checks
-    the actor's output *against this contract alone*, never against
-    the actor's own stated reasoning.
-    """
-    task_description: str = Field(..., min_length=1)
-    input_constraints: dict[str, Any] = Field(
-        default_factory=dict,
-        description=(
-            "Typed constraints the actor's output must satisfy. "
-            "Supported keys: max_words (int), min_words (int), "
-            "must_include (list[str]), must_exclude (list[str]), "
-            "required_fields (list[str] — checked when actor_output is a dict)."
-        ),
-    )
-    actor_output: str | dict[str, Any] = Field(
-        ..., description="The raw output produced by the actor agent."
-    )
+	The contract is sealed before the actor runs — the critic checks
+	the actor's output *against this contract alone*, never against
+	the actor's own stated reasoning.
+	"""
+	task_description: str = Field(..., min_length=1)
+	input_constraints: dict[str, Any] = Field(
+		default_factory=dict,
+		description=(
+			"Typed constraints the actor's output must satisfy. "
+			"Supported keys: max_words (int), min_words (int), "
+			"must_include (list[str]), must_exclude (list[str]), "
+			"required_fields (list[str] — checked when actor_output is a dict)."
+		),
+	)
+	actor_output: str | dict[str, Any] = Field(
+		..., description="The raw output produced by the actor agent."
+	)
 
 
 class EvaluationScore(str, Enum):
-    PASS = "pass"
-    PARTIAL = "partial"
-    FAIL = "fail"
+	PASS = "pass"
+	PARTIAL = "partial"
+	FAIL = "fail"
 
 
 class EvaluationVerdict(BaseModel):
-    """Structured verdict returned by the critic."""
-    score: EvaluationScore
-    passed: bool
-    findings: list[str] = Field(default_factory=list)
-    revision_notes: str = ""
+	"""Structured verdict returned by the critic."""
+	score: EvaluationScore
+	passed: bool
+	findings: list[str] = Field(default_factory=list)
+	revision_notes: str = ""
 
-    @classmethod
-    def _from_findings(cls, findings: list[str]) -> "EvaluationVerdict":
-        if not findings:
-            return cls(score=EvaluationScore.PASS, passed=True)
-        if len(findings) == 1:
-            return cls(
-                score=EvaluationScore.PARTIAL,
-                passed=False,
-                findings=findings,
-                revision_notes=findings[0],
-            )
-        return cls(
-            score=EvaluationScore.FAIL,
-            passed=False,
-            findings=findings,
-            revision_notes="; ".join(findings),
-        )
+	@classmethod
+	def _from_findings(cls, findings: list[str]) -> "EvaluationVerdict":
+		if not findings:
+			return cls(score=EvaluationScore.PASS, passed=True)
+		if len(findings) == 1:
+			return cls(
+				score=EvaluationScore.PARTIAL,
+				passed=False,
+				findings=findings,
+				revision_notes=findings[0],
+			)
+		return cls(
+			score=EvaluationScore.FAIL,
+			passed=False,
+			findings=findings,
+			revision_notes="; ".join(findings),
+		)
 
 
 # ---------------------------------------------------------------------------
@@ -99,66 +99,131 @@ class EvaluationVerdict(BaseModel):
 # ---------------------------------------------------------------------------
 
 class CriticActorEvaluator:
-    """
-    Cynical, isolated QA auditor.
+	"""
+	Cynical, isolated QA auditor.
 
-    Evaluation is deterministic: it applies constraint checks derived
-    from the ``EvaluationContract`` without any access to the actor's
-    internal reasoning.  This prevents the actor from gaming the grader.
+	Evaluation is deterministic: it applies constraint checks derived
+	from the ``EvaluationContract`` without any access to the actor's
+	internal reasoning.  This prevents the actor from gaming the grader.
 
-    For richer evaluation (semantic correctness, hallucination detection)
-    inject an independent LLM call via ``_llm_judge`` — it must use a
-    *different* provider or model than the actor to avoid shared bias.
-    """
+	For richer evaluation (semantic correctness, hallucination detection)
+	use ``evaluate_with_llm`` which calls an independent LLM judge via
+	PydanticAI structured output — it must use a *different* provider or
+	model than the actor to avoid shared bias.
+	"""
 
-    @staticmethod
-    def evaluate(contract: EvaluationContract) -> EvaluationVerdict:
-        """
-        Evaluate *actor_output* against *input_constraints*.
+	@staticmethod
+	def evaluate(contract: EvaluationContract) -> EvaluationVerdict:
+		"""
+		Evaluate *actor_output* against *input_constraints*.
 
-        Returns an ``EvaluationVerdict``.  Never raises — constraint
-        failures are captured as findings in the verdict.
-        """
-        findings: list[str] = []
-        output = contract.actor_output
-        constraints = contract.input_constraints
+		Returns an ``EvaluationVerdict``.  Never raises — constraint
+		failures are captured as findings in the verdict.
+		"""
+		findings: list[str] = []
+		output = contract.actor_output
+		constraints = contract.input_constraints
 
-        # Normalise to text for word-count / substring checks
-        text = output if isinstance(output, str) else str(output)
-        words = len(re.findall(r"\S+", text))
+		# Normalise to text for word-count / substring checks
+		text = output if isinstance(output, str) else str(output)
+		words = len(re.findall(r"\S+", text))
 
-        # --- word count ---
-        if "max_words" in constraints:
-            limit = int(constraints["max_words"])
-            if words > limit:
-                findings.append(f"Output is {words} words; max allowed is {limit}.")
+		# --- word count ---
+		if "max_words" in constraints:
+			limit = int(constraints["max_words"])
+			if words > limit:
+				findings.append(f"Output is {words} words; max allowed is {limit}.")
 
-        if "min_words" in constraints:
-            floor = int(constraints["min_words"])
-            if words < floor:
-                findings.append(f"Output is {words} words; minimum required is {floor}.")
+		if "min_words" in constraints:
+			floor = int(constraints["min_words"])
+			if words < floor:
+				findings.append(f"Output is {words} words; minimum required is {floor}.")
 
-        # --- required substrings ---
-        for term in constraints.get("must_include", []):
-            if term.lower() not in text.lower():
-                findings.append(f"Required term {term!r} is absent from the output.")
+		# --- required substrings ---
+		for term in constraints.get("must_include", []):
+			if term.lower() not in text.lower():
+				findings.append(f"Required term {term!r} is absent from the output.")
 
-        # --- forbidden substrings ---
-        for term in constraints.get("must_exclude", []):
-            if term.lower() in text.lower():
-                findings.append(f"Forbidden term {term!r} appears in the output.")
+		# --- forbidden substrings ---
+		for term in constraints.get("must_exclude", []):
+			if term.lower() in text.lower():
+				findings.append(f"Forbidden term {term!r} appears in the output.")
 
-        # --- required dict fields (structural JSON output) ---
-        if isinstance(output, dict):
-            for field_name in constraints.get("required_fields", []):
-                if field_name not in output:
-                    findings.append(f"Required field {field_name!r} missing from output dict.")
+		# --- required dict fields (structural JSON output) ---
+		if isinstance(output, dict):
+			for field_name in constraints.get("required_fields", []):
+				if field_name not in output:
+					findings.append(f"Required field {field_name!r} missing from output dict.")
 
-        verdict = EvaluationVerdict._from_findings(findings)
-        logger.debug(
-            "critic verdict task=%r score=%s findings=%d",
-            contract.task_description[:60],
-            verdict.score,
-            len(findings),
-        )
-        return verdict
+		verdict = EvaluationVerdict._from_findings(findings)
+		logger.debug(
+			"critic verdict task=%r score=%s findings=%d",
+			contract.task_description[:60],
+			verdict.score,
+			len(findings),
+		)
+		return verdict
+
+	@staticmethod
+	async def evaluate_with_llm(
+		contract: EvaluationContract,
+		model: str | None = None,
+	) -> EvaluationVerdict:
+		"""
+		Two-pass evaluation: deterministic checks first, then LLM semantic judge.
+
+		The LLM judge runs in a separate PydanticAI agent context with no
+		access to the actor's reasoning chain — only the task description,
+		constraints, and raw output. This enforces the Critic-Actor separation.
+		"""
+		import os
+
+		# Pass 1: deterministic checks
+		det_verdict = CriticActorEvaluator.evaluate(contract)
+		if det_verdict.score == EvaluationScore.FAIL:
+			return det_verdict
+
+		# Pass 2: LLM semantic judge
+		judge_model = model or os.getenv(
+			"CRITIC_MODEL", "google-gla:gemini-2.5-flash"
+		)
+
+		try:
+			from pydantic_ai import Agent
+
+			class LLMJudgement(BaseModel):
+				"""Structured output from the LLM critic judge."""
+				passed: bool = Field(..., description="Whether output meets task requirements")
+				findings: list[str] = Field(default_factory=list)
+				revision_notes: str = Field(default="")
+
+			agent: Agent[None, LLMJudgement] = Agent(
+				judge_model,
+				system_prompt=(
+					"You are an independent quality auditor. You have NO access to "
+					"the actor's reasoning — only the task description, constraints, "
+					"and raw output. Evaluate strictly whether the output satisfies "
+					"the task. Be cynical: default to fail unless evidence supports pass."
+				),
+				result_type=LLMJudgement,
+				retries=1,
+			)
+
+			prompt = (
+				f"Task: {contract.task_description}\n"
+				f"Constraints: {contract.input_constraints}\n"
+				f"Output to evaluate: {contract.actor_output}"
+			)
+			result = await agent.run(prompt)
+			judgement = result.data
+
+			# Merge deterministic findings with LLM findings
+			all_findings = det_verdict.findings + judgement.findings
+			if not judgement.passed:
+				all_findings.append(judgement.revision_notes or "LLM judge rejected output")
+
+			return EvaluationVerdict._from_findings(all_findings)
+
+		except Exception as exc:
+			logger.warning("LLM judge failed, falling back to deterministic: %s", exc)
+			return det_verdict

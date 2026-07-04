@@ -1,6 +1,8 @@
 """InternalServiceLayer — routes tool calls to their implementations."""
 from __future__ import annotations
 
+import logging
+import os
 import time
 from typing import Any
 
@@ -19,6 +21,10 @@ from .router import LLMRequest, UnifiedRouter
 from .sampling import SamplingHandler
 from .telemetry import get_tracer
 from .validation import PIIGate, ValidationGate
+
+logger = logging.getLogger(__name__)
+
+ORCHESTRATOR_MODE = os.getenv("ORCHESTRATOR_MODE", "legacy")
 
 
 class InternalServiceLayer:
@@ -185,6 +191,9 @@ class InternalServiceLayer:
             result = await self._kv_store.has_affinity(topic, phrase)
             outcome = {"content": [{"type": "text", "text": str(result).lower()}]}
 
+        elif tool_name == "orchestrate":
+          outcome = await self._handle_orchestrate(args, claims)
+
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -196,3 +205,49 @@ class InternalServiceLayer:
             })
 
         return outcome
+
+    async def _handle_orchestrate(
+      self, args: dict[str, Any], claims: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+      """Route orchestration through the configured mode (legacy/pydantic_ai/langgraph)."""
+      task = args.get("task", "")
+      if not task:
+        raise ValueError("orchestrate requires a 'task' argument")
+
+      mode = args.get("mode", ORCHESTRATOR_MODE)
+
+      from mcp_agent_factory.server_http import TOOLS as available_tools
+
+      async def _call_tool(name: str, arguments: dict) -> dict:
+        return await self._handle_inner(name, arguments, claims, None)
+
+      if mode == "legacy":
+        from mcp_agent_factory.orchestrator import MCPOrchestrator
+        from mcp_agent_factory.react_loop import ReActAgent
+        with MCPOrchestrator() as orc:
+          agent = ReActAgent(orc)
+          result = agent.run(task)
+        return {"content": [{"type": "text", "text": result.answer}]}
+
+      elif mode == "pydantic_ai":
+        from mcp_agent_factory.structured_agent import StructuredAgent
+        agent = StructuredAgent()
+        result = await agent.run(task, available_tools, _call_tool)
+        return {"content": [{"type": "text", "text": result.result}]}
+
+      elif mode == "langgraph":
+        from mcp_agent_factory.graph_orchestrator import GraphOrchestrator
+        import uuid
+        agent = GraphOrchestrator()
+        thread_id = args.get("thread_id", str(uuid.uuid4()))
+        state = await agent.run(task, available_tools, _call_tool, thread_id)
+        if state.get("final_result"):
+          text = state["final_result"].get("text", "")
+        else:
+          text = state.get("error", "Orchestration failed")
+        return {"content": [{"type": "text", "text": text}]}
+
+      else:
+        raise ValueError(
+          f"Unknown orchestrator mode: {mode!r}. Use legacy/pydantic_ai/langgraph"
+        )

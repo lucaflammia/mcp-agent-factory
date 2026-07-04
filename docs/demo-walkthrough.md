@@ -172,6 +172,28 @@ The dashboard auto-refreshes every 10 s. If panels show "No data" immediately af
 
 ---
 
+### Phase 4 — Orchestrator Modes
+
+**Goal:** Show the three available orchestration backends side-by-side.
+
+The script lists all three modes and their descriptions, then fires two live `orchestrate` calls:
+
+| Call | Mode | What it shows |
+|---|---|---|
+| 1 | `pydantic_ai` | Structured agent with Gemini back-end; result is a typed `StructuredResult` object |
+| 2 | `langgraph` | Graph-based orchestrator with `thread_id` checkpointing; demonstrates stateful multi-turn |
+
+Both calls use a neutral task (`"List the available tools…"`) that does not require PDF access, so they work even on a cold stack.
+
+The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the gateway container env).  Valid values: `react` (default), `pydantic_ai`, `langgraph`.
+
+```bash
+# Switch the running stack to pydantic_ai mode
+ORCHESTRATOR_MODE=pydantic_ai docker compose --profile full up -d
+```
+
+---
+
 ## Common Errors
 
 | Error | Cause | Fix |
