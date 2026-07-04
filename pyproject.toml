@@ -20,7 +20,7 @@ dependencies = [
     "sse-starlette>=1.6",
     "anyio>=4.0",
     "numpy>=1.24",
-    "pydantic-ai[google]>=0.0.20",
+    "pydantic-ai[google]==0.0.20",
     "langgraph>=1.0",
 ]
 
