@@ -136,7 +136,11 @@ class GraphOrchestrator:
 				system_prompt=(
 					"You are a planning agent. Given a task and available tools, "
 					"create an execution plan with the correct tool calls.\n\n"
-					f"Available tools:\n{tool_descriptions}"
+					f"Available tools:\n{tool_descriptions}\n\n"
+					"Each step in 'steps' MUST be a JSON object with exactly these two keys:\n"
+					"  tool_name: the exact tool name string from the list above\n"
+					"  arguments: a JSON object with the tool's required parameters\n"
+					"Example: {\"tool_name\": \"add\", \"arguments\": {\"a\": 3, \"b\": 4}}"
 				),
 				result_type=ExecutionPlan,
 				retries=2,
@@ -168,8 +172,20 @@ class GraphOrchestrator:
 
 			results = []
 			for step in plan["steps"]:
-				tool_name = step.get("tool_name", "")
-				arguments = step.get("arguments", {})
+				# Accept multiple naming conventions LLMs use for the tool name
+				tool_name = (
+					step.get("tool_name")
+					or step.get("name")
+					or step.get("tool")
+					or ""
+				)
+				# Accept multiple naming conventions for the arguments dict
+				arguments = (
+					step.get("arguments")
+					or step.get("args")
+					or step.get("parameters")
+					or {}
+				)
 				try:
 					if asyncio.iscoroutinefunction(call_tool_fn):
 						result = await call_tool_fn(tool_name, arguments)

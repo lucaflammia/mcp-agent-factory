@@ -477,13 +477,14 @@ echo "    pydantic_ai — LLM structured outputs with Pydantic validation"
 echo "    langgraph   — state-machine with validate→plan→execute→evaluate→done"
 echo ""
 
-ORCH_TASK="List the available tools and summarise what this agent can do"
+ORCH_TASK_PA="Echo the text: hello from pydantic_ai structured output"
+ORCH_TASK_LG="Add the numbers 17 and 25 using the add tool"
 
 echo "  ── pydantic_ai mode ──────────────────────────────────────────────────"
-echo "  Task: $ORCH_TASK"
+echo "  Task: $ORCH_TASK_PA"
 echo ""
 ORCH_PA=$(mcp_call "tools/call" \
-  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK\",\"mode\":\"pydantic_ai\"}}" \
+  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_PA\",\"mode\":\"pydantic_ai\"}}" \
   || true)
 
 if echo "$ORCH_PA" | jq -e '.result.content[0]' >/dev/null 2>&1; then
@@ -497,11 +498,11 @@ fi
 
 echo ""
 echo "  ── langgraph mode ───────────────────────────────────────────────────"
-echo "  Task: $ORCH_TASK"
+echo "  Task: $ORCH_TASK_LG"
 echo "  (State machine: validate → plan → execute → evaluate → done)"
 echo ""
 ORCH_LG=$(mcp_call "tools/call" \
-  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK\",\"mode\":\"langgraph\",\"thread_id\":\"demo-session-1\"}}" \
+  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_LG\",\"mode\":\"langgraph\",\"thread_id\":\"demo-session-1\"}}" \
   || true)
 
 if echo "$ORCH_LG" | jq -e '.result.content[0]' >/dev/null 2>&1; then
