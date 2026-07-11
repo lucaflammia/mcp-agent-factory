@@ -1,6 +1,6 @@
 # demo.sh — Walkthrough
 
-`scripts/demo.sh` is the end-to-end live demo for **MCP Agent Factory**. It exercises every layer of the stack in a single run: the MCP gateway, the analyst agent pipeline, OpenTelemetry tracing, Prometheus metrics, and Gemini provider switching.
+`scripts/demo.sh` is the end-to-end live demo for **MCP Agent Factory**. It exercises every layer of the stack in a single run: the MCP gateway, the analyst agent pipeline, OpenTelemetry tracing, Prometheus metrics, Gemini provider switching, and the three orchestrator backends (legacy ReAct, PydanticAI structured, LangGraph state machine).
 
 ---
 
@@ -28,6 +28,8 @@
 | `PROMETHEUS_URL` | `http://localhost:9090` | Used for panel verification |
 | `JAEGER_URL` | `http://localhost:16686` | Health-checked at startup |
 | `OLLAMA_MODEL` | `qwen3:0.6b-q4_K_M` | Local model for Ollama provider |
+| `ORCHESTRATOR_MODE` | `react` | Orchestration backend: `react`, `pydantic_ai`, or `langgraph` |
+| `PYDANTIC_AI_MODEL` | `google-gla:gemini-2.5-flash` | Model used by the PydanticAI and LangGraph backends |
 
 ---
 
@@ -160,6 +162,21 @@ These back the **Agent Pipeline** panels in the Grafana dashboard. They require 
 
 ---
 
+## Web UI Services
+
+The `--profile full` stack exposes several browser-based management UIs alongside the demo:
+
+| Service | URL | Purpose |
+|---|---|---|
+| **Grafana** | `http://localhost:3000` | Live metrics dashboard (`mcp-overview`) |
+| **Prometheus** | `http://localhost:9090` | Raw metric queries |
+| **Jaeger** | `http://localhost:16686` | Distributed trace explorer |
+| **Kafka UI** | `http://localhost:8085` | Topic browser, consumer-group lag, message inspector |
+| **Redis Commander** | `http://localhost:8086` | Live key-value explorer — inspect LangGraph checkpointer state and session data |
+| **MCP Inspector** | `http://localhost:6274` | Verify MCP tool handshake and test tool calls against the gateway |
+
+---
+
 ## Grafana Dashboard
 
 After a successful run open:
@@ -178,19 +195,21 @@ The dashboard auto-refreshes every 10 s. If panels show "No data" immediately af
 
 The script lists all three modes and their descriptions, then fires two live `orchestrate` calls:
 
-| Call | Mode | What it shows |
-|---|---|---|
-| 1 | `pydantic_ai` | Structured agent with Gemini back-end; result is a typed `StructuredResult` object |
-| 2 | `langgraph` | Graph-based orchestrator with `thread_id` checkpointing; demonstrates stateful multi-turn |
+| Call | Mode | Task | What it shows |
+|---|---|---|---|
+| 1 | `pydantic_ai` | `"Echo the text: hello from pydantic_ai structured output"` | Structured agent (pydantic-ai 0.0.20 `result_type` API) with Gemini back-end; calls the `echo` tool and returns a typed `StructuredResult` object |
+| 2 | `langgraph` | `"Add the numbers 17 and 25 using the add tool"` | Cyclic state machine (validate → plan → execute → evaluate → done) with `thread_id` checkpointing via `RedisSaver`; max 15 iterations |
 
-Both calls use a neutral task (`"List the available tools…"`) that does not require PDF access, so they work even on a cold stack.
+Tasks are chosen to be concrete and unambiguous: each maps to exactly one available tool (`echo` or `add`), so neither the planner nor the evaluator can route to a non-existent tool. Do not change these to open-ended prompts — generic tasks like "list the available tools" cause the LLM to emit `tool_name="None"`, which fails the tool-dispatch gate.
 
-The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the gateway container env).  Valid values: `react` (default), `pydantic_ai`, `langgraph`.
+The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the gateway container env). Valid values: `react` (default), `pydantic_ai`, `langgraph`.
 
 ```bash
 # Switch the running stack to pydantic_ai mode
 ORCHESTRATOR_MODE=pydantic_ai docker compose --profile full up -d
 ```
+
+**Dependency note:** The codebase uses **pydantic-ai 0.0.20** (`result_type` / `result.data` API). Later versions (≥ 0.0.21) renamed these to `output_type` / `result.output`. The Docker image is built with the pinned version from `pyproject.toml`; do not upgrade without updating all call sites in `structured_agent.py`, `graph_orchestrator.py`, and `evaluator.py`.
 
 ---
 
@@ -206,3 +225,7 @@ ORCHESTRATOR_MODE=pydantic_ai docker compose --profile full up -d
 | `Gateway cannot reach Ollama` | Ollama bound to `127.0.0.1` only | Restart with `OLLAMA_HOST=0.0.0.0` |
 | `Agent Pipeline: no-data` | OTel collector not running or scrape lag | Wait 30 s; check `docker ps` for `otel-collector` |
 | `cost_usd: 0` for Gemini | Model name not in pricing table | Ensure `router.py` `_COST_PER_M` includes the active Gemini model |
+| `unexpected keyword argument 'result_type'` | Docker cache served stale image with pydantic-ai ≥ 0.0.21 | Run `docker compose --profile full down && docker compose --profile full up --build -d` to force a clean rebuild |
+| Phase 4 `pydantic_ai` / `langgraph` error | `PYDANTIC_AI_MODEL` set to a deprecated model name | Use `PYDANTIC_AI_MODEL=google-gla:gemini-2.5-flash` (the default in `.env.example`) |
+| Phase 4 `Tool 'None' not in available tools` | Task is open-ended; LLM emits `tool_name="None"` because no tool maps to the intent | Use the bundled concrete tasks (`echo` / `add`) — do not replace them with generic prompts like "list tools" |
+| Phase 4 `Max iterations (15) reached` | Planner used wrong step-key format (`name`/`args` instead of `tool_name`/`arguments`) or evaluator kept rejecting | Rebuild the image (`--build`) so the latest `graph_orchestrator.py` (which accepts both key formats) is present |
