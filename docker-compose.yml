@@ -327,6 +327,7 @@ services:
   # MCP Inspector — visual introspection of MCP tool boundaries and handshake
   mcp-inspector:
     image: node:20-alpine
+    profiles: [full]
     command: >
       sh -c "npm install -g @modelcontextprotocol/inspector &&
              npx @modelcontextprotocol/inspector"
