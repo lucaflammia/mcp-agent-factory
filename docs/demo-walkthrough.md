@@ -50,6 +50,51 @@ Before any agent call the script validates the full stack:
 
 ---
 
+### Infra Seed — Kafka topics + Redis KV store
+
+Before any agent call the script idempotently creates three Kafka topics and seeds the Redis KV store with demo phrases:
+
+| Kafka topic | Purpose |
+|---|---|
+| `agents.analyze` | Per-call event envelope written after each `agents/analyze` invocation |
+| `token.usage` | Token consumption events (`input_tokens`, `output_tokens`, `cost_usd`) emitted per LLM call |
+| `gateway.tool_calls` | Tool dispatch events for audit and replay |
+
+Five KV phrases are seeded into two topics (`finance`, `risk`) via the `kv/add_phrase` MCP tool. These power the `kv/check_affinity` call later in the pipeline. Inspect them live in **Redis Commander** at `http://localhost:8086/`.
+
+The `kafka-ui` consumer group `mcp-demo-consumer` appears approximately 20 seconds after the first `agents/analyze` call:
+
+- Topics → `http://localhost:8085/ui/clusters/local/topics`
+- Consumer groups → `http://localhost:8085/ui/clusters/local/consumer-groups`
+
+---
+
+### Phase 0 — Deterministic Orchestration
+
+**Goal:** Demonstrate the LLM output validation gate added in v1.0.0.
+
+`DeterministicOrchestrator` (in `orchestrator.py`) enforces a strict two-phase protocol between the LLM and the execution layer. The script runs three inline cases via a Python heredoc:
+
+| Case | Input | Expected result |
+|---|---|---|
+| 1 — valid plan | `intent` + 2 distinct steps | ✓ Plan accepted, returns `OrchestratorPlan` object |
+| 2 — missing `intent` | Steps only | ✓ `ValidationError` raised; execution blocked |
+| 3 — duplicate adjacent steps | Identical tool call twice | ✓ `ValidationError` raised; copy-paste LLM error caught |
+
+#### Critic-Actor isolation
+
+Immediately after the validation cases the script prints the following explanation:
+
+> The evaluator (`evaluator.py`) runs as a stateless sandbox with no shared context from the executing agent. It ingests the original constraints and the final output, then runs a double-pass check:
+> 1. Deterministic schema fulfillment validation
+> 2. Isolated LLM call acting as a cynical QA auditor (0.0–1.0 score)
+>
+> If the score is `0.0` (absolute failure) or a destructive tool is attempted, the graph pauses via LangGraph `interrupt()` and persists state to Redis. Resume with `compiled.ainvoke(None, config)` using the same `thread_id`. Inspect paused state at `http://localhost:8086` (Redis Commander).
+
+This block bridges the output-gate explanation in Phase 0 with the HITL interrupt details covered in Phase 4.
+
+---
+
 ### Phase 1 — Privacy-First RAG
 
 **Goal:** Demonstrate the analyst agent pipeline with a local PDF and no data egress.
@@ -202,6 +247,16 @@ The script lists all three modes and their descriptions, then fires two live `or
 
 Tasks are chosen to be concrete and unambiguous: each maps to exactly one available tool (`echo` or `add`), so neither the planner nor the evaluator can route to a non-existent tool. Do not change these to open-ended prompts — generic tasks like "list the available tools" cause the LLM to emit `tool_name="None"`, which fails the tool-dispatch gate.
 
+#### HITL interrupt behaviour
+
+If the planner emits a step whose tool name matches a destructive pattern (`write`, `delete`, `drop`, `deploy`, …), the `execute_node` calls `langgraph.types.interrupt()` **before** running the tool. LangGraph serialises the current `GraphState` checkpoint to Redis and returns a `GraphInterrupt` value instead of a final state. The graph is paused in mid-flight.
+
+To resume after approval, call `compiled.ainvoke(None, config)` with the same `thread_id`. The graph continues from the exact point of interruption — no state is lost because Redis holds the full checkpoint.
+
+Inspect interrupted state in Redis Commander → `http://localhost:8086` (keys prefixed by the `thread_id`). The `require_user_approval` flag and `hitl_reason` string are visible in the stored checkpoint.
+
+The `evaluate_node` also triggers an interrupt when the LLM critic scores the output `0.0` (absolute failure) — an autonomous retry would likely produce the same result; human context is required.
+
 The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the gateway container env). Valid values: `react` (default), `pydantic_ai`, `langgraph`.
 
 ```bash
@@ -210,6 +265,20 @@ ORCHESTRATOR_MODE=pydantic_ai docker compose --profile full up -d
 ```
 
 **Dependency note:** The codebase uses **pydantic-ai 0.0.20** (`result_type` / `result.data` API). Later versions (≥ 0.0.21) renamed these to `output_type` / `result.output`. The Docker image is built with the pinned version from `pyproject.toml`; do not upgrade without updating all call sites in `structured_agent.py`, `graph_orchestrator.py`, and `evaluator.py`.
+
+---
+
+## Enterprise Architecture Reference
+
+The demo exercises three enterprise production patterns documented in depth in `README.md`:
+
+| Pattern | Where it runs | What to observe |
+|---------|--------------|-----------------|
+| **Handling Non-Determinism** — Pydantic schemas gate all LLM output before execution | `graph_orchestrator.py` `plan_node` | Any schema violation raises `ValidationError` logged to stderr before any tool fires |
+| **Critic-Actor** — isolated evaluator re-scores actor output against original constraints | `evaluator.py` → `evaluate_node` | `EvaluationResult.score` and per-criterion breakdown logged after each execution round |
+| **HITL Interrupt** — destructive tools and zero-score failures pause the graph in Redis | `graph_orchestrator.py` `execute_node` / `evaluate_node` | `GraphInterrupt` returned to caller; checkpoint visible in Redis Commander at `:8086` |
+
+See `README.md → Enterprise Production Patterns` for the full rationale and state-flag reference.
 
 ---
 
