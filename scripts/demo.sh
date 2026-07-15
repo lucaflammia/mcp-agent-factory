@@ -260,6 +260,17 @@ except ValidationError as exc:
 PYEOF
 
 echo ""
+echo "  ── Critic-Actor isolation ────────────────────────────────────────────"
+echo "  The evaluator (evaluator.py) runs as a stateless sandbox with no shared"
+echo "  context from the executing agent. It ingests the original constraints and"
+echo "  the final output, then runs a double-pass check:"
+echo "    1. Deterministic schema fulfillment validation"
+echo "    2. Isolated LLM call acting as a cynical QA auditor (0.0–1.0 score)"
+echo "  If the score is 0.0 (absolute failure) or a destructive tool is attempted,"
+echo "  the graph pauses via LangGraph interrupt() and persists state to Redis."
+echo "  Resume with: compiled.ainvoke(None, config)  [same thread_id]"
+echo "  Inspect paused state: http://localhost:8086 (Redis Commander)"
+echo ""
 
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
 
@@ -515,8 +526,42 @@ else
 fi
 
 echo ""
+echo "  ── HITL interrupt behaviour ──────────────────────────────────────────"
+echo "  If the planner emits a step whose tool matches a destructive pattern"
+echo "  (write, delete, drop, deploy, ...), execute_node calls interrupt()"
+echo "  BEFORE running the tool. LangGraph serialises GraphState to Redis and"
+echo "  returns GraphInterrupt — the graph is paused in mid-flight."
+echo ""
+echo "  To resume after approval:"
+echo "    compiled.ainvoke(None, config)  # same thread_id"
+echo ""
+echo "  Inspect paused checkpoint:"
+echo "    Redis Commander → http://localhost:8086  (keys prefixed by thread_id)"
+echo "    Look for: require_user_approval=true, hitl_reason"
+echo ""
+echo "  evaluate_node also interrupts when the critic scores output 0.0"
+echo "  (absolute failure — autonomous retry would reproduce the same result)."
+echo ""
 echo "  Set ORCHESTRATOR_MODE=pydantic_ai or ORCHESTRATOR_MODE=langgraph in .env"
 echo "  to make a mode the default for all agents/analyze calls."
+echo ""
+
+# ── Enterprise Architecture Reference ────────────────────────────────────────
+
+hdr "ENTERPRISE ARCHITECTURE REFERENCE"
+echo "  Pattern                     │ Where it runs                      │ What to observe"
+echo "  ──────────────────────────────────────────────────────────────────────────────────"
+echo "  Non-Determinism Gate        │ graph_orchestrator.py plan_node     │ ValidationError before any tool fires"
+echo "  Critic-Actor (Trust+Verify) │ evaluator.py → evaluate_node        │ EvaluationResult.score + per-criterion log"
+echo "  HITL Interrupt              │ execute_node / evaluate_node        │ GraphInterrupt; checkpoint in Redis :8086"
+echo ""
+echo "  Infrastructure"
+echo "  ──────────────────────────────────────────────────────────────────────────────────"
+echo "  Apache Kafka  │ Async backpressure & telemetry stream │ http://localhost:8085"
+echo "  Redis         │ Distributed state & session store     │ http://localhost:8086"
+echo "  MCP Server    │ Decoupled, secure data & action layer │ http://localhost:6274"
+echo ""
+echo "  Full rationale → README.md § Enterprise Production Patterns"
 echo ""
 
 # ── Background traffic keeper ─────────────────────────────────────────────────
