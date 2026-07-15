@@ -37,6 +37,12 @@ class Phase(str, Enum):
 	FAILED = "failed"
 
 
+# Tool names that require human approval before execution (destructive operations).
+DESTRUCTIVE_TOOL_PATTERNS: list[str] = [
+	"write", "delete", "drop", "update", "insert", "exec", "run", "deploy",
+]
+
+
 class GraphState(TypedDict, total=False):
 	"""Typed state dict flowing through the LangGraph graph."""
 	task: str
@@ -49,6 +55,10 @@ class GraphState(TypedDict, total=False):
 	error: str | None
 	tools: list[dict[str, Any]]
 	history: list[dict[str, Any]]
+	# When True the graph is interrupted and paused in Redis,
+	# awaiting an out-of-band approval signal before resuming.
+	require_user_approval: bool
+	hitl_reason: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +176,25 @@ class GraphOrchestrator:
 
 		async def execute_node(state: GraphState) -> GraphState:
 			import asyncio
+			from langgraph.types import interrupt as lg_interrupt
+
 			plan = state.get("plan")
 			if not plan or not plan.get("steps"):
 				return {**state, "phase": Phase.FAILED.value, "error": "No plan to execute"}
+
+			# Scan for destructive tool calls and pause for human approval.
+			for step in plan["steps"]:
+				tool_name = (
+					step.get("tool_name") or step.get("name") or step.get("tool") or ""
+				).lower()
+				if any(pat in tool_name for pat in DESTRUCTIVE_TOOL_PATTERNS):
+					reason = f"Tool '{tool_name}' requires human approval before execution."
+					logger.info("HITL interrupt triggered: %s", reason)
+					# Persist the interrupt reason into state before suspending.
+					# LangGraph serialises current state to Redis, then raises
+					# GraphInterrupt — the caller resumes by replaying with approval.
+					lg_interrupt({"reason": reason, "plan": plan})
+					# Execution continues here only after external approval is received.
 
 			results = []
 			for step in plan["steps"]:
@@ -254,7 +280,23 @@ class GraphOrchestrator:
 					"evaluation_verdict": verdict,
 					"final_result": {"text": final_text, "iterations": iteration},
 					"history": history,
+					"require_user_approval": False,
+					"hitl_reason": None,
 				}
+
+			# Critical system constraint failures (score==0) require
+			# human intervention rather than an autonomous retry.
+			is_critical_failure = verdict.get("score", 1.0) == 0.0
+			if is_critical_failure:
+				from langgraph.types import interrupt as lg_interrupt
+				hitl_reason = (
+					"Critical evaluation failure: the evaluator scored the output 0. "
+					"Human review is required before the graph may retry. "
+					f"Findings: {verdict.get('findings', [])}"
+				)
+				logger.warning("HITL interrupt on critical failure: %s", hitl_reason)
+				lg_interrupt({"reason": hitl_reason, "verdict": verdict})
+				# Resumes here after human approves a retry.
 
 			if iteration >= self.max_iterations:
 				return {
@@ -264,6 +306,8 @@ class GraphOrchestrator:
 					"evaluation_verdict": verdict,
 					"error": f"Max iterations ({self.max_iterations}) reached without passing evaluation",
 					"history": history,
+					"require_user_approval": False,
+					"hitl_reason": None,
 				}
 
 			# Retry — loop back to plan
@@ -273,6 +317,8 @@ class GraphOrchestrator:
 				"iteration": iteration,
 				"evaluation_verdict": verdict,
 				"history": history,
+				"require_user_approval": False,
+				"hitl_reason": None,
 			}
 
 		# -- Routing ----------------------------------------------------------
@@ -315,6 +361,8 @@ class GraphOrchestrator:
 			"error": None,
 			"tools": tools,
 			"history": [],
+			"require_user_approval": False,
+			"hitl_reason": None,
 		}
 
 		config = {"configurable": {"thread_id": thread_id}}

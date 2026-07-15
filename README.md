@@ -1113,6 +1113,51 @@ The critic defaults to `needs_revision` — it requires explicit evidence to pas
 not the absence of detected failures.  This "cynical default" catches subtle
 regressions that optimistic graders miss.
 
+### Human-in-the-Loop (HITL) Design
+
+Fully autonomous agents are unsuitable for high-stakes or irreversible
+operations.  This design combines LangGraph's built-in
+`interrupt()` primitive with Redis checkpointing to create a *pausable*
+execution graph that can receive out-of-band human approval without
+losing any state.
+
+**How it works:**
+
+1. **Destructive-tool detection** — before `execute_node` runs any step,
+   it scans the plan for tools whose names match a predefined list of
+   destructive patterns (`write`, `delete`, `drop`, `deploy`, …).  If
+   a match is found, `langgraph.types.interrupt()` is called.
+
+2. **LangGraph `interrupt()`** — calling `interrupt()` raises a
+   `GraphInterrupt` exception internally.  LangGraph catches it, **serialises
+   the current `GraphState` to Redis** via the `RedisSaver` checkpointer,
+   and returns a `GraphInterrupt` value to the caller rather than a final
+   state.  The graph is now *paused in mid-flight* — no further nodes run.
+
+3. **External approval signal** — a human operator (or a future Slack/Telegram
+   gateway) inspects the interrupted state (visible in Redis Commander at
+   `http://localhost:8086`) and, if approved, calls
+   `compiled.ainvoke(None, config)` with the same `thread_id`.  LangGraph
+   resumes execution from the exact point of interruption.
+
+4. **Critical-failure escalation** — `evaluate_node` also triggers an
+   interrupt when the LLM critic scores the output `0.0` (absolute failure).
+   An autonomous retry would likely produce the same broken output; human
+   context is required to resolve the underlying issue.
+
+**State flags in `GraphState`:**
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `require_user_approval` | `bool` | Set to `True` in the state snapshot when a HITL pause is triggered |
+| `hitl_reason` | `str \| None` | Human-readable explanation of why approval is needed |
+
+**Why Redis is essential here:** `MemorySaver` would lose all state the
+moment the process exits or the request times out.  `RedisSaver` persists
+the exact graph checkpoint so the graph can be resumed by a *different*
+process, *at a different time*, with *full state fidelity* — enabling
+asynchronous human approval workflows across service restarts.
+
 ### Enterprise Infrastructure
 
 | Component | Operational Role | Production Value | How to inspect |
