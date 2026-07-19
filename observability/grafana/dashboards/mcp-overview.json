@@ -251,7 +251,7 @@
     },
     {
       "id": 13,
-      "title": "Token Consumption (Input + Output)",
+      "title": "Token Consumption (Input + Output, cumulative)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -262,21 +262,21 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(mcp_agent_input_tokens_total[5m])) by (provider)",
-          "legendFormat": "input {{provider}}",
+          "expr": "sum(mcp_agent_input_tokens_total) by (provider)",
+          "legendFormat": "input ({{provider}})",
           "refId": "A"
         },
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(mcp_agent_output_tokens_total[5m])) by (provider)",
-          "legendFormat": "output {{provider}}",
+          "expr": "sum(mcp_agent_output_tokens_total) by (provider)",
+          "legendFormat": "output ({{provider}})",
           "refId": "B"
         }
       ]
     },
     {
       "id": 14,
-      "title": "Cost per Request \u2014 Aggregate (USD/s)",
+      "title": "Total Cost \u2014 Aggregate (USD)",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -287,7 +287,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(mcp_agent_cost_usd_total[5m]))",
+          "expr": "sum(mcp_agent_cost_usd_total)",
           "legendFormat": "Total USD/s",
           "refId": "A"
         }
@@ -308,7 +308,7 @@
     },
     {
       "id": 17,
-      "title": "Cost per Provider (USD/s)",
+      "title": "Cost by Provider (USD, cumulative)",
       "type": "timeseries",
       "gridPos": {
         "h": 4,
@@ -319,7 +319,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(mcp_agent_cost_usd_total[5m])) by (provider)",
+          "expr": "sum(mcp_agent_cost_usd_total) by (provider)",
           "legendFormat": "{{provider}}",
           "refId": "A"
         }
