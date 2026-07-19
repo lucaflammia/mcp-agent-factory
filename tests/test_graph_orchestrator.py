@@ -84,6 +84,10 @@ async def test_graph_orchestrator_echo():
 	import os
 	if not os.getenv("GEMINI_API_KEY") and not os.getenv("OLLAMA_BASE_URL"):
 		pytest.skip("No LLM provider configured")
+	try:
+		from langgraph.graph import StateGraph  # noqa: F401
+	except (ImportError, TypeError) as exc:
+		pytest.skip(f"LangGraph not available or incompatible: {exc}")
 
 	async def mock_call_tool(name: str, args: dict) -> dict:
 		if name == "echo":
@@ -108,6 +112,10 @@ async def test_graph_orchestrator_empty_task_fails():
 	import os
 	if not os.getenv("GEMINI_API_KEY") and not os.getenv("OLLAMA_BASE_URL"):
 		pytest.skip("No LLM provider configured")
+	try:
+		from langgraph.graph import StateGraph  # noqa: F401
+	except (ImportError, TypeError) as exc:
+		pytest.skip(f"LangGraph not available or incompatible: {exc}")
 
 	async def noop(name, args):
 		return {}

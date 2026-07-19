@@ -217,12 +217,14 @@ class CriticActorEvaluator:
 			result = await agent.run(prompt)
 			judgement = result.data
 
-			# Merge deterministic findings with LLM findings
-			all_findings = det_verdict.findings + judgement.findings
-			if not judgement.passed:
-				all_findings.append(judgement.revision_notes or "LLM judge rejected output")
+			# Only merge LLM findings when the judge rejected the output
+			if judgement.passed:
+				return EvaluationVerdict._from_findings(det_verdict.findings)
 
-			return EvaluationVerdict._from_findings(all_findings)
+			all_findings = det_verdict.findings + judgement.findings
+			if judgement.revision_notes:
+				all_findings.append(judgement.revision_notes)
+			return EvaluationVerdict._from_findings(all_findings or ["LLM judge rejected output"])
 
 		except Exception as exc:
 			logger.warning("LLM judge failed, falling back to deterministic: %s", exc)

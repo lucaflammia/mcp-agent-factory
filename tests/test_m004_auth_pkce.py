@@ -79,7 +79,9 @@ def auth_client():
 
 
 @pytest.fixture
-def gateway_client():
+def gateway_client(monkeypatch):
+	import mcp_agent_factory.gateway.app as _app
+	monkeypatch.setattr(_app, "DEV_MODE", False)
 	return TestClient(gateway_app)
 
 

@@ -63,8 +63,12 @@ class _AlwaysFailHandler(LLMHandler):
 # Gateway health endpoint
 # ---------------------------------------------------------------------------
 
-def test_health_endpoint_returns_ok():
+def test_health_endpoint_returns_ok(monkeypatch):
     """GET /health is publicly accessible and returns 200 with status ok."""
+    # Clear external-service env vars so the gateway lifespan doesn't try to
+    # reach Redis or Kafka during unit tests.
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
     with TestClient(gateway_app, raise_server_exceptions=False) as client:
         resp = client.get("/health")
     assert resp.status_code == 200

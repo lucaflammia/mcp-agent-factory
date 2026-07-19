@@ -197,12 +197,15 @@ class InternalServiceLayer:
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
-        # Append a durable tool-call event to the configured event log
+        # Append a durable tool-call event to the configured event log (fire-and-forget)
         if self._event_log is not None:
-            await self._event_log.append("gateway.tool_calls", {
-                "tool": tool_name,
-                "ts": int(time.time()),
-            })
+            try:
+                await self._event_log.append("gateway.tool_calls", {
+                    "tool": tool_name,
+                    "ts": int(time.time()),
+                })
+            except Exception as _log_exc:
+                logger.warning('{"event":"event_log_failure","detail":"%s"}', _log_exc)
 
         return outcome
 
