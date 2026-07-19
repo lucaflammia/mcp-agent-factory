@@ -13,7 +13,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
                          │ Bearer JWT (OAuth 2.1 / PKCE S256)
 ┌────────────────────────▼─────────────────────────────────────┐
 │                 MCP API Gateway (FastAPI :8000)               │
-│  POST /mcp   POST /sampling   GET /health                     │
+│  POST /mcp (Streamable HTTP)  POST /sampling   GET /health    │
+│  GET  /sse  POST /sse/messages (MCP legacy SSE transport)     │
 │  GET  /sse/v1/events          POST /sse/v1/messages           │
 │  PIIGate · ValidationGate · InternalServiceLayer             │
 │  UnifiedRouter → OpenAI / Anthropic / Ollama (auto-fallback) │
@@ -75,7 +76,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Economics** | `economics/` | Utility scoring + knowledge-augmented sealed-bid auction |
 | **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
 | **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
-| **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; SSE /v1 endpoints |
+| **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; Streamable HTTP (`POST /mcp`), MCP legacy SSE (`GET /sse` + `POST /sse/messages`), and SSE v1 endpoints |
 | **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding; `client_credentials` grant for machine-to-machine auth |
 | **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream; `make_client_credentials_factory()` for headless bridge operation |
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
@@ -114,7 +115,18 @@ MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run
 MCP_DEV_MODE=1 REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
 ```
 
-### 3. Run the bridge smoke test (terminal 2)
+### 3. Connect with MCP Inspector
+
+Two transport options are supported (use whichever your client requires):
+
+| Transport | URL | Notes |
+|-----------|-----|-------|
+| **Streamable HTTP** (recommended) | `http://localhost:8000/mcp` | Modern MCP spec; full duplex over a single HTTP connection |
+| **Legacy SSE** | `http://localhost:8000/sse` | MCP 2024-11-05 spec; `GET /sse` opens stream, `POST /sse/messages?sessionId=<id>` sends requests |
+
+In [MCP Inspector](https://github.com/modelcontextprotocol/inspector), select the matching Transport Type in the sidebar before connecting.
+
+### 4. Run the bridge smoke test (terminal 2)
 
 ```bash
 # Requires the gateway from step 2 to be running
@@ -1084,6 +1096,17 @@ Both gates are active in v1.0.0 — they guard different points in the pipeline 
 complementary, not redundant.  Only well-typed, schema-valid plans ever reach Kafka
 `token.usage` events and the Redis session store, preventing garbage-in / garbage-out
 cascades across services.
+
+#### Decoupled Input/Output Interface
+
+`GraphOrchestrator.run(task, tools, call_tool_fn, thread_id)` accepts an abstract
+payload — a plain task string, a list of tool descriptors, and a callable to invoke
+them.  The graph is entirely agnostic about *where* the task originated: the same
+entrypoint processes a CLI invocation, an HTTP `/orchestrate` request, or a future
+Slack/Telegram webhook identically.  No transport-specific code leaks into the state
+machine.  Adding a new inbound channel requires only a thin adapter that maps the
+channel's message format to the four-argument contract — the graph itself never
+changes.
 
 ### The Critic-Actor Pattern
 

@@ -22,6 +22,7 @@ dependencies = [
     "numpy>=1.24",
     "pydantic-ai[google]==0.0.20",
     "langgraph>=1.0",
+    "langgraph-checkpoint-redis>=0.5",
 ]
 
 [project.scripts]

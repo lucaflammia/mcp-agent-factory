@@ -218,7 +218,20 @@ The `--profile full` stack exposes several browser-based management UIs alongsid
 | **Jaeger** | `http://localhost:16686` | Distributed trace explorer |
 | **Kafka UI** | `http://localhost:8085` | Topic browser, consumer-group lag, message inspector |
 | **Redis Commander** | `http://localhost:8086` | Live key-value explorer — inspect LangGraph checkpointer state and session data |
-| **MCP Inspector** | `http://localhost:6274` | Verify MCP tool handshake and test tool calls against the gateway |
+| **MCP Inspector** | `http://localhost:6274` | Verify MCP tool handshake and test tool calls against the gateway — see transport options below |
+
+### MCP Inspector Transport Options
+
+The gateway supports two MCP transports. In the MCP Inspector sidebar, select the correct **Transport Type** before clicking **Connect**:
+
+| Transport | Transport Type in Inspector | URL |
+|---|---|---|
+| Streamable HTTP (recommended) | `Streamable HTTP` | `http://localhost:8000/mcp` |
+| Legacy SSE (2024-11-05 spec) | `SSE` | `http://localhost:8000/sse` |
+
+**Streamable HTTP** is the current MCP standard and works out of the box.
+
+**Legacy SSE** uses a session-scoped stream: `GET /sse` opens the stream and emits an `endpoint` event containing `http://localhost:8000/sse/messages?sessionId=<uuid>`. Subsequent JSON-RPC requests `POST` to that URL, receive `202 Accepted` immediately, and the response arrives on the open SSE stream as a `message` event. The Inspector handles this automatically once connected.
 
 ---
 
@@ -277,6 +290,7 @@ The demo exercises three enterprise production patterns documented in depth in `
 | **Handling Non-Determinism** — Pydantic schemas gate all LLM output before execution | `graph_orchestrator.py` `plan_node` | Any schema violation raises `ValidationError` logged to stderr before any tool fires |
 | **Critic-Actor** — isolated evaluator re-scores actor output against original constraints | `evaluator.py` → `evaluate_node` | `EvaluationResult.score` and per-criterion breakdown logged after each execution round |
 | **HITL Interrupt** — destructive tools and zero-score failures pause the graph in Redis | `graph_orchestrator.py` `execute_node` / `evaluate_node` | `GraphInterrupt` returned to caller; checkpoint visible in Redis Commander at `:8086` |
+| **Decoupled I/O Interface** — graph entrypoint is transport-agnostic (`task`, `tools`, `call_tool_fn`) | `graph_orchestrator.py` `GraphOrchestrator.run()` | Same state machine handles CLI, HTTP, and future Slack/Telegram adapters without modification |
 
 See `README.md → Enterprise Production Patterns` for the full rationale and state-flag reference.
 

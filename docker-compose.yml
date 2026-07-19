@@ -325,16 +325,28 @@ services:
       - "8086:8081"
 
   # MCP Inspector — visual introspection of MCP tool boundaries and handshake
+  # Access: http://localhost:6274
+  # Transports:
+  #   STDIO          → command: npx -y @modelcontextprotocol/server-everything
+  #   Streamable HTTP → URL: http://gateway:8000/mcp
   mcp-inspector:
     image: node:20-alpine
     profiles: [full]
+    # host network: inspector proxy runs on the host network stack so that
+    # localhost:8000 (gateway) and localhost:6274/6277 (inspector) all share
+    # the same loopback — no socat hack needed, no Docker DNS required.
+    network_mode: host
     command: >
-      sh -c "npm install -g @modelcontextprotocol/inspector &&
+      sh -c "npm install -g @modelcontextprotocol/inspector @modelcontextprotocol/server-everything &&
              npx @modelcontextprotocol/inspector"
     environment:
-      MCP_SERVER_URL: "http://gateway:8000/mcp"
-    ports:
-      - "6274:6274"
+      HOST: "0.0.0.0"
+      CLIENT_PORT: "6274"
+      SERVER_PORT: "6277"
+      # Skip token auth — inspector is LAN-only dev tooling
+      DANGEROUSLY_OMIT_AUTH: "true"
+      # Default URL points to gateway on host-mapped port 8000
+      DEFAULT_MCP_SERVER_URL: "http://localhost:8000/mcp"
     depends_on:
       gateway:
         condition: service_healthy

@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -30,7 +31,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse as _JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, ValidationError
@@ -398,13 +399,73 @@ async def sampling_endpoint(body: SamplingBody) -> SamplingResult:
 	return await sampling_handler.handle(body.prompt)
 
 
-@gateway_app.get("/mcp")
-async def mcp_sse_endpoint(
+# ---------------------------------------------------------------------------
+# SSE session store — maps session_id → asyncio.Queue for response push-back
+# ---------------------------------------------------------------------------
+_sse_sessions: dict[str, asyncio.Queue] = {}
+
+
+@gateway_app.get("/sse")
+async def mcp_legacy_sse_endpoint(
+	request: Request,
 	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
 ) -> Any:
-	"""MCP Streamable HTTP — GET /mcp opens the server→client SSE channel."""
+	"""MCP legacy SSE transport (2024-11-05).
+
+	Opens a persistent SSE stream. Sends an ``endpoint`` event with the
+	absolute URL clients should POST JSON-RPC messages to. Each POST returns
+	202 immediately; the response arrives back through this stream.
+	"""
+	session_id = str(uuid.uuid4())
+	queue: asyncio.Queue = asyncio.Queue()
+	_sse_sessions[session_id] = queue
+
+	# Build the post-back URL using the request's base URL so it works behind
+	# reverse proxies that rewrite the host header.
+	base = str(request.base_url).rstrip("/")
+	post_url = f"{base}/sse/messages?sessionId={session_id}"
+
 	async def _events():
-		yield {"event": "endpoint", "data": json.dumps({"path": "/mcp"})}
+		try:
+			yield {"event": "endpoint", "data": post_url}
+			while True:
+				try:
+					message = await asyncio.wait_for(queue.get(), timeout=15.0)
+					yield {"event": "message", "data": json.dumps(message)}
+				except asyncio.TimeoutError:
+					yield {"event": "ping", "data": ""}
+		finally:
+			_sse_sessions.pop(session_id, None)
+
+	return EventSourceResponse(_events())
+
+
+@gateway_app.post("/sse/messages")
+async def mcp_sse_post(
+	req: MCPRequest,
+	session_id: str = Query(..., alias="sessionId"),
+	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
+) -> Response:
+	"""Receive a JSON-RPC request from the SSE client, push response to its stream."""
+	queue = _sse_sessions.get(session_id)
+	if queue is None:
+		return Response(status_code=404, content=b"Unknown session")
+	resp = await _mcp_dispatch(req, _claims)
+	await queue.put(resp.model_dump(exclude_none=True))
+	return Response(status_code=202)
+
+
+@gateway_app.get("/mcp")
+async def mcp_streamable_sse_get(
+	request: Request,
+	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
+) -> Any:
+	"""Streamable HTTP SSE channel (server→client notifications, kept for compat)."""
+	base = str(request.base_url).rstrip("/")
+	post_url = f"{base}/mcp"
+
+	async def _events():
+		yield {"event": "endpoint", "data": post_url}
 		while True:
 			await asyncio.sleep(15)
 			yield {"event": "ping", "data": ""}
