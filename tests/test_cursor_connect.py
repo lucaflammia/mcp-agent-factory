@@ -116,12 +116,17 @@ async def test_gateway_discovery_proxy_returns_endpoints():
 
 @pytest.mark.asyncio
 async def test_get_mcp_returns_sse_stream():
-    """GET /mcp SSE generator must yield an endpoint event as its first item."""
-    from mcp_agent_factory.gateway.app import mcp_sse_endpoint
+    """GET /sse SSE generator must yield an endpoint event as its first item."""
+    from unittest.mock import MagicMock
+    from mcp_agent_factory.gateway.app import mcp_legacy_sse_endpoint
+
+    # Build a minimal Request mock so the handler can derive base_url.
+    mock_request = MagicMock()
+    mock_request.base_url = "http://localhost:8000/"
 
     # Call the handler directly and inspect the EventSourceResponse generator.
     # This avoids ASGI streaming complexity (the stream never ends by design).
-    response = await mcp_sse_endpoint(_claims=None)
+    response = await mcp_legacy_sse_endpoint(request=mock_request, _claims=None)
     gen = response.body_iterator
     first = await gen.__anext__()
     assert first is not None  # generator yielded something
@@ -129,4 +134,4 @@ async def test_get_mcp_returns_sse_stream():
     text = first if isinstance(first, str) else (
         first.get("data", "") if isinstance(first, dict) else first.decode()
     )
-    assert "endpoint" in text or "/mcp" in text
+    assert "endpoint" in text or "/sse/messages" in text

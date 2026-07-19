@@ -55,7 +55,20 @@ def shared_key():
 
 
 @pytest.fixture
-def transport():
+def transport(monkeypatch):
+	# Clear external-service env vars so the gateway lifespan doesn't try to
+	# reach Redis or Kafka during unit tests.
+	monkeypatch.delenv("REDIS_URL", raising=False)
+	monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
+	# Replace the module-level event log singleton with an in-process stub so
+	# async tests don't hang on Kafka connection attempts.
+	import mcp_agent_factory.gateway.app as _app
+	import mcp_agent_factory.gateway.service_layer as _sl
+	from mcp_agent_factory.streams.eventlog import InProcessEventLog
+	stub_log = InProcessEventLog()
+	monkeypatch.setattr(_app, "_event_log", stub_log)
+	monkeypatch.setattr(_sl, "_event_log", stub_log, raising=False)
+	_app._service_layer._event_log = stub_log
 	return httpx.ASGITransport(app=gateway_app)
 
 
@@ -198,8 +211,11 @@ async def test_stream_events_via_bus_delivery(shared_key):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_call_tool_raises_on_auth_error(transport):
+async def test_call_tool_raises_on_auth_error(transport, monkeypatch):
 	"""tools/call with no token should raise RuntimeError, not KeyError."""
+	import mcp_agent_factory.gateway.app as _app
+	monkeypatch.setattr(_app, "DEV_MODE", False)
+
 	def _no_auth() -> tuple[str, int]:
 		return "", int(time.time()) + 3600
 

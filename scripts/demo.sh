@@ -164,6 +164,114 @@ if [ -n "$GATEWAY_CONTAINER" ]; then
   fi
 fi
 
+# ── Infrastructure seed: Kafka topics + Redis KV data ───────────────────────
+
+hdr "INFRA SEED — Kafka topics + Redis KV store"
+
+KAFKA_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-kafka" --format "{{.Names}}" 2>/dev/null | head -1)
+if [ -n "$KAFKA_CONTAINER" ]; then
+  echo "  Creating Kafka topics (idempotent)..."
+  for TOPIC in agents.analyze token.usage gateway.tool_calls; do
+    docker exec "$KAFKA_CONTAINER" \
+      kafka-topics --bootstrap-server localhost:9092 \
+      --create --if-not-exists --topic "$TOPIC" \
+      --partitions 3 --replication-factor 1 >/dev/null 2>&1 && \
+      echo "    ✓ $TOPIC" || echo "    · $TOPIC (already exists)"
+  done
+  echo ""
+  echo "  Kafka UI topics    → http://localhost:8085/ui/clusters/local/topics"
+  echo "  Kafka UI consumers → http://localhost:8085/ui/clusters/local/consumer-groups"
+  echo "  (consumer group 'mcp-demo-consumer' appears ~20s after first agents/analyze call)"
+  echo ""
+else
+  echo "  ✗ Kafka container not found — skipping topic creation."
+  echo ""
+fi
+
+echo "  Seeding Redis KV store with demo phrases..."
+_kv_add() {
+  local topic="$1"; local phrase="$2"
+  curl -sf -X POST "$GATEWAY_URL/mcp" \
+    -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"kv/add_phrase\",\"arguments\":{\"topic\":\"$topic\",\"phrase\":\"$phrase\"}}}" \
+    >/dev/null 2>&1
+}
+_kv_add "finance" "EBITDA margin"
+_kv_add "finance" "revenue growth"
+_kv_add "finance" "operating cash flow"
+_kv_add "risk"    "liquidity risk"
+_kv_add "risk"    "market volatility"
+echo "  ✓ 5 phrases seeded → Redis Commander http://localhost:8086/"
+echo ""
+
+# ── Phase 0: Deterministic Orchestration ─────────────────────────────────────
+
+hdr "PHASE 0 — Deterministic Orchestration (ValidationGate on LLM output)"
+echo "  v0.1.0 gateway validated incoming *client* requests (JSON-RPC shape, PII)."
+echo "  v1.0.0 adds a second gate that validates what the *LLM* returns as a plan"
+echo "  before any tool is allowed to execute."
+echo ""
+echo "  Valid plan → plan object; invalid plan → ValidationError (execution blocked)."
+echo ""
+
+python3 - <<'PYEOF'
+from mcp_agent_factory.orchestrator import DeterministicOrchestrator
+from pydantic import ValidationError
+
+# ── CASE 1: valid LLM output passes the gate ─────────────────────────────────
+valid_raw = {
+  "intent": "extract KPIs from PDF",
+  "steps": [
+    {"tool_name": "pdf_extract", "arguments": {"path": "/app/data/report.pdf"}},
+    {"tool_name": "summarize",   "arguments": {"style": "bullet"}},
+  ],
+}
+try:
+  plan = DeterministicOrchestrator.plan(valid_raw)
+  print(f"  ✓ Valid plan accepted:  intent='{plan.intent}', steps={len(plan.steps)}")
+except ValidationError as exc:
+  print(f"  ✗ Unexpected rejection: {exc}")
+
+# ── CASE 2: LLM omits 'intent' — execution is blocked ────────────────────────
+malformed_raw = {
+  "steps": [{"tool_name": "summarize", "arguments": {}}],
+  # 'intent' missing — a real LLM hallucination
+}
+try:
+  DeterministicOrchestrator.plan(malformed_raw)
+  print("  ✗ Should have been rejected but wasn't")
+except ValidationError as exc:
+  fields = [e["loc"] for e in exc.errors()]
+  print(f"  ✓ Malformed plan blocked: missing fields {fields}")
+
+# ── CASE 3: duplicate adjacent steps — catches copy-paste LLM errors ──────────
+duplicate_raw = {
+  "intent": "echo twice",
+  "steps": [
+    {"tool_name": "echo", "arguments": {"message": "hi"}},
+    {"tool_name": "echo", "arguments": {"message": "hi"}},  # exact duplicate
+  ],
+}
+try:
+  DeterministicOrchestrator.plan(duplicate_raw)
+  print("  ✗ Duplicate steps should have been rejected")
+except ValidationError as exc:
+  print(f"  ✓ Duplicate adjacent step blocked: {exc.errors()[0]['msg']}")
+PYEOF
+
+echo ""
+echo "  ── Critic-Actor isolation ────────────────────────────────────────────"
+echo "  The evaluator (evaluator.py) runs as a stateless sandbox with no shared"
+echo "  context from the executing agent. It ingests the original constraints and"
+echo "  the final output, then runs a double-pass check:"
+echo "    1. Deterministic schema fulfillment validation"
+echo "    2. Isolated LLM call acting as a cynical QA auditor (0.0–1.0 score)"
+echo "  If the score is 0.0 (absolute failure) or a destructive tool is attempted,"
+echo "  the graph pauses via LangGraph interrupt() and persists state to Redis."
+echo "  Resume with: compiled.ainvoke(None, config)  [same thread_id]"
+echo "  Inspect paused state: http://localhost:8086 (Redis Commander)"
+echo ""
+
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
 
 hdr "PHASE 1 — Privacy-First RAG (agents/analyze)"
@@ -237,9 +345,12 @@ echo "$PHASE1" | jq -r '.result.summary'
 # ── Phase 2: Jaeger Trace ─────────────────────────────────────────────────────
 
 hdr "PHASE 2 — Observe the Trace (Jaeger)"
-echo "  Open Jaeger and search for service 'mcp-gateway':"
+echo "  Jaeger Search — click 'Find Traces' after opening this URL:"
+echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze&limit=20&lookback=1h"
 echo ""
-echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze"
+echo "  Jaeger Monitor (SPM — live call rate / latency per operation):"
+echo "    http://localhost:16686/monitor"
+echo "    → select 'mcp-gateway' from the service dropdown"
 echo ""
 echo "  Expected span chain:"
 echo "    mcp.agents/analyze"
@@ -252,25 +363,38 @@ echo "      └─ agent.llm_route     [provider, cost_usd]"
 
 hdr "PHASE 3 — Live Provider Switch (Gemini)"
 
-# Check whether the container has GEMINI_API_KEY (requires the key to be set
-# in the environment BEFORE docker compose up, or added to a .env file).
+# Check whether the container has GEMINI_API_KEY.
+# In MCP_DEV_MODE=1, a missing key is allowed — the gateway simulates Gemini
+# via Ollama and still labels metrics as 'gemini' so Grafana panels show data.
 if [ -n "$GATEWAY_CONTAINER" ]; then
   CONTAINER_GEMINI=$(docker exec "$GATEWAY_CONTAINER" sh -c 'echo $GEMINI_API_KEY' 2>/dev/null)
   if [ -z "$CONTAINER_GEMINI" ]; then
-    echo "  ✗ GEMINI_API_KEY is not set in the gateway container."
+    echo "  ✗ GEMINI_API_KEY is not set — running in dev-mode simulation (Ollama backend, gemini label)."
     echo ""
-    echo "  To fix, add it to your .env file (copy from .env.example) and rebuild:"
+    echo "  To use the real Gemini API, add your key and rebuild:"
     echo "    echo 'GEMINI_API_KEY=<your-key>' >> .env"
     echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
-    hr
-    echo "  Demo complete."
-    hr
     echo ""
-    exit 0
   fi
 fi
 
-echo "  Requesting provider=gemini..."
+# Seed Grafana Gemini panels with 4 calls spread over ~36s (same cadence as Phase 1).
+echo "  Seeding Grafana Gemini panels (4 calls spread over ~36s)..."
+for _i in 1 2 3 4; do
+  printf "    call %d/4 … " "$_i"
+  if mcp_call "agents/analyze" "$PARAMS_GEMINI" >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "warn: call failed (non-fatal)"
+  fi
+  [ "$_i" -lt 4 ] && sleep 12
+done
+echo ""
+echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
+sleep 20
+echo ""
+
+echo "  Requesting provider=gemini (display call)..."
 echo ""
 
 PHASE3=$(mcp_call "agents/analyze" "$PARAMS_GEMINI" || true)
@@ -332,11 +456,14 @@ _prom_check "Auction Bids" \
 _prom_check "Agent Pipeline (calls rate)" \
   "sum(rate(traces_calls_total{span_name=~\"agent[.].*\"}[5m]))"
 
-_prom_check "Pages Read (pdf_extract rate)" \
-  "sum(rate(traces_calls_total{span_name=\"agent.pdf_extract\"}[5m]))"
+_prom_check "Token Consumption (cumulative)" \
+  "sum(mcp_agent_input_tokens_total) by (provider)"
 
-_prom_check "Token Consumption (llm_route rate)" \
-  "sum(rate(traces_calls_total{span_name=\"agent.llm_route\"}[5m]))"
+_prom_check "Cost by Provider (cumulative)" \
+  "sum(mcp_agent_cost_usd_total) by (provider)"
+
+_prom_check "Gemini cost recorded" \
+  "mcp_agent_cost_usd_total{provider=\"gemini\"}"
 
 echo ""
 echo "  Grafana dashboard (refreshes every 10s):"
@@ -344,4 +471,122 @@ echo "    http://localhost:3000/d/mcp-overview/mcp-agent-factory-e28094-overview
 echo ""
 echo "  If any check shows 'no-data', wait 30s and refresh Grafana — Prometheus"
 echo "  may still be in its next scrape interval."
+echo ""
+
+echo "  Prometheus query shortcuts (paste into http://localhost:9090/graph):"
+echo "    Call rate:    rate(traces_calls_total{service_name=\"mcp-gateway\"}[1m])"
+echo "    Token cost:   sum(mcp_agent_cost_usd_total) by (provider)"
+echo "    Latency p99:  histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{service_name=\"mcp-gateway\"}[1m])) by (le))"
+echo ""
+
+# ── Phase 4: Orchestrator Modes ──────────────────────────────────────────────
+
+hdr "PHASE 4 — Orchestrator Modes (pydantic_ai + langgraph)"
+echo "  Three orchestration backends are available via the 'orchestrate' tool:"
+echo "    legacy      — regex-based ReAct loop (v0.1.0 default)"
+echo "    pydantic_ai — LLM structured outputs with Pydantic validation"
+echo "    langgraph   — state-machine with validate→plan→execute→evaluate→done"
+echo ""
+
+ORCH_TASK_PA="Echo the text: hello from pydantic_ai structured output"
+ORCH_TASK_LG="Add the numbers 17 and 25 using the add tool"
+
+echo "  ── pydantic_ai mode ──────────────────────────────────────────────────"
+echo "  Task: $ORCH_TASK_PA"
+echo ""
+ORCH_PA=$(mcp_call "tools/call" \
+  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_PA\",\"mode\":\"pydantic_ai\"}}" \
+  || true)
+
+if echo "$ORCH_PA" | jq -e '.result.content[0]' >/dev/null 2>&1; then
+  echo "$ORCH_PA" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
+elif echo "$ORCH_PA" | jq -e '.error' >/dev/null 2>&1; then
+  echo "  ✗ pydantic_ai mode error:"
+  echo "$ORCH_PA" | jq '.error'
+else
+  echo "$ORCH_PA"
+fi
+
+echo ""
+echo "  ── langgraph mode ───────────────────────────────────────────────────"
+echo "  Task: $ORCH_TASK_LG"
+echo "  (State machine: validate → plan → execute → evaluate → done)"
+echo ""
+ORCH_LG=$(mcp_call "tools/call" \
+  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_LG\",\"mode\":\"langgraph\",\"thread_id\":\"demo-session-1\"}}" \
+  || true)
+
+if echo "$ORCH_LG" | jq -e '.result.content[0]' >/dev/null 2>&1; then
+  echo "$ORCH_LG" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
+elif echo "$ORCH_LG" | jq -e '.error' >/dev/null 2>&1; then
+  echo "  ✗ langgraph mode error:"
+  echo "$ORCH_LG" | jq '.error'
+else
+  echo "$ORCH_LG"
+fi
+
+echo ""
+echo "  ── HITL interrupt behaviour ──────────────────────────────────────────"
+echo "  If the planner emits a step whose tool matches a destructive pattern"
+echo "  (write, delete, drop, deploy, ...), execute_node calls interrupt()"
+echo "  BEFORE running the tool. LangGraph serialises GraphState to Redis and"
+echo "  returns GraphInterrupt — the graph is paused in mid-flight."
+echo ""
+echo "  To resume after approval:"
+echo "    compiled.ainvoke(None, config)  # same thread_id"
+echo ""
+echo "  Inspect paused checkpoint:"
+echo "    Redis Commander → http://localhost:8086  (keys prefixed by thread_id)"
+echo "    Look for: require_user_approval=true, hitl_reason"
+echo ""
+echo "  evaluate_node also interrupts when the critic scores output 0.0"
+echo "  (absolute failure — autonomous retry would reproduce the same result)."
+echo ""
+echo "  Set ORCHESTRATOR_MODE=pydantic_ai or ORCHESTRATOR_MODE=langgraph in .env"
+echo "  to make a mode the default for all agents/analyze calls."
+echo ""
+
+# ── Enterprise Architecture Reference ────────────────────────────────────────
+
+hdr "ENTERPRISE ARCHITECTURE REFERENCE"
+echo "  Pattern                     │ Where it runs                      │ What to observe"
+echo "  ──────────────────────────────────────────────────────────────────────────────────"
+echo "  Non-Determinism Gate        │ graph_orchestrator.py plan_node     │ ValidationError before any tool fires"
+echo "  Critic-Actor (Trust+Verify) │ evaluator.py → evaluate_node        │ EvaluationResult.score + per-criterion log"
+echo "  HITL Interrupt              │ execute_node / evaluate_node        │ GraphInterrupt; checkpoint in Redis :8086"
+echo ""
+echo "  Infrastructure"
+echo "  ──────────────────────────────────────────────────────────────────────────────────"
+echo "  Apache Kafka  │ Async backpressure & telemetry stream │ http://localhost:8085"
+echo "  Redis         │ Distributed state & session store     │ http://localhost:8086"
+echo "  MCP Server    │ Decoupled, secure data & action layer │ http://localhost:6274"
+echo ""
+echo "  Full rationale → README.md § Enterprise Production Patterns"
+echo ""
+
+# ── Background traffic keeper ─────────────────────────────────────────────────
+# Keeps Jaeger Monitor and Prometheus rate() panels alive for 5 minutes by
+# sending a lightweight health check every 15s. Without this, rate() windows
+# drop to zero ~2 minutes after the demo ends and the UI tabs look empty.
+hdr "TRAFFIC KEEPER — keeping metrics alive for 5 minutes"
+echo "  Sending a /health ping every 15s so Jaeger Monitor + Prometheus rate()"
+echo "  panels stay populated while you explore the UIs."
+echo "  Press Ctrl-C to stop early."
+echo ""
+
+_KEEPER_END=$(( $(date +%s) + 300 ))
+_KEEPER_N=0
+while [ "$(date +%s)" -lt "$_KEEPER_END" ]; do
+  _KEEPER_N=$((_KEEPER_N + 1))
+  _remaining=$(( _KEEPER_END - $(date +%s) ))
+  printf "  ping %2d — %ds remaining  " "$_KEEPER_N" "$_remaining"
+  if curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "warn: gateway unreachable"
+  fi
+  sleep 15
+done
+echo ""
+echo "  Traffic keeper done. All UI panels show 5 min of activity."
 echo ""

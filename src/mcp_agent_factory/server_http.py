@@ -115,6 +115,23 @@ TOOLS: list[dict] = [
 			"required": ["topic", "phrase"],
 		},
 	},
+	{
+		"name": "orchestrate",
+		"description": "Execute a natural-language task using the configured orchestration engine. Modes: legacy (regex ReAct), pydantic_ai (LLM structured outputs), langgraph (state machine with retry loop).",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"task": {"type": "string", "description": "Natural language task to execute"},
+				"mode": {
+					"type": "string",
+					"enum": ["legacy", "pydantic_ai", "langgraph"],
+					"description": "Orchestration mode (defaults to ORCHESTRATOR_MODE env var)",
+				},
+				"thread_id": {"type": "string", "description": "Session ID for LangGraph checkpointing (langgraph mode only)"},
+			},
+			"required": ["task"],
+		},
+	},
 ]
 
 

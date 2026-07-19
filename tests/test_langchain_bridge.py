@@ -64,7 +64,18 @@ def middleware(shared_key):
 
 
 @pytest.fixture
-def gw_client(middleware):
+def gw_client(middleware, monkeypatch):
+	# Clear external-service env vars so the gateway lifespan doesn't try to
+	# reach Redis or Kafka during unit tests.
+	monkeypatch.delenv("REDIS_URL", raising=False)
+	monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
+	# Replace the module-level event log singleton with an in-process stub so
+	# async tests don't hang on Kafka connection attempts.
+	import mcp_agent_factory.gateway.app as _app
+	from mcp_agent_factory.streams.eventlog import InProcessEventLog
+	stub_log = InProcessEventLog()
+	monkeypatch.setattr(_app, "_event_log", stub_log)
+	_app._service_layer._event_log = stub_log
 	transport = httpx.ASGITransport(app=gateway_app)
 	return MCPGatewayClient(
 		base_url="http://testserver",

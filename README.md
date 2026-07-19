@@ -13,7 +13,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
                          │ Bearer JWT (OAuth 2.1 / PKCE S256)
 ┌────────────────────────▼─────────────────────────────────────┐
 │                 MCP API Gateway (FastAPI :8000)               │
-│  POST /mcp   POST /sampling   GET /health                     │
+│  POST /mcp (Streamable HTTP)  POST /sampling   GET /health    │
+│  GET  /sse  POST /sse/messages (MCP legacy SSE transport)     │
 │  GET  /sse/v1/events          POST /sse/v1/messages           │
 │  PIIGate · ValidationGate · InternalServiceLayer             │
 │  UnifiedRouter → OpenAI / Anthropic / Ollama (auto-fallback) │
@@ -75,10 +76,12 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Economics** | `economics/` | Utility scoring + knowledge-augmented sealed-bid auction |
 | **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
 | **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
-| **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; SSE /v1 endpoints |
+| **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; Streamable HTTP (`POST /mcp`), MCP legacy SSE (`GET /sse` + `POST /sse/messages`), and SSE v1 endpoints |
 | **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding; `client_credentials` grant for machine-to-machine auth |
 | **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream; `make_client_credentials_factory()` for headless bridge operation |
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
+| **Orchestrator Modes** | `graph_orchestrator.py`, `structured_agent.py`, `server_http.py` | Three pluggable backends selected by `ORCHESTRATOR_MODE`: `react` (default ReAct loop), `pydantic_ai` (PydanticAI `Agent` with Gemini), `langgraph` (LangGraph `StateGraph` with thread checkpointing); `POST /orchestrate` endpoint added to gateway |
+| **Critic-Actor Evaluator** | `evaluator.py` | Deterministic critic-actor loop; LLM judge scores responses on faithfulness, relevance, and completeness; loops until score ≥ threshold or max rounds; emits structured `EvaluationResult` with per-criterion breakdown |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
 | **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub. Ollama defaults: `LLM_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:0.6b-q4_K_M`, `OLLAMA_TIMEOUT=300` (seconds), `OLLAMA_NUM_PREDICT=1024` |
@@ -112,7 +115,18 @@ MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run
 MCP_DEV_MODE=1 REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
 ```
 
-### 3. Run the bridge smoke test (terminal 2)
+### 3. Connect with MCP Inspector
+
+Two transport options are supported (use whichever your client requires):
+
+| Transport | URL | Notes |
+|-----------|-----|-------|
+| **Streamable HTTP** (recommended) | `http://localhost:8000/mcp` | Modern MCP spec; full duplex over a single HTTP connection |
+| **Legacy SSE** | `http://localhost:8000/sse` | MCP 2024-11-05 spec; `GET /sse` opens stream, `POST /sse/messages?sessionId=<id>` sends requests |
+
+In [MCP Inspector](https://github.com/modelcontextprotocol/inspector), select the matching Transport Type in the sidebar before connecting.
+
+### 4. Run the bridge smoke test (terminal 2)
 
 ```bash
 # Requires the gateway from step 2 to be running
@@ -191,10 +205,11 @@ Then run the demo:
 # Pull the default local model first (lightweight, ~400 MB)
 ollama pull qwen3:0.6b-q4_K_M
 
-# Three-phase zero-touch demo:
+# Four-phase zero-touch demo:
 #   Phase 1 — Privacy-First RAG: agents/analyze with locked data
 #   Phase 2 — OTel trace: Jaeger at :16686 shows Gateway→AnalystAgent→LibrarianAgent→VectorStore span chain
 #   Phase 3 — Provider switch: per-request provider override, -32602 fail-fast on missing key
+#   Phase 4 — Orchestrator modes: pydantic_ai (echo tool) + langgraph (add tool) structured backends
 ./scripts/demo.sh
 
 # Override the model if you already have a different one pulled:
@@ -243,6 +258,9 @@ Open the UIs:
 | Jaeger SPM (RED metrics) | http://localhost:16686/monitor | — |
 | Prometheus | http://localhost:9090 | — |
 | Grafana dashboards | http://localhost:3000 | admin / admin |
+| Kafka UI | http://localhost:8085 | — |
+| Redis Commander | http://localhost:8086 | — |
+| MCP Inspector | http://localhost:6274 | — |
 
 ### Service Performance Monitoring (Jaeger SPM)
 
@@ -879,7 +897,7 @@ pytest -m integration -v  # KafkaEventLog, Redlock quorum, multi-process scaling
 
 ```
 scripts/
-├── scripts/demo.sh                  # M012: Three-phase live demo (Privacy-First RAG, OTel, provider switch)
+├── scripts/demo.sh                  # M012: Four-phase live demo (Privacy-First RAG, OTel, provider switch, orchestrator modes)
 └── demo_analyst.py                 # M010: Python analyst demo
 .mcp.json                           # Machine-local IDE config (gitignored — generated by setup-mcp.sh)
 .mcp.json.template                  # Template with __PROJECT_ROOT__ placeholder (committed)
@@ -892,7 +910,10 @@ src/mcp_agent_factory/
 ├── adapters.py                     # LLM adapter layer
 ├── react_loop.py                   # ReAct agent loop
 ├── scheduler.py                    # Task scheduler + priority queue
-├── orchestrator.py                 # MCP orchestrator client
+├── orchestrator.py                 # MCP orchestrator client + DeterministicOrchestrator
+├── graph_orchestrator.py           # LangGraph cyclic state machine (validate→plan→execute→evaluate→done)
+├── structured_agent.py             # PydanticAI structured agent wrapper
+├── evaluator.py                    # CriticActorEvaluator — double-pass QA (schema + LLM judge)
 ├── config/privacy.py               # PrivacyConfig + egress guard
 ├── agents/                         # Multi-agent pipeline
 │   ├── models.py                   # AgentTask, MCPContext, RetrievalResult, shared models
@@ -981,6 +1002,9 @@ tests/
 ├── test_m009_s04.py                # M009: AsyncIdempotencyGuard + token.usage events
 ├── test_m009_s05.py                # M009: Caddy TLS + live Ollama fallback acceptance
 ├── test_agents_dispatch.py         # M012: agents/analyze contract (response shape, -32602, -32603)
+├── test_graph_orchestrator.py      # Feature: LangGraph state machine (validate→plan→execute→evaluate→done)
+├── test_structured_agent.py        # Feature: PydanticAI structured agent wrapper
+├── test_evaluator_llm.py           # Feature: CriticActorEvaluator double-pass QA (schema + LLM judge)
 └── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
 ```
 
@@ -1019,6 +1043,156 @@ tests/
 | Hotfix | Grafana Agent Pipeline PromQL: replaced invalid `\.` RE2 escape sequences with `[.]` in all three regex matchers — Prometheus rejected the queries with `unknown escape sequence U+002E '.'` (400 bad_data) | +0 (361 unit + 14 integration) |
 | Hotfix | Grafana Token Consumption and Provider Distribution panels generalised to all providers (removed Gemini/Ollama hardcoding); Cost per Request section expanded with an aggregate USD/s stat, a per-provider rate timeseries, and a cumulative cost-by-provider timeseries using the new `mcp_agent_cost_usd_total` counter | +0 (361 unit + 14 integration) |
 | Hotfix | Grafana cost panels (Cost per Request, Cost per Provider, Cumulative Cost per Provider) updated to 4 decimal places so sub-cent Gemini costs display correctly (e.g. `$0.0003` instead of `$0.00`); `cost_usd` is now injected into the `route()` result dict so `analyst.py` increments the Prometheus counter with real values instead of 0 | +0 (361 unit + 14 integration) |
+| Feature | **Enterprise production patterns**: `DeterministicOrchestrator` + `OrchestratorPlan`/`OrchestratorResult` Pydantic contracts in `orchestrator.py` enforce strict two-phase planning→execution separation; new `evaluator.py` implements Critic-Actor pattern (`CriticActorEvaluator`, `EvaluationContract`, `EvaluationVerdict`) to prevent self-certification bias; `docker-compose.yml` adds Kafka UI (`:8085`) and Redis Commander (`:8086`) so the full infrastructure is browsable immediately; README expanded with Non-Determinism, Critic-Actor, and Enterprise Infrastructure sections | +0 (361 unit + 14 integration) |
+| Hotfix | Phase 4 orchestrator modes unblocked: `graph_orchestrator.py` now accepts both `tool_name`/`arguments` and `name`/`args` step-key formats emitted by the planner; demo tasks changed to concrete single-tool calls (`echo` / `add`) to prevent `tool_name="None"` routing failure on open-ended prompts; `pydantic-ai` pinned to `0.0.20`; `PYDANTIC_AI_MODEL` default corrected to `google-gla:gemini-2.5-flash`; MCP Inspector service added to docker-compose on `:6274` | +0 (361 unit + 14 integration) |
+
+## Enterprise Production Patterns
+
+### Handling Non-Determinism
+
+#### The problem this solves
+
+The v0.1.0 gateway already had a `ValidationGate` (in `gateway/validation.py`) that
+blocked malformed *client requests* — bad JSON-RPC payloads, PII in inputs, missing
+required fields on the HTTP boundary.  What it **did not** protect against was what
+the LLM produced *after* receiving a valid prompt.
+
+LLMs are probabilistic by design: the same prompt can return a plan with a
+misspelled tool name, a missing required field, or a structurally duplicated step.
+In v0.1.0, that raw output went straight to execution — no gate, no type check.  A
+garbage plan would silently call tools with wrong arguments, write malformed events
+to Kafka, and leave corrupted state in Redis with no clear error pointing at the LLM
+as the source.
+
+#### How v1.0.0 fixes it
+
+`DeterministicOrchestrator` (in `orchestrator.py`) adds a strict two-phase protocol
+*between* the LLM and the execution layer:
+
+1. **Planning phase (cognitive)** — the LLM generates a raw plan dict.  This phase
+   is intentionally allowed to be probabilistic and creative.
+2. **Validation gate** — `DeterministicOrchestrator.plan(raw)` passes the raw dict
+   through `OrchestratorPlan`, a Pydantic v1.0.0 model.  If the plan does not conform
+   (missing `intent`, empty `steps`, duplicate adjacent calls, wrong types),
+   a `ValidationError` is raised and execution is **blocked**.  The error is
+   explicit, structured, and points at the LLM output — not the tool it would have
+   called.  The LLM is retried or the failure is escalated rather than silently
+   swallowed.
+3. **Execution phase (deterministic)** — `DeterministicOrchestrator.execute(orc, plan)`
+   accepts **only** a validated `OrchestratorPlan` instance, never a raw dict.
+   By the time execution starts, every field is typed, every constraint is satisfied,
+   and the plan is a first-class Python object.
+
+#### What changed between v0.1.0 and v1.0.0
+
+| Concern | v0.1.0 (`ValidationGate`) | v1.0.0 (`DeterministicOrchestrator`) |
+|---------|----------------------|----------------------------------|
+| What is validated | Incoming *client* requests (JSON-RPC shape, PII) | *LLM output* plans before execution |
+| When it runs | At the HTTP boundary, before the LLM is called | After the LLM responds, before any tool fires |
+| What it blocks | Malformed client payloads, PII leakage | Malformed LLM plans, type violations, duplicate steps |
+| Error source | Client misbehaviour | LLM non-determinism |
+
+Both gates are active in v1.0.0 — they guard different points in the pipeline and are
+complementary, not redundant.  Only well-typed, schema-valid plans ever reach Kafka
+`token.usage` events and the Redis session store, preventing garbage-in / garbage-out
+cascades across services.
+
+#### Decoupled Input/Output Interface
+
+`GraphOrchestrator.run(task, tools, call_tool_fn, thread_id)` accepts an abstract
+payload — a plain task string, a list of tool descriptors, and a callable to invoke
+them.  The graph is entirely agnostic about *where* the task originated: the same
+entrypoint processes a CLI invocation, an HTTP `/orchestrate` request, or a future
+Slack/Telegram webhook identically.  No transport-specific code leaks into the state
+machine.  Adding a new inbound channel requires only a thin adapter that maps the
+channel's message format to the four-argument contract — the graph itself never
+changes.
+
+### The Critic-Actor Pattern
+
+Autonomous agents have a fundamental conflict of interest: the agent that
+produces an output also wants that output to be judged correct.  This
+leads to systematic self-certification bias — the agent optimises for the
+*appearance* of correctness rather than actual correctness.
+
+`CriticActorEvaluator` (in `evaluator.py`) implements the **Trust but Verify**
+approach used in production QA systems:
+
+| Role | Responsibility | What it can see |
+|------|---------------|-----------------|
+| **Actor** | Produce the output (any agent) | Full task + context |
+| **Critic** | Evaluate the output | Original constraints only — not the actor's reasoning chain |
+
+The separation is enforced structurally:
+- The `EvaluationContract` is sealed at task creation time, before the actor runs.
+- The critic evaluates `actor_output` against `input_constraints` (word counts,
+  required terms, forbidden terms, required JSON fields) using deterministic
+  heuristics — no shared state with the actor.
+- For semantic correctness and hallucination detection, the critic can invoke an
+  independent LLM judge using a *different* provider or model, preventing
+  shared-model bias from inflating scores.
+
+The critic defaults to `needs_revision` — it requires explicit evidence to pass,
+not the absence of detected failures.  This "cynical default" catches subtle
+regressions that optimistic graders miss.
+
+### Human-in-the-Loop (HITL) Design
+
+Fully autonomous agents are unsuitable for high-stakes or irreversible
+operations.  This design combines LangGraph's built-in
+`interrupt()` primitive with Redis checkpointing to create a *pausable*
+execution graph that can receive out-of-band human approval without
+losing any state.
+
+**How it works:**
+
+1. **Destructive-tool detection** — before `execute_node` runs any step,
+   it scans the plan for tools whose names match a predefined list of
+   destructive patterns (`write`, `delete`, `drop`, `deploy`, …).  If
+   a match is found, `langgraph.types.interrupt()` is called.
+
+2. **LangGraph `interrupt()`** — calling `interrupt()` raises a
+   `GraphInterrupt` exception internally.  LangGraph catches it, **serialises
+   the current `GraphState` to Redis** via the `RedisSaver` checkpointer,
+   and returns a `GraphInterrupt` value to the caller rather than a final
+   state.  The graph is now *paused in mid-flight* — no further nodes run.
+
+3. **External approval signal** — a human operator (or a future Slack/Telegram
+   gateway) inspects the interrupted state (visible in Redis Commander at
+   `http://localhost:8086`) and, if approved, calls
+   `compiled.ainvoke(None, config)` with the same `thread_id`.  LangGraph
+   resumes execution from the exact point of interruption.
+
+4. **Critical-failure escalation** — `evaluate_node` also triggers an
+   interrupt when the LLM critic scores the output `0.0` (absolute failure).
+   An autonomous retry would likely produce the same broken output; human
+   context is required to resolve the underlying issue.
+
+**State flags in `GraphState`:**
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `require_user_approval` | `bool` | Set to `True` in the state snapshot when a HITL pause is triggered |
+| `hitl_reason` | `str \| None` | Human-readable explanation of why approval is needed |
+
+**Why Redis is essential here:** `MemorySaver` would lose all state the
+moment the process exits or the request times out.  `RedisSaver` persists
+the exact graph checkpoint so the graph can be resumed by a *different*
+process, *at a different time*, with *full state fidelity* — enabling
+asynchronous human approval workflows across service restarts.
+
+### Enterprise Infrastructure
+
+| Component | Operational Role | Production Value | How to inspect |
+|-----------|-----------------|-----------------|----------------|
+| **Apache Kafka** (`kafka:29092`) | Asynchronous backpressure and durable telemetry stream for `token.usage` events | Absorbs high-volume telemetry spikes and persists traces for offline prompt tuning without stalling runtime requests; survives gateway restarts | Kafka UI → `http://localhost:8085/ui/clusters/local/topics` |
+| **Redis** (`redis:6379`) | In-memory distributed state and session store — `RedisSessionManager`, `RedisKVStore` phrase affinity, `AsyncIdempotencyGuard`, LangGraph `RedisSaver` checkpointer | Manages real-time, high-speed LangGraph checkpointing and conversational context storage with sub-millisecond latency | Redis Commander → `http://localhost:8086` |
+| **Redis Redlock nodes** (`redis-node-1/2/3`, ports 6381–6383) | 3-node quorum for `RedlockClient` distributed locking — prevents split-brain during concurrent tool calls | Guarantees exactly-once tool execution across horizontally-scaled gateway replicas | Redis Commander → same UI, all four hosts pre-configured |
+| **MCP Server** (gateway `:8000`) | Decoupled, secure data and action layer secured by OAuth 2.1 / PKCE S256 | Isolates business logic, offering secure, audited access to external tools and data via strict API/OAuth boundaries; tool dispatch is stateless so any instance can handle any request | Gateway health → `http://localhost:8000/health`; MCP Inspector → `http://localhost:6274` |
+| **Jaeger** (`:16686`) | Distributed trace visualisation — every `agents/analyze` call produces 4 child spans (`pdf_extract`, `prune`, `pii_scrub`, `llm_route`) with token count attributes | Full request lineage from gateway to LLM, enabling latency attribution and bottleneck detection per pipeline stage | Jaeger UI → `http://localhost:16686` |
+| **Grafana** (`:3000`) | Real-time dashboards for token consumption, cost per provider, HTTP latency P50/P99, error rate, auction bids | Executive-level observability surface powered by OTel spanmetrics and direct Prometheus counters | Grafana → `http://localhost:3000` (admin / admin) |
+
+All infrastructure UIs start automatically with `docker compose --profile full up --build`.
 
 ## Security Notes
 

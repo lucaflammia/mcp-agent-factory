@@ -105,6 +105,7 @@ class TestGeminiHandlerMapping:
 
 	async def test_missing_api_key_raises_provider_error(self, monkeypatch):
 		monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+		monkeypatch.delenv("MCP_DEV_MODE", raising=False)
 		handler = GeminiHandler()
 		with pytest.raises(ProviderError) as exc_info:
 			await handler.call(_make_request())
@@ -113,6 +114,7 @@ class TestGeminiHandlerMapping:
 
 	async def test_missing_api_key_logs_warning(self, monkeypatch, caplog):
 		monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+		monkeypatch.delenv("MCP_DEV_MODE", raising=False)
 		import logging
 		handler = GeminiHandler()
 		with caplog.at_level(logging.WARNING, logger="mcp_agent_factory.gateway.router"):

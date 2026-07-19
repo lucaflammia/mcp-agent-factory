@@ -141,6 +141,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ORCHESTRATOR_MODE: ${ORCHESTRATOR_MODE:-react}
+      PYDANTIC_AI_MODEL: ${PYDANTIC_AI_MODEL:-google-gla:gemini-2.5-flash}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: mcp-gateway
     depends_on:
@@ -269,6 +271,86 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure browser UIs — open in browser after `docker compose --profile full up`
+  # ---------------------------------------------------------------------------
+
+  # Kafka UI — browse topics, consumer groups, and messages at http://localhost:8085
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    profiles: [full]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    ports:
+      - "8085:8080"
+
+  # Kafka consumer — creates a visible consumer group for the Kafka UI consumer-groups page
+  kafka-consumer:
+    image: confluentinc/cp-kafka:7.5.0
+    profiles: [full]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "sleep 20 && kafka-console-consumer
+      --bootstrap-server kafka:29092
+      --topic agents.analyze
+      --group mcp-demo-consumer
+      --from-beginning
+      --timeout-ms 300000"
+    restart: unless-stopped
+
+  # Redis Commander — inspect keys, streams, and pub/sub at http://localhost:8086
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    profiles: [full]
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-node-1:
+        condition: service_healthy
+      redis-node-2:
+        condition: service_healthy
+      redis-node-3:
+        condition: service_healthy
+    environment:
+      REDIS_HOSTS: "main:redis:6379,node1:redis-node-1:6379,node2:redis-node-2:6379,node3:redis-node-3:6379"
+    ports:
+      - "8086:8081"
+
+  # MCP Inspector — visual introspection of MCP tool boundaries and handshake
+  # Access: http://localhost:6274
+  # Transports:
+  #   STDIO          → command: npx -y @modelcontextprotocol/server-everything
+  #   Streamable HTTP → URL: http://gateway:8000/mcp
+  mcp-inspector:
+    image: node:20-alpine
+    profiles: [full]
+    # host network: inspector proxy runs on the host network stack so that
+    # localhost:8000 (gateway) and localhost:6274/6277 (inspector) all share
+    # the same loopback — no socat hack needed, no Docker DNS required.
+    network_mode: host
+    command: >
+      sh -c "npm install -g @modelcontextprotocol/inspector @modelcontextprotocol/server-everything &&
+             npx @modelcontextprotocol/inspector"
+    environment:
+      HOST: "0.0.0.0"
+      CLIENT_PORT: "6274"
+      SERVER_PORT: "6277"
+      # Skip token auth — inspector is LAN-only dev tooling
+      DANGEROUSLY_OMIT_AUTH: "true"
+      # Default URL points to gateway on host-mapped port 8000
+      DEFAULT_MCP_SERVER_URL: "http://localhost:8000/mcp"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   caddy_data:

@@ -9,6 +9,11 @@ Usage::
 	with MCPOrchestrator() as orc:
 		tools = orc.list_tools()
 		result = orc.call_tool("echo", {"message": "hello"})
+
+Deterministic execution::
+
+	plan = DeterministicOrchestrator.plan(raw_llm_output)   # validate first
+	result = DeterministicOrchestrator.execute(orc, plan)   # then execute
 """
 from __future__ import annotations
 
@@ -20,7 +25,108 @@ import threading
 import queue
 from typing import Any
 
+from pydantic import BaseModel, Field, model_validator
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Deterministic orchestration contracts (Pydantic validation layer)
+# ---------------------------------------------------------------------------
+
+class ToolCall(BaseModel):
+	"""A single validated tool invocation in an orchestrator plan."""
+	tool_name: str = Field(..., min_length=1)
+	arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestratorPlan(BaseModel):
+	"""
+	Validated cognitive output from the LLM planning phase.
+
+	The LLM proposes a plan; this model is the gate that enforces a
+	structured, typed contract before any execution begins.  If the plan
+	does not parse, execution is blocked — the cognitive phase is retried
+	or escalated rather than proceeding with malformed instructions.
+	"""
+	intent: str = Field(..., min_length=1, description="One-line description of the goal")
+	steps: list[ToolCall] = Field(..., min_length=1, description="Ordered tool calls to execute")
+	metadata: dict[str, Any] = Field(default_factory=dict)
+
+	@model_validator(mode="after")
+	def _no_duplicate_adjacent_steps(self) -> "OrchestratorPlan":
+		"""Catch trivial copy-paste errors where the same step appears twice in a row."""
+		for i in range(1, len(self.steps)):
+			if (
+				self.steps[i].tool_name == self.steps[i - 1].tool_name
+				and self.steps[i].arguments == self.steps[i - 1].arguments
+			):
+				raise ValueError(
+					f"Duplicate adjacent step at index {i}: {self.steps[i].tool_name!r}"
+				)
+		return self
+
+
+class OrchestratorResult(BaseModel):
+	"""Typed execution result returned by DeterministicOrchestrator.execute()."""
+	intent: str
+	results: list[dict[str, Any]]
+	success: bool
+	error: str | None = None
+
+
+class DeterministicOrchestrator:
+	"""
+	Separates the cognitive planning phase from the execution phase.
+
+	**Why this matters:** LLMs are probabilistic — they can produce
+	subtly different plans on each call.  By forcing every plan through
+	``OrchestratorPlan`` (a Pydantic contract) before any tool is invoked,
+	we guarantee that only well-typed, schema-valid instructions ever reach
+	the execution layer.  The LLM is allowed to be creative during planning;
+	it is not allowed to introduce structural ambiguity into execution.
+
+	Usage::
+
+		raw = {"intent": "echo hello", "steps": [{"tool_name": "echo", "arguments": {"message": "hi"}}]}
+		plan = DeterministicOrchestrator.plan(raw)          # raises ValidationError if invalid
+		result = DeterministicOrchestrator.execute(orc, plan)
+	"""
+
+	@staticmethod
+	def plan(raw: dict[str, Any]) -> OrchestratorPlan:
+		"""
+		Validate the LLM's raw plan dict against the typed contract.
+
+		Raises ``pydantic.ValidationError`` if the plan is malformed —
+		callers must handle this before attempting execution.
+		"""
+		return OrchestratorPlan.model_validate(raw)
+
+	@staticmethod
+	def execute(orc: "MCPOrchestrator", plan: OrchestratorPlan) -> OrchestratorResult:
+		"""
+		Execute a *validated* plan against the MCP server.
+
+		Only ``OrchestratorPlan`` instances (already validated) are accepted —
+		raw dicts are deliberately not accepted here to enforce the two-phase
+		separation at the type level.
+		"""
+		results: list[dict[str, Any]] = []
+		try:
+			for step in plan.steps:
+				logger.debug("executing step tool=%s args=%s", step.tool_name, step.arguments)
+				result = orc.call_tool(step.tool_name, step.arguments)
+				results.append(result)
+			return OrchestratorResult(intent=plan.intent, results=results, success=True)
+		except Exception as exc:
+			logger.error("execution failed: %s", exc)
+			return OrchestratorResult(
+				intent=plan.intent,
+				results=results,
+				success=False,
+				error=str(exc),
+			)
 
 
 class MCPOrchestrator:

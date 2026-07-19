@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-06-13T13:17:03Z | Files: 134 | Described: 0/134
-<!-- gsd:codebase-meta {"generatedAt":"2026-06-13T13:17:03Z","fingerprint":"2f5d330a49a34e32606e57f65eb5ab3735867c0c","fileCount":134,"truncated":false} -->
+Generated: 2026-07-19T15:18:42Z | Files: 140 | Described: 0/140
+<!-- gsd:codebase-meta {"generatedAt":"2026-07-19T15:18:42Z","fingerprint":"8ae9bf3f2eca92f165e150e6d3733d6789ed0b62","fileCount":140,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -44,6 +44,8 @@ Generated: 2026-06-13T13:17:03Z | Files: 134 | Described: 0/134
 ### src/mcp_agent_factory/
 - `src/mcp_agent_factory/__init__.py`
 - `src/mcp_agent_factory/adapters.py`
+- `src/mcp_agent_factory/evaluator.py`
+- `src/mcp_agent_factory/graph_orchestrator.py`
 - `src/mcp_agent_factory/models.py`
 - `src/mcp_agent_factory/orchestrator.py`
 - `src/mcp_agent_factory/react_loop.py`
@@ -51,6 +53,7 @@ Generated: 2026-06-13T13:17:03Z | Files: 134 | Described: 0/134
 - `src/mcp_agent_factory/server_http_secured.py`
 - `src/mcp_agent_factory/server_http.py`
 - `src/mcp_agent_factory/server.py`
+- `src/mcp_agent_factory/structured_agent.py`
 
 ### src/mcp_agent_factory.egg-info/
 - `src/mcp_agent_factory.egg-info/dependency_links.txt`
@@ -134,4 +137,4 @@ Generated: 2026-06-13T13:17:03Z | Files: 134 | Described: 0/134
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(46 files: 46 .py)*
+- *(49 files: 49 .py)*
