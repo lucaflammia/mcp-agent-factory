@@ -116,11 +116,16 @@ class GraphOrchestrator:
 		from langgraph.graph import StateGraph, END
 
 		redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+		checkpointer = None
+		redis_saver_ctx = None
 		try:
 			from langgraph.checkpoint.redis import RedisSaver
-			checkpointer = RedisSaver.from_conn_string(redis_url)
+			redis_saver_ctx = RedisSaver.from_conn_string(redis_url)
+			checkpointer = redis_saver_ctx.__enter__()
+			checkpointer.setup()
 		except Exception as exc:  # noqa: BLE001
 			logger.warning("RedisSaver unavailable (%s), falling back to MemorySaver", exc)
+			redis_saver_ctx = None
 			from langgraph.checkpoint.memory import MemorySaver
 			checkpointer = MemorySaver()
 
@@ -134,26 +139,22 @@ class GraphOrchestrator:
 			return {**state, "phase": Phase.PLAN.value}
 
 		async def plan_node(state: GraphState) -> GraphState:
+			import json
+			import re
 			from pydantic_ai import Agent
 
 			tool_descriptions = "\n".join(
-				f"- {t['name']}: {t.get('description', '')} (schema: {t.get('inputSchema', {})})"
+				f"- {t['name']}: {t.get('description', '')} args: {list((t.get('inputSchema') or {}).get('properties', {}).keys())}"
 				for t in state["tools"]
 			)
 
-			agent: Agent[None, ExecutionPlan] = Agent(
-				self.model_name,
-				system_prompt=(
-					"You are a planning agent. Given a task and available tools, "
-					"create an execution plan with the correct tool calls.\n\n"
-					f"Available tools:\n{tool_descriptions}\n\n"
-					"Each step in 'steps' MUST be a JSON object with exactly these two keys:\n"
-					"  tool_name: the exact tool name string from the list above\n"
-					"  arguments: a JSON object with the tool's required parameters\n"
-					"Example: {\"tool_name\": \"add\", \"arguments\": {\"a\": 3, \"b\": 4}}"
-				),
-				result_type=ExecutionPlan,
-				retries=2,
+			system = (
+				"You are a planning agent. Output a JSON object with exactly two keys:\n"
+				"  intent: one-line goal string\n"
+				"  steps: array of objects each with tool_name and arguments keys\n\n"
+				f"Available tools:\n{tool_descriptions}\n\n"
+				"Example for 'add 3 and 4':\n"
+				'{"intent": "add two numbers", "steps": [{"tool_name": "add", "arguments": {"a": 3, "b": 4}}]}'
 			)
 
 			prompt = state["task"]
@@ -165,18 +166,48 @@ class GraphOrchestrator:
 					f"\nRevise your plan accordingly."
 				)
 
+			# Primary path: PydanticAI structured output
 			try:
+				agent: Agent[None, ExecutionPlan] = Agent(
+					self.model_name,
+					system_prompt=system,
+					result_type=ExecutionPlan,
+					retries=2,
+				)
 				result = await agent.run(prompt)
 				plan = result.data.model_dump()
+				logger.info("plan_node: structured plan with %d steps", len(plan.get("steps", [])))
+				return {**state, "phase": Phase.EXECUTE.value, "plan": plan}
 			except Exception as exc:
-				logger.error("planning failed: %s", exc)
-				return {**state, "phase": Phase.FAILED.value, "error": f"Planning failed: {exc}"}
+				logger.warning("plan_node: PydanticAI structured output failed (%s), trying JSON fallback", exc)
 
-			return {**state, "phase": Phase.EXECUTE.value, "plan": plan}
+			# Fallback: plain LLM call + JSON extraction
+			try:
+				fallback_agent: Agent[None, str] = Agent(
+					self.model_name,
+					system_prompt=system,
+				)
+				raw = await fallback_agent.run(prompt)
+				raw_text = raw.data if isinstance(raw.data, str) else str(raw.data)
+				# Extract first JSON object from the response
+				match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+				if not match:
+					raise ValueError("No JSON object found in LLM response")
+				plan_dict = json.loads(match.group())
+				plan = ExecutionPlan(**plan_dict).model_dump()
+				logger.info("plan_node: fallback plan with %d steps", len(plan.get("steps", [])))
+				return {**state, "phase": Phase.EXECUTE.value, "plan": plan}
+			except Exception as exc2:
+				logger.error("plan_node: both planning paths failed: %s", exc2)
+				return {**state, "phase": Phase.FAILED.value, "error": f"Planning failed: {exc2}"}
 
 		async def execute_node(state: GraphState) -> GraphState:
 			import asyncio
 			from langgraph.types import interrupt as lg_interrupt
+
+			# Pass through if planning already failed
+			if state.get("phase") == Phase.FAILED.value:
+				return state
 
 			plan = state.get("plan")
 			if not plan or not plan.get("steps"):
@@ -326,6 +357,9 @@ class GraphOrchestrator:
 		def route_after_validate(state: GraphState) -> str:
 			return "plan" if state.get("phase") == Phase.PLAN.value else "end"
 
+		def route_after_plan(state: GraphState) -> str:
+			return "end" if state.get("phase") == Phase.FAILED.value else "execute"
+
 		def route_after_evaluate(state: GraphState) -> str:
 			phase = state.get("phase", "")
 			if phase == Phase.DONE.value:
@@ -344,7 +378,7 @@ class GraphOrchestrator:
 
 		graph.set_entry_point("validate")
 		graph.add_conditional_edges("validate", route_after_validate, {"plan": "plan", "end": END})
-		graph.add_edge("plan", "execute")
+		graph.add_conditional_edges("plan", route_after_plan, {"execute": "execute", "end": END})
 		graph.add_edge("execute", "evaluate")
 		graph.add_conditional_edges("evaluate", route_after_evaluate, {"plan": "plan", "end": END})
 
@@ -366,5 +400,12 @@ class GraphOrchestrator:
 		}
 
 		config = {"configurable": {"thread_id": thread_id}}
-		final_state = await compiled.ainvoke(initial_state, config=config)
+		try:
+			final_state = await compiled.ainvoke(initial_state, config=config)
+		finally:
+			if redis_saver_ctx is not None:
+				try:
+					redis_saver_ctx.__exit__(None, None, None)
+				except Exception:
+					pass
 		return dict(final_state)
