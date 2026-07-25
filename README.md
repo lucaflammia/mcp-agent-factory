@@ -1238,16 +1238,27 @@ As task complexity grows, a single agent running all MCP tools becomes both an o
 `MCPCrew.kickoff(task)` tries CrewAI first (sequential or hierarchical `Process`), then falls back to a native sequential runner.  Both paths enforce identical tool scopes.  The native runner also supports an `evaluator` callback that receives the final `CrewResult` and returns `True` if the output passes quality requirements — plugging directly into the `CriticActorEvaluator` from `evaluator.py`.
 
 ```python
+python -c 'import asyncio
 from mcp_agent_factory.crew import MCPCrew, ScopedAgent
 
-# Two-agent crew: analyst reads data, writer produces the report
-agents = [
-	ScopedAgent(role="analyst"),
-	ScopedAgent(role="writer", system_prompt="Always output Markdown."),
-]
-crew = MCPCrew(agents=agents, all_tools=mcp_tool_list, call_tool_fn=call_fn)
-result = await crew.kickoff("Summarise Q3 sales and draft the executive report")
-print(result.final_output)
+async def main():
+  agents = [
+    ScopedAgent(role="analyst"),
+    ScopedAgent(role="writer", system_prompt="Always output Markdown."),
+  ]
+  mcp_tool_list = [
+    {"name": "read_file",    "description": "Read a file"},
+    {"name": "search_web",   "description": "Search the web"},
+    {"name": "write_report", "description": "Write a report"},
+    {"name": "sql_query",    "description": "Run SQL query"},
+    {"name": "fetch_url",    "description": "Fetch a URL"},
+    {"name": "publish_doc",  "description": "Publish a document"},
+  ]
+  crew = MCPCrew(agents=agents, all_tools=mcp_tool_list)
+  result = await crew.kickoff("Summarise Q3 sales and draft the executive report")
+  print(result.final_output)
+
+asyncio.run(main())'
 ```
 
 Install the CrewAI extra to use the full CrewAI backend:
