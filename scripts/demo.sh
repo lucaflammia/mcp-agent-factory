@@ -653,35 +653,79 @@ PYEOF
   echo "  ── Live Crew Execution ────────────────────────────────────────────────────"
   echo ""
 
-  python3 - <<'PYEOF'
-import asyncio
-from mcp_agent_factory.crew import MCPCrew, ScopedAgent
+  python3 << 'PYEOF'
+import sys
+import os
 
-async def main():
-  agents = [
-    ScopedAgent(role="analyst"),
-    ScopedAgent(role="writer", system_prompt="Always output Markdown."),
-  ]
-  mcp_tool_list = [
-    {"name": "read_file",    "description": "Read a file"},
-    {"name": "search_web",   "description": "Search the web"},
-    {"name": "write_report", "description": "Write a report"},
-    {"name": "sql_query",    "description": "Run SQL query"},
-    {"name": "fetch_url",    "description": "Fetch a URL"},
-    {"name": "publish_doc",  "description": "Publish a document"},
-  ]
-  crew = MCPCrew(agents=agents, all_tools=mcp_tool_list)
+# Suppress verbose debug output from CrewAI
+os.environ["CREWAI_TRACING_ENABLED"] = "false"
+
+try:
+  from crewai import Agent as CrewAIAgent, Task as CrewAITask, Crew, Process, LLM
+
   print("    Executing: 'Summarise Q3 sales and draft the executive report'")
   print("")
-  result = await crew.kickoff("Summarise Q3 sales and draft the executive report")
-  print(f"    Result: {result.final_output[:200]}...")
 
-asyncio.run(main())
+  # Initialize Gemini LLM
+  llm = LLM(model="gemini-2.5-flash", provider="google")
+
+  # Create analyst agent
+  analyst = CrewAIAgent(
+    role="analyst",
+    goal="Analyze Q3 sales data",
+    backstory="You are a data analyst expert",
+    llm=llm,
+    verbose=False,
+  )
+
+  # Create writer agent
+  writer = CrewAIAgent(
+    role="writer",
+    goal="Write executive reports",
+    backstory="You are a business writer expert",
+    llm=llm,
+    verbose=False,
+  )
+
+  # Create tasks
+  task1 = CrewAITask(
+    description="Summarize Q3 sales data",
+    expected_output="Key Q3 metrics and analysis",
+    agent=analyst,
+  )
+
+  task2 = CrewAITask(
+    description="Draft an executive report based on the Q3 analysis",
+    expected_output="Executive summary in Markdown format",
+    agent=writer,
+  )
+
+  # Create and run crew
+  crew = Crew(
+    agents=[analyst, writer],
+    tasks=[task1, task2],
+    process=Process.sequential,
+    verbose=False,
+  )
+
+  result = crew.kickoff()
+
+  # Display result (first 300 chars)
+  output_str = str(result)
+  preview = output_str[:300].replace('\n', '\n    ')
+  print(f"    Result:\n    {preview}...")
+  print("")
+
+except ImportError:
+  print("    ⚠ CrewAI not installed — install with: pip install 'mcp-agent-factory[crew]'")
+  sys.exit(1)
+except Exception as e:
+  print(f"    ✗ Error: {type(e).__name__}: {e}")
+  import traceback
+  traceback.print_exc()
+  sys.exit(1)
 PYEOF
 
-  echo ""
-  echo "  Install the CrewAI backend for full hierarchical multi-agent delegation:"
-  echo "    pip install 'mcp-agent-factory[crew]'"
   echo ""
 fi
 

@@ -265,26 +265,30 @@ class MCPCrew:
 
   def _get_crewai_llm(self, model_name: str) -> Any:
     """
-    Create a CrewAI-compatible LLM instance for the given model name.
-    Supports both Gemini (google) and other model providers.
+    Create a CrewAI-compatible LLM instance for Gemini.
+    Requires GEMINI_API_KEY environment variable to be set.
     """
+    import os
     try:
       from crewai import LLM
-      # Normalize model name: if it starts with 'gemini', use google provider
-      if "gemini" in model_name.lower():
-        provider = "google"
-        model = model_name if ":" not in model_name else model_name.split(":")[-1]
-      else:
-        # Default to the model name as-is; CrewAI will handle provider inference
-        provider = None
-        model = model_name
 
-      if provider:
-        return LLM(model=model, provider=provider)
-      return LLM(model=model)
-    except ImportError:
-      logger.warning("Could not import CrewAI LLM; falling back to default")
-      return None
+      # Check if API key is available
+      api_key = os.getenv("GEMINI_API_KEY")
+      if not api_key:
+        logger.warning("GEMINI_API_KEY not set — CrewAI will use default provider chain")
+
+      # For Gemini models, use the google provider
+      if "gemini" in model_name.lower():
+        return LLM(model=model_name, provider="google", api_key=api_key if api_key else None)
+
+      # Fallback for other models
+      return LLM(model=model_name)
+    except ImportError as e:
+      logger.error("Could not import CrewAI LLM: %s", e)
+      raise
+    except Exception as e:
+      logger.error("Failed to instantiate LLM: %s", e)
+      raise
 
   async def _run_with_crewai(self, task: str) -> CrewResult:
     """Delegate execution to CrewAI."""
@@ -333,8 +337,12 @@ class MCPCrew:
 
     # CrewAI's kickoff is sync; run in executor to avoid blocking the event loop
     loop = asyncio.get_event_loop()
-    raw_result = await loop.run_in_executor(None, crew.kickoff)
-    final_output = str(raw_result)
+    try:
+      raw_result = await loop.run_in_executor(None, crew.kickoff)
+      final_output = str(raw_result) if raw_result else ""
+    except Exception as e:
+      logger.error("CrewAI kickoff failed: %s", e)
+      raise
 
     # Build per-agent results (CrewAI rolls up; we synthesise from tasks)
     for i, (scoped_agent, ct) in enumerate(zip(self.agents, crewai_tasks)):
