@@ -401,6 +401,14 @@ asyncio.run(main())
 "
 ```
 
+**Hot-reload without restart:** After `SkillCompiler` writes new `{skill_id}.json` assets, send `SIGHUP` to the running gateway process to reload them without a service restart:
+
+```bash
+kill -HUP $(pgrep -f "mcp_agent_factory.gateway.run")
+```
+
+The SIGHUP handler lives in the gateway process (`gateway/run.py`), not in the optimizer. The optimizer's only job is writing JSON to `$SKILLS_DIR`; the gateway reacts to the signal and hot-swaps the skill assets in place.
+
 ---
 
 ## Enterprise Architecture Reference
@@ -417,6 +425,21 @@ The demo exercises all four layers of the production pipeline documented in dept
 | **Offline Prompt Optimization** — DSPy+GEPA compiles hot-reloadable skill JSON assets | `optimizer.py` `PromptOptimizer` / `SkillCompiler` | `{skill_id}.json` files written to `$SKILLS_DIR`; `index.json` manifest printed in Phase 6 |
 
 See `README.md → Enterprise Production Patterns` for the full rationale and state-flag reference.
+
+---
+
+## v1.0.0 Pipeline Complete
+
+All four execution layers are implemented and validated:
+
+| Layer | Module | Status |
+|-------|--------|--------|
+| **Layer 1 — Foundations** | `structured_agent.py`, `orchestrator.py` | ✅ PydanticAI I/O validation, schema-gated tool calls |
+| **Layer 2 — Production** | `graph_orchestrator.py`, `evaluator.py` | ✅ LangGraph state machine, critic-actor loop, HITL interrupt |
+| **Layer 3 — Orchestration** | `crew.py` | ✅ CrewAI multi-role crews, scoped MCP tool allow-lists, `PermissionError` boundary |
+| **Layer 4 — Optimization** | `optimizer.py` | ✅ DSPy BootstrapFewShot + GEPA genetic mutation, hot-reloadable JSON skill assets |
+
+Merging this branch into `main` and tagging `v1.0.0` closes the roadmap defined in the project epic.
 
 ---
 
