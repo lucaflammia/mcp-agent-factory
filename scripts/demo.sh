@@ -739,21 +739,22 @@ if run_step "6" || run_step ""; then
   echo ""
 
   python3 - <<'PYEOF'
-import asyncio, tempfile, os
+import asyncio
 from pathlib import Path
 from mcp_agent_factory.optimizer import PromptOptimizer, SkillCompiler
 
 SKILLS_DIR = "/tmp/mcp_demo_skills"
 
 async def run():
+  # dry_run=True → uses synthetic traces, no Kafka required
   optimizer = PromptOptimizer(
     kafka_topic="mcp-traces",
     skills_dir=SKILLS_DIR,
     dry_run=True,
   )
 
-  # Dry-run: ingest with limit=0 returns empty corpus (no Kafka required)
-  traces = await optimizer.ingest_traces(limit=0)
+  # limit=20 gives the synthetic generator enough data to produce varied roles/phases
+  traces = await optimizer.ingest_traces(limit=20)
   print(f"  traces ingested (dry-run):  {len(traces)}")
 
   # compile() degrades gracefully when dspy/gepa are absent
