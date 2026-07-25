@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-07-19T15:18:42Z | Files: 140 | Described: 0/140
-<!-- gsd:codebase-meta {"generatedAt":"2026-07-19T15:18:42Z","fingerprint":"8ae9bf3f2eca92f165e150e6d3733d6789ed0b62","fileCount":140,"truncated":false} -->
+Generated: 2026-07-25T10:19:48Z | Files: 144 | Described: 0/144
+<!-- gsd:codebase-meta {"generatedAt":"2026-07-25T10:19:48Z","fingerprint":"352ca99ec856ca7deac19b6f88083d7d098e6fe5","fileCount":144,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -44,9 +44,11 @@ Generated: 2026-07-19T15:18:42Z | Files: 140 | Described: 0/140
 ### src/mcp_agent_factory/
 - `src/mcp_agent_factory/__init__.py`
 - `src/mcp_agent_factory/adapters.py`
+- `src/mcp_agent_factory/crew.py`
 - `src/mcp_agent_factory/evaluator.py`
 - `src/mcp_agent_factory/graph_orchestrator.py`
 - `src/mcp_agent_factory/models.py`
+- `src/mcp_agent_factory/optimizer.py`
 - `src/mcp_agent_factory/orchestrator.py`
 - `src/mcp_agent_factory/react_loop.py`
 - `src/mcp_agent_factory/scheduler.py`
@@ -137,4 +139,4 @@ Generated: 2026-07-19T15:18:42Z | Files: 140 | Described: 0/140
 - `src/mcp_agent_factory/streams/worker.py`
 
 ### tests/
-- *(49 files: 49 .py)*
+- *(51 files: 51 .py)*

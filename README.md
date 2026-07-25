@@ -82,6 +82,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
 | **Orchestrator Modes** | `graph_orchestrator.py`, `structured_agent.py`, `server_http.py` | Three pluggable backends selected by `ORCHESTRATOR_MODE`: `react` (default ReAct loop), `pydantic_ai` (PydanticAI `Agent` with Gemini), `langgraph` (LangGraph `StateGraph` with thread checkpointing); `POST /orchestrate` endpoint added to gateway |
 | **Critic-Actor Evaluator** | `evaluator.py` | Deterministic critic-actor loop; LLM judge scores responses on faithfulness, relevance, and completeness; loops until score ≥ threshold or max rounds; emits structured `EvaluationResult` with per-criterion breakdown |
+| **Layer 3 — Multi-Agent Crew** | `crew.py` | `MCPCrew` coordinates specialised `ScopedAgent` personas over a shared task; `scope_tools(role, tools)` filters MCP tools per role (analyst/writer/db_agent/librarian/orchestrator); `build_scoped_call_fn` enforces hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process when installed, falls back to native PydanticAI sequential runner; optional `evaluator` callback validates the final `CrewResult` |
+| **Layer 4 — Offline Optimizer** | `optimizer.py` | `PromptOptimizer` ingests execution traces from Kafka (or local JSONL fallback), compiles DSPy `ChainOfThought` modules per `(role, phase)` pair, and runs `GEPAEvolver` genetic mutation across failure-trace Pareto frontier; `SkillCompiler` writes hot-reloadable `{skill_id}.json` assets + `index.json` manifest to disk; all optimization runs offline — never in the real-time request path |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
 | **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub. Ollama defaults: `LLM_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:0.6b-q4_K_M`, `OLLAMA_TIMEOUT=300` (seconds), `OLLAMA_NUM_PREDICT=1024` |
@@ -99,8 +101,10 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 # Generate machine-specific .mcp.json (run once after cloning or moving the repo)
 ./setup-mcp.sh
 
-pip install -e .          # core deps: fastapi, uvicorn, pydantic, authlib, redis, sse-starlette, numpy, python-dotenv
-pip install -e ".[ml]"   # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
+pip install -e .                   # core deps: fastapi, uvicorn, pydantic, authlib, redis, sse-starlette, numpy, python-dotenv
+pip install -e ".[ml]"            # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
+pip install -e ".[crew]"          # Layer 3: CrewAI multi-agent orchestration (crewai>=0.80)
+pip install -e ".[optimizer]"     # Layer 4: DSPy + GEPA offline prompt optimization (dspy-ai>=2.5, aiokafka)
 ```
 
 ### 2. Run the gateway (terminal 1)
@@ -205,12 +209,23 @@ Then run the demo:
 # Pull the default local model first (lightweight, ~400 MB)
 ollama pull qwen3:0.6b-q4_K_M
 
-# Four-phase zero-touch demo:
+# Seven-phase zero-touch demo (all 4 pipeline layers):
+#   Phase 0 — Deterministic Orchestration: validation gate on LLM output (DeterministicOrchestrator)
 #   Phase 1 — Privacy-First RAG: agents/analyze with locked data
 #   Phase 2 — OTel trace: Jaeger at :16686 shows Gateway→AnalystAgent→LibrarianAgent→VectorStore span chain
 #   Phase 3 — Provider switch: per-request provider override, -32602 fail-fast on missing key
 #   Phase 4 — Orchestrator modes: pydantic_ai (echo tool) + langgraph (add tool) structured backends
+#   Phase 5 — Multi-Agent Crew (Layer 3): per-role MCP tool scoping via CrewAI
+#   Phase 6 — Offline Prompt Optimization (Layer 4): DSPy + GEPA compile skill JSON assets
 ./scripts/demo.sh
+
+# Run a single phase (useful for demos and CI):
+./scripts/demo.sh 0          # Deterministic Orchestration only
+./scripts/demo.sh 1          # Privacy-First RAG only
+./scripts/demo.sh 5          # CrewAI multi-agent scoping only
+./scripts/demo.sh 6          # DSPy + GEPA optimization only
+./scripts/demo.sh infra      # Seed Kafka topics + Redis KV (no agent calls)
+./scripts/demo.sh monitor    # Grafana verification + traffic keeper
 
 # Override the model if you already have a different one pulled:
 OLLAMA_MODEL=llama3.2 ./scripts/demo.sh
@@ -875,7 +890,7 @@ asyncio.run(main())
 ## Running Tests
 
 ```bash
-pytest tests/ -v          # 375+ tests (2 skipped without Docker; live-provider acceptance tests need Ollama/OpenAI running)
+pytest tests/ -v          # 417+ tests (2 skipped without Docker; live-provider acceptance tests need Ollama/OpenAI running)
 
 # By milestone
 pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
@@ -897,7 +912,7 @@ pytest -m integration -v  # KafkaEventLog, Redlock quorum, multi-process scaling
 
 ```
 scripts/
-├── scripts/demo.sh                  # M012: Four-phase live demo (Privacy-First RAG, OTel, provider switch, orchestrator modes)
+├── scripts/demo.sh                  # Seven-phase live demo (all 4 layers); run a single phase with ./scripts/demo.sh <0-6|infra|monitor>
 └── demo_analyst.py                 # M010: Python analyst demo
 .mcp.json                           # Machine-local IDE config (gitignored — generated by setup-mcp.sh)
 .mcp.json.template                  # Template with __PROJECT_ROOT__ placeholder (committed)
@@ -914,6 +929,8 @@ src/mcp_agent_factory/
 ├── graph_orchestrator.py           # LangGraph cyclic state machine (validate→plan→execute→evaluate→done)
 ├── structured_agent.py             # PydanticAI structured agent wrapper
 ├── evaluator.py                    # CriticActorEvaluator — double-pass QA (schema + LLM judge)
+├── crew.py                         # Layer 3: MCPCrew + ScopedAgent + scope_tools/build_scoped_call_fn
+├── optimizer.py                    # Layer 4: PromptOptimizer (DSPy+GEPA) + SkillCompiler (hot-reloadable JSON assets)
 ├── config/privacy.py               # PrivacyConfig + egress guard
 ├── agents/                         # Multi-agent pipeline
 │   ├── models.py                   # AgentTask, MCPContext, RetrievalResult, shared models
@@ -1005,6 +1022,8 @@ tests/
 ├── test_graph_orchestrator.py      # Feature: LangGraph state machine (validate→plan→execute→evaluate→done)
 ├── test_structured_agent.py        # Feature: PydanticAI structured agent wrapper
 ├── test_evaluator_llm.py           # Feature: CriticActorEvaluator double-pass QA (schema + LLM judge)
+├── test_crew.py                    # Layer 3: MCPCrew scoped-tool enforcement, native runner, CrewAI fallback (20 tests)
+├── test_optimizer.py               # Layer 4: TraceRecord, GEPAEvolver, PromptOptimizer, SkillCompiler (22 tests)
 └── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
 ```
 
@@ -1045,6 +1064,8 @@ tests/
 | Hotfix | Grafana cost panels (Cost per Request, Cost per Provider, Cumulative Cost per Provider) updated to 4 decimal places so sub-cent Gemini costs display correctly (e.g. `$0.0003` instead of `$0.00`); `cost_usd` is now injected into the `route()` result dict so `analyst.py` increments the Prometheus counter with real values instead of 0 | +0 (361 unit + 14 integration) |
 | Feature | **Enterprise production patterns**: `DeterministicOrchestrator` + `OrchestratorPlan`/`OrchestratorResult` Pydantic contracts in `orchestrator.py` enforce strict two-phase planning→execution separation; new `evaluator.py` implements Critic-Actor pattern (`CriticActorEvaluator`, `EvaluationContract`, `EvaluationVerdict`) to prevent self-certification bias; `docker-compose.yml` adds Kafka UI (`:8085`) and Redis Commander (`:8086`) so the full infrastructure is browsable immediately; README expanded with Non-Determinism, Critic-Actor, and Enterprise Infrastructure sections | +0 (361 unit + 14 integration) |
 | Hotfix | Phase 4 orchestrator modes unblocked: `graph_orchestrator.py` now accepts both `tool_name`/`arguments` and `name`/`args` step-key formats emitted by the planner; demo tasks changed to concrete single-tool calls (`echo` / `add`) to prevent `tool_name="None"` routing failure on open-ended prompts; `pydantic-ai` pinned to `0.0.20`; `PYDANTIC_AI_MODEL` default corrected to `google-gla:gemini-2.5-flash`; MCP Inspector service added to docker-compose on `:6274` | +0 (361 unit + 14 integration) |
+| **Layer 3** | **Multi-Agent Orchestration (CrewAI)**: `crew.py` adds `MCPCrew`, `ScopedAgent`, `scope_tools`, and `build_scoped_call_fn`; per-role MCP tool scoping with hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process (optional extra `.[crew]`) or native PydanticAI sequential runner; `test_crew.py` covers scoping, forbidden-tool enforcement, chained output passing, and evaluator callback (20 tests) | +20 (381 unit + 14 integration) |
+| **Layer 4** | **Offline Prompt Optimization (DSPy + GEPA)**: `optimizer.py` adds `PromptOptimizer` (Kafka trace ingestion → DSPy `BootstrapFewShot` compilation → `GEPAEvolver` genetic mutation), `SkillCompiler` (writes hot-reloadable `{skill_id}.json` + `index.json` manifest); entirely offline — never in the request path; optional extra `.[optimizer]`; `test_optimizer.py` covers trace ingestion, GEPA evolution, DSPy compilation fallback, and SkillCompiler disk output (22 tests) | +22 (403 unit + 14 integration) — **v1.0.0 pipeline complete** |
 
 ## Enterprise Production Patterns
 
@@ -1193,6 +1214,109 @@ asynchronous human approval workflows across service restarts.
 | **Grafana** (`:3000`) | Real-time dashboards for token consumption, cost per provider, HTTP latency P50/P99, error rate, auction bids | Executive-level observability surface powered by OTel spanmetrics and direct Prometheus counters | Grafana → `http://localhost:3000` (admin / admin) |
 
 All infrastructure UIs start automatically with `docker compose --profile full up --build`.
+
+### Multi-Agent Orchestration (Layer 3)
+
+As task complexity grows, a single agent running all MCP tools becomes both an operational bottleneck and a security risk — any tool in the registry is reachable from any context.  `MCPCrew` solves both problems.
+
+**Tool scoping — the core primitive:**
+
+`scope_tools(role, tools, allowed_patterns?)` filters the full MCP tool registry to only the tools a given role is permitted to call.  The default `ROLE_TOOL_PATTERNS` map covers five built-in roles:
+
+| Role | Allowed tool patterns |
+|------|----------------------|
+| `analyst` | `read`, `search`, `fetch`, `list`, `get`, `describe` |
+| `writer` | `write`, `create`, `update`, `format`, `publish`, `send` |
+| `db_agent` | `sql`, `query`, `select`, `insert`, `upsert`, `delete` |
+| `librarian` | `embed`, `ingest`, `index`, `retrieve`, `vector` |
+| `orchestrator` | *(all tools)* |
+
+`build_scoped_call_fn(role, scoped_tools, base_call_fn)` wraps the underlying MCP call function so that any attempt to invoke a tool outside the permitted set raises `PermissionError` at call time — not at planning time.  This is a hard security boundary: a compromised or hallucinating agent cannot escalate beyond its assigned scope regardless of what it puts in the plan.
+
+**Execution strategy:**
+
+`MCPCrew.kickoff(task)` tries CrewAI first (sequential or hierarchical `Process`), then falls back to a native sequential runner.  Both paths enforce identical tool scopes.  The native runner also supports an `evaluator` callback that receives the final `CrewResult` and returns `True` if the output passes quality requirements — plugging directly into the `CriticActorEvaluator` from `evaluator.py`.
+
+```python
+from mcp_agent_factory.crew import MCPCrew, ScopedAgent
+
+# Two-agent crew: analyst reads data, writer produces the report
+agents = [
+	ScopedAgent(role="analyst"),
+	ScopedAgent(role="writer", system_prompt="Always output Markdown."),
+]
+crew = MCPCrew(agents=agents, all_tools=mcp_tool_list, call_tool_fn=call_fn)
+result = await crew.kickoff("Summarise Q3 sales and draft the executive report")
+print(result.final_output)
+```
+
+Install the CrewAI extra to use the full CrewAI backend:
+
+```bash
+pip install -e ".[crew]"
+```
+
+### Offline Prompt Optimization (Layer 4)
+
+Handcrafted system prompts degrade when LLM providers update their models or when the task distribution shifts.  `PromptOptimizer` replaces manual prompt engineering with an automated, offline CI/CD pipeline.
+
+**The offline boundary is non-negotiable:** DSPy compilation and GEPA evolution are expensive (multiple LLM calls per generation).  Running them in the request path would add seconds to every user call.  Instead, the pipeline runs asynchronously — triggered by CI, a cron job, or a manual `python -m optimizer` call — and writes its results to disk as hot-reloadable JSON skill assets.  The runtime loads those assets at startup (or on SIGHUP) without any service restart.
+
+**Pipeline stages:**
+
+```
+Kafka topic (mcp-traces)
+   │ AIOKafkaConsumer
+   ▼
+TraceRecord list (filtered to failure_rate > 10%)
+   │
+   ▼ per (role, phase) pair
+DSPy BootstrapFewShot
+   │ compiles few-shot examples from passing traces
+   ▼
+GEPAEvolver (genetic mutation)
+   │ max_generations rounds, population_size candidates
+   │ scores candidates by keyword coverage of failure findings
+   ▼
+SkillAsset (best_prompt, performance_score, few_shot_examples)
+   │
+   ▼
+SkillCompiler.compile_all()
+   ├── {skill_id}.json     ← one file per (role, phase)
+   └── index.json          ← manifest for runtime hot-reload
+```
+
+```python
+import asyncio
+from mcp_agent_factory.optimizer import PromptOptimizer, SkillCompiler
+
+async def run_optimization():
+	opt = PromptOptimizer(
+		kafka_topic="mcp-traces",
+		skills_dir="/opt/mcp/skills",
+	)
+	traces = await opt.ingest_traces(limit=500)
+	assets = await opt.compile(traces)
+	compiler = SkillCompiler(output_dir="/opt/mcp/skills")
+	paths = compiler.compile_all(assets)
+	print(f"Compiled {len(paths)} skill assets")
+
+asyncio.run(run_optimization())
+```
+
+For dry-run testing without Kafka:
+
+```python
+opt = PromptOptimizer(dry_run=True)
+traces = await opt.ingest_traces(limit=10)   # synthetic failure traces
+assets = await opt.compile(traces)
+```
+
+Install the optimizer extras:
+
+```bash
+pip install -e ".[optimizer]"   # dspy-ai>=2.5, aiokafka>=0.10
+```
 
 ## Security Notes
 
