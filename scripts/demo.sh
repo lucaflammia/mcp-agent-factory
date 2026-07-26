@@ -738,24 +738,32 @@ if run_step "6" || run_step ""; then
   echo "  via GEPA genetic evolution, then writes hot-reloadable JSON skill assets."
   echo ""
 
+  # Publish sample traces to Kafka using publish_traces.py
+  echo "  Seeding mcp-traces topic…"
+  python3 scripts/publish_traces.py --count 20 >/dev/null 2>&1 || true
+  sleep 2
+  echo ""
+
   python3 - <<'PYEOF'
 import asyncio
+import os
 from pathlib import Path
 from mcp_agent_factory.optimizer import PromptOptimizer, SkillCompiler
 
 SKILLS_DIR = "/tmp/mcp_demo_skills"
 
 async def run():
-  # dry_run=True → uses synthetic traces, no Kafka required
+  # Ingest from Kafka at localhost:9092 (host machine, mapped via docker-compose)
   optimizer = PromptOptimizer(
     kafka_topic="mcp-traces",
+    kafka_bootstrap="localhost:9092",  # Host machine port mapped from kafka:9092
     skills_dir=SKILLS_DIR,
-    dry_run=True,
+    dry_run=False,
   )
 
-  # limit=20 gives the synthetic generator enough data to produce varied roles/phases
-  traces = await optimizer.ingest_traces(limit=20)
-  print(f"  traces ingested (dry-run):  {len(traces)}")
+  # reset_offset=True for demo: read all traces from the beginning
+  traces = await optimizer.ingest_traces(limit=20, reset_offset=True)
+  print(f"  traces ingested:            {len(traces)}")
 
   # compile() degrades gracefully when dspy/gepa are absent
   skills = await optimizer.compile(traces)
@@ -780,12 +788,6 @@ async def run():
 asyncio.run(run())
 PYEOF
 
-  echo ""
-  echo "  Install the optimizer backend for live DSPy + GEPA compilation:"
-  echo "    pip install 'mcp-agent-factory[optimizer]'"
-  echo ""
-  echo "  Runtime hot-reload: send SIGHUP to the gateway process after writing"
-  echo "  new skill JSON assets — no service restart required."
   echo ""
 fi
 
