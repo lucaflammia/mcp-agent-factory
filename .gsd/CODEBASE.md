@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-07-25T13:04:47Z | Files: 144 | Described: 0/144
-<!-- gsd:codebase-meta {"generatedAt":"2026-07-25T13:04:47Z","fingerprint":"352ca99ec856ca7deac19b6f88083d7d098e6fe5","fileCount":144,"truncated":false} -->
+Generated: 2026-07-26T09:15:21Z | Files: 145 | Described: 0/145
+<!-- gsd:codebase-meta {"generatedAt":"2026-07-26T09:15:21Z","fingerprint":"1b9242ad08c01a53955d58b775597b2ea0039643","fileCount":145,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -36,6 +36,7 @@ Generated: 2026-07-25T13:04:47Z | Files: 144 | Described: 0/144
 ### scripts/
 - `scripts/demo_analyst.py`
 - `scripts/demo.sh`
+- `scripts/publish_traces.py`
 - `scripts/smoke_test.sh`
 
 ### src/
