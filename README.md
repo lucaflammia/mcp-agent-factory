@@ -62,6 +62,37 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 └──────────────────────────────────────────────────────────────┘
 ```
 
+## 4-Layer Execution Pipeline
+
+```text
+[MCP Resources / Tools]
+│
+▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        MCP-AGENT-FACTORY PIPELINE                      │
+│                                                                        │
+│  ✅ Layer 1: Foundations (PydanticAI)  ──► Validated I/O               │
+│             structured_agent.py · orchestrator.py                     │
+│             Schema-gated tool calls · Pydantic I/O contracts           │
+│                                                                        │
+│  ✅ Layer 2: Production (LangGraph)    ──► State Machines              │
+│             graph_orchestrator.py · evaluator.py                      │
+│             Deterministic plan→execute · Critic-Actor loop · HITL     │
+│                                                                        │
+│  ✅ Layer 3: Orchestration (CrewAI)    ──► Multi-Agent Workflows       │
+│             crew.py                                                    │
+│             Role-based MCP tool scoping · PermissionError boundary    │
+│                                                                        │
+│  ✅ Layer 4: Optimization (DSPy+GEPA)  ──► Offline Tuning             │
+│             optimizer.py                                               │
+│             Kafka trace ingestion · text-gradient mutation             │
+│             Hot-reloadable JSON skill assets                           │
+└────────────────────────────────────────────────────────────────────────┘
+│
+▼
+[Predictable Enterprise Output & Dynamic Skillsets → v1.0.0]
+```
+
 ## Features
 
 | Layer | Module | What it does |

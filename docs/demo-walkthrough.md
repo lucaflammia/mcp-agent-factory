@@ -58,6 +58,29 @@ Phases 5 and 6 require only Python (no live gateway): they run inline scripts th
 
 ---
 
+## 4-Layer Execution Pipeline
+
+```text
+[MCP Resources / Tools]
+│
+▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        MCP-AGENT-FACTORY PIPELINE                      │
+│                                                                        │
+│  ✅ Layer 1: Foundations (PydanticAI)  ──► Validated I/O               │
+│  ✅ Layer 2: Production (LangGraph)    ──► Deterministic State Machines │
+│  ✅ Layer 3: Orchestration (CrewAI)    ──► Multi-Agent Workflows        │
+│  ✅ Layer 4: Optimization (DSPy+GEPA)  ──► Offline Prompt Tuning        │
+└────────────────────────────────────────────────────────────────────────┘
+│
+▼
+[Predictable Enterprise Output & Dynamic Skillsets → v1.0.0]
+```
+
+Phases 1–3 exercise Layers 1–2. Phase 5 exercises Layer 3. Phase 6 exercises Layer 4.
+
+---
+
 ## What the Script Does
 
 ### Preflight checks
@@ -440,6 +463,25 @@ All four execution layers are implemented and validated:
 | **Layer 4 — Optimization** | `optimizer.py` | ✅ DSPy BootstrapFewShot + GEPA genetic mutation, hot-reloadable JSON skill assets |
 
 Merging this branch into `main` and tagging `v1.0.0` closes the roadmap defined in the project epic.
+
+### Release Procedure
+
+```bash
+# 1. Merge the feature branch into main
+git checkout main
+git merge --no-ff 3-epic-evolving-mcp-agent-factory-into-a-controllable-production-ready-multi-agent-architecture
+
+# 2. Tag the release
+git tag -a v1.0.0 -m "v1.0.0: 4-layer execution pipeline complete
+
+Layer 1 — PydanticAI I/O validation (structured_agent.py, orchestrator.py)
+Layer 2 — LangGraph deterministic state machine (graph_orchestrator.py, evaluator.py)
+Layer 3 — CrewAI multi-agent orchestration with scoped MCP tool access (crew.py)
+Layer 4 — DSPy+GEPA offline prompt optimization with hot-reloadable skill assets (optimizer.py)"
+
+# 3. Push tag
+git push origin main --tags
+```
 
 ---
 
