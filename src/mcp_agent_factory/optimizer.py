@@ -532,13 +532,22 @@ class PromptOptimizer:
     phase: str,
     timeout: float = 5.0,
   ) -> str:
-    """Run DSPy compilation when an LM API key is configured.
+    """Run DSPy compilation when the package is installed and an LM is configured.
 
-    Skips DSPy entirely (which hangs/times out in demo environments) and
-    falls back to GEPA-mutated base prompt in all cases for demo stability.
+    Falls back to the base prompt (for GEPA-only mutation) when DSPy is
+    unavailable or compilation fails.
     """
-    logger.debug("Skipping DSPy (demo mode) — using GEPA mutation")
-    return base_prompt
+    try:
+      import dspy  # noqa: F401
+    except ImportError:
+      logger.debug("dspy not installed — skipping DSPy compilation")
+      return base_prompt
+
+    try:
+      return self._compile_with_dspy(base_prompt, traces, phase)
+    except Exception as exc:
+      logger.warning("DSPy compilation failed (%s) — falling back to base prompt", exc)
+      return base_prompt
 
   def _compile_with_dspy(
     self,

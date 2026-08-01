@@ -325,6 +325,29 @@ The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the g
 ORCHESTRATOR_MODE=pydantic_ai docker compose --profile full up -d
 ```
 
+#### LangGraph Finite State Machine Lifecycle
+
+When `ORCHESTRATOR_MODE=langgraph`, every request flows through a bounded cyclic FSM implemented with LangGraph's `StateGraph`:
+
+```text
+  task ──► VALIDATE ──► PLAN ──► EXECUTE ──► EVALUATE
+              ▲                                  │
+              └──── retry (score < 0.7) ─────────┘
+                                          pass ──► DONE
+                                          fail ──► FAILED
+                                          HITL ──► interrupt()
+```
+
+| Phase | What happens |
+|-------|-------------|
+| **VALIDATE** | Rejects malformed input before any LLM call |
+| **PLAN** | LLM generates a Pydantic-validated `ExecutionPlan` |
+| **EXECUTE** | Runs plan steps via `call_tool_fn`; destructive tools trigger HITL `interrupt()` |
+| **EVALUATE** | `CriticActorEvaluator` scores output; score < 0.7 retries, score = 0.0 triggers HITL |
+| **DONE/FAILED** | Terminal states; `RedisSaver` persists the final checkpoint |
+
+The FSM is bounded to `MAX_ITERATIONS=15` (configurable via `GRAPH_MAX_ITERATIONS` env var). `RedisSaver` checkpoints state at every transition, enabling crash recovery and cross-process HITL resume. This FSM is the backbone of the 4-layer pipeline — Layer 1 validates I/O within PLAN/EXECUTE nodes, Layer 3 orchestrates multiple FSM instances across roles, and Layer 4 optimizes prompts feeding PLAN offline.
+
 **Dependency note:** The codebase uses **pydantic-ai 0.0.20** (`result_type` / `result.data` API). Later versions (≥ 0.0.21) renamed these to `output_type` / `result.output`. The Docker image is built with the pinned version from `pyproject.toml`; do not upgrade without updating all call sites in `structured_agent.py`, `graph_orchestrator.py`, and `evaluator.py`.
 
 ---
@@ -440,12 +463,14 @@ The demo exercises all four layers of the production pipeline documented in dept
 
 | Pattern | Where it runs | What to observe |
 |---------|--------------|-----------------|
+| **LangGraph FSM** — bounded cyclic state machine (VALIDATE→PLAN→EXECUTE→EVALUATE→DONE) with Redis checkpointing | `graph_orchestrator.py` `GraphOrchestrator` | Phase transitions logged; `MAX_ITERATIONS=15` prevents infinite loops; `RedisSaver` checkpoints visible in Redis Commander |
 | **Handling Non-Determinism** — Pydantic schemas gate all LLM output before execution | `graph_orchestrator.py` `plan_node` | Any schema violation raises `ValidationError` logged to stderr before any tool fires |
 | **Critic-Actor** — isolated evaluator re-scores actor output against original constraints | `evaluator.py` → `evaluate_node` | `EvaluationResult.score` and per-criterion breakdown logged after each execution round |
 | **HITL Interrupt** — destructive tools and zero-score failures pause the graph in Redis | `graph_orchestrator.py` `execute_node` / `evaluate_node` | `GraphInterrupt` returned to caller; checkpoint visible in Redis Commander at `:8086` |
 | **Decoupled I/O Interface** — graph entrypoint is transport-agnostic (`task`, `tools`, `call_tool_fn`) | `graph_orchestrator.py` `GraphOrchestrator.run()` | Same state machine handles CLI, HTTP, and future Slack/Telegram adapters without modification |
-| **Multi-Agent Tool Scoping** — per-role MCP tool whitelists with hard `PermissionError` | `crew.py` `scope_tools` / `build_scoped_call_fn` | `PermissionError` raised on out-of-scope call; each role's allowed tool list printed in Phase 5 |
-| **Offline Prompt Optimization** — DSPy+GEPA compiles hot-reloadable skill JSON assets | `optimizer.py` `PromptOptimizer` / `SkillCompiler` | `{skill_id}.json` files written to `$SKILLS_DIR`; `index.json` manifest printed in Phase 6 |
+| **Multi-Agent Tool Scoping** — per-role MCP tool whitelists with hard `PermissionError`; `use_langgraph=True` delegates each agent's subtask to the Layer 2 FSM | `crew.py` `scope_tools` / `build_scoped_call_fn` / `MCPCrew._run_with_langgraph` | `PermissionError` raised on out-of-scope call; each role's allowed tool list printed in Phase 5 |
+| **Offline Prompt Optimization** — real DSPy compilation (when installed) + GEPA genetic mutation; compiles hot-reloadable skill JSON assets | `optimizer.py` `PromptOptimizer` / `SkillCompiler` | `{skill_id}.json` files written to `$SKILLS_DIR`; `index.json` manifest printed in Phase 6 |
+| **Cross-Layer Integration** — full 4-layer pipeline tested end-to-end | `test_cross_layer_integration.py` | 5 tests exercise Layer 1→2→3→4 with mocked LLM calls |
 
 See `README.md → Enterprise Production Patterns` for the full rationale and state-flag reference.
 
@@ -459,8 +484,8 @@ All four execution layers are implemented and validated:
 |-------|--------|--------|
 | **Layer 1 — Foundations** | `structured_agent.py`, `orchestrator.py` | ✅ PydanticAI I/O validation, schema-gated tool calls |
 | **Layer 2 — Production** | `graph_orchestrator.py`, `evaluator.py` | ✅ LangGraph state machine, critic-actor loop, HITL interrupt |
-| **Layer 3 — Orchestration** | `crew.py` | ✅ CrewAI multi-role crews, scoped MCP tool allow-lists, `PermissionError` boundary |
-| **Layer 4 — Optimization** | `optimizer.py` | ✅ DSPy BootstrapFewShot + GEPA genetic mutation, hot-reloadable JSON skill assets |
+| **Layer 3 — Orchestration** | `crew.py` | ✅ CrewAI multi-role crews, scoped MCP tool allow-lists, `PermissionError` boundary; `use_langgraph=True` delegates per-agent execution to Layer 2 FSM |
+| **Layer 4 — Optimization** | `optimizer.py` | ✅ Real DSPy `BootstrapFewShot` compilation (when installed) + GEPA genetic mutation, hot-reloadable JSON skill assets |
 
 Merging this branch into `main` and tagging `v1.0.0` closes the roadmap defined in the project epic.
 

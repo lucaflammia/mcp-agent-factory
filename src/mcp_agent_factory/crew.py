@@ -208,7 +208,10 @@ class MCPCrew:
   Execution strategy (in priority order):
   1. **CrewAI** — if ``crewai`` is installed, delegates to its sequential or
     hierarchical process, leveraging its built-in memory and delegation.
-  2. **Native sequential runner** — falls back to an in-process loop that
+  2. **LangGraph-backed runner** — when ``use_langgraph=True``, each agent's
+    subtask is executed through the ``GraphOrchestrator`` FSM, inheriting
+    bounded depth, transactional checkpointing, and critic evaluation.
+  3. **Native sequential runner** — falls back to an in-process loop that
     passes each agent's output as context to the next agent in the chain.
 
   Both paths enforce tool scoping via ``build_scoped_call_fn``.
@@ -220,6 +223,8 @@ class MCPCrew:
     process: "sequential" (default) or "hierarchical".
     evaluator: Optional callable that receives the final CrewResult and
       returns ``True`` if the output meets quality requirements.
+    use_langgraph: When True, delegate per-agent execution through the
+      Layer 2 LangGraph ``GraphOrchestrator`` state machine.
   """
 
   def __init__(
@@ -229,12 +234,14 @@ class MCPCrew:
     call_tool_fn: Callable[[str, dict[str, Any]], Any] | None = None,
     process: str = "sequential",
     evaluator: Callable[[CrewResult], bool] | None = None,
+    use_langgraph: bool = False,
   ) -> None:
     self.agents = agents
     self.all_tools = all_tools
     self.call_tool_fn = call_tool_fn
     self.process = process
     self.evaluator = evaluator
+    self.use_langgraph = use_langgraph
 
   # ------------------------------------------------------------------
   # Public API
@@ -256,6 +263,9 @@ class MCPCrew:
     try:
       return await self._run_with_crewai(task)
     except ImportError:
+      if self.use_langgraph:
+        logger.info("crewai not installed — using LangGraph-backed runner")
+        return await self._run_with_langgraph(task)
       logger.info("crewai not installed — using native sequential runner")
       return await self._run_native(task)
 
@@ -398,6 +408,82 @@ class MCPCrew:
     except Exception as exc:
       logger.warning("Could not wrap tools for CrewAI: %s", exc)
       return []
+
+  # ------------------------------------------------------------------
+  # LangGraph-backed runner (Layer 2 integration)
+  # ------------------------------------------------------------------
+
+  async def _run_with_langgraph(self, task: str) -> CrewResult:
+    """
+    Execute each agent's subtask through the Layer 2 GraphOrchestrator FSM.
+
+    Each agent gets its scoped tool subset passed into the graph, which runs
+    the full VALIDATE→PLAN→EXECUTE→EVALUATE loop with bounded depth and
+    transactional checkpointing.
+    """
+    from mcp_agent_factory.graph_orchestrator import GraphOrchestrator
+
+    agent_results: list[AgentResult] = []
+    context: str = task
+
+    for i, scoped_agent in enumerate(self.agents):
+      scoped = scoped_agent.get_scoped_tools(self.all_tools)
+      scoped_call = (
+        build_scoped_call_fn(scoped_agent.role, scoped, self.call_tool_fn)
+        if self.call_tool_fn else None
+      )
+
+      graph = GraphOrchestrator(model_name=scoped_agent.model_name)
+      try:
+        state = await graph.run(
+          task=context,
+          tools=scoped,
+          call_tool_fn=scoped_call or (lambda n, a: {}),
+          thread_id=f"crew-{scoped_agent.role}-{i}",
+        )
+        phase = state.get("phase", "")
+        if phase == "done":
+          output = state.get("final_result", {}).get("text", str(state.get("final_result", "")))
+          agent_results.append(AgentResult(
+            role=scoped_agent.role,
+            task_description=context,
+            output=output,
+            success=True,
+          ))
+          context = output
+        else:
+          error = state.get("error", "Graph did not reach DONE")
+          agent_results.append(AgentResult(
+            role=scoped_agent.role,
+            task_description=context,
+            output="",
+            success=False,
+            error=error,
+          ))
+      except Exception as exc:
+        logger.error("langgraph runner: agent %r failed: %s", scoped_agent.role, exc)
+        agent_results.append(AgentResult(
+          role=scoped_agent.role,
+          task_description=context,
+          output="",
+          success=False,
+          error=str(exc),
+        ))
+
+    final_output = agent_results[-1].output if agent_results else ""
+    result = CrewResult(
+      final_output=final_output,
+      agent_results=agent_results,
+      iterations=len(self.agents),
+      passed_validation=all(r.success for r in agent_results),
+    )
+
+    if self.evaluator:
+      result = CrewResult(
+        **{**result.model_dump(), "passed_validation": self.evaluator(result)}
+      )
+
+    return result
 
   # ------------------------------------------------------------------
   # Native sequential runner
