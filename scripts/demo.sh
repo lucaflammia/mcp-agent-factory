@@ -8,25 +8,52 @@
 # the gateway process boots with auth bypass enabled. It cannot be changed
 # without restarting the gateway container.
 #
+# USAGE:
+#   ./scripts/demo.sh [STEP]
+#
+# STEP (optional):
+#   (empty)     Run all phases (0–6)
+#   infra       Infrastructure seed (Kafka topics + Redis KV data)
+#   0           Deterministic Orchestration validation
+#   1           Privacy-First RAG (agents/analyze)
+#   2           Jaeger trace observation
+#   3           Provider switch (Gemini)
+#   4           Orchestrator modes (pydantic_ai + langgraph)
+#   5           CrewAI multi-agent scoping (Layer 3)
+#   6           DSPy + GEPA optimization (Layer 4)
+#   monitor     Grafana verification + traffic keeper
+#
 # OPTIONAL ENV VARS (client-side):
 #   GATEWAY_URL   default: http://localhost:8000
 #   PDF_PATH      default: data/samples/finance_q3_2024.pdf
 #   QUERY         default: "Identify key KPIs and risk areas"
 #
-# Phase 1: Privacy-First RAG  — agents/analyze on the local PDF
-# Phase 2: Jaeger trace link  — shows the full span chain
-# Phase 3: Provider switch    — re-runs with provider=gemini (uses GEMINI_API_KEY if set)
+# Examples:
+#   ./scripts/demo.sh               # All phases
+#   ./scripts/demo.sh 1             # Phase 1 only
+#   ./scripts/demo.sh infra         # Seed infrastructure
+#   ./scripts/demo.sh 5             # CrewAI demo
 
 set -euo pipefail
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 PDF_PATH="${PDF_PATH:-data/samples/finance_q3_2024.pdf}"
 QUERY="${QUERY:-Identify key KPIs and risk areas}"
+REQUESTED_STEP="${1:-}"  # Empty string = run all
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 hr()  { printf '\n%s\n' "────────────────────────────────────────────────────"; }
 hdr() { hr; printf '  %s\n' "$*"; hr; }
+
+run_step() {
+  # Returns 0 if REQUESTED_STEP matches this step (or is empty, meaning "run all")
+  local step_name="$1"
+  if [ -z "$REQUESTED_STEP" ]; then
+    return 0  # empty = run all steps
+  fi
+  [ "$REQUESTED_STEP" = "$step_name" ]
+}
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "ERROR: $1 is required but not installed."; exit 1; }
@@ -92,13 +119,17 @@ mcp_call() {
     -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}"
 }
 
-# ── preflight ─────────────────────────────────────────────────────────────────
+# ── preflight (always runs) ───────────────────────────────────────────────────
 
 require_cmd curl
 require_cmd jq
 
 check_health
-check_monitoring
+
+# Only check monitoring for steps that need it (all steps except infra, 0, 5, 6)
+if [ -z "$REQUESTED_STEP" ] || { [ "$REQUESTED_STEP" != "infra" ] && [ "$REQUESTED_STEP" != "0" ] && [ "$REQUESTED_STEP" != "5" ] && [ "$REQUESTED_STEP" != "6" ]; }; then
+  check_monitoring
+fi
 
 if [ ! -f "$PDF_PATH" ]; then
   echo "ERROR: PDF not found at '$PDF_PATH'. Set PDF_PATH to a valid path."
@@ -166,7 +197,8 @@ fi
 
 # ── Infrastructure seed: Kafka topics + Redis KV data ───────────────────────
 
-hdr "INFRA SEED — Kafka topics + Redis KV store"
+if run_step "infra" || run_step ""; then
+  hdr "INFRA SEED — Kafka topics + Redis KV store"
 
 KAFKA_CONTAINER=$(docker ps --filter "name=mcp-agent-factory-kafka" --format "{{.Names}}" 2>/dev/null | head -1)
 if [ -n "$KAFKA_CONTAINER" ]; then
@@ -201,12 +233,14 @@ _kv_add "finance" "revenue growth"
 _kv_add "finance" "operating cash flow"
 _kv_add "risk"    "liquidity risk"
 _kv_add "risk"    "market volatility"
-echo "  ✓ 5 phrases seeded → Redis Commander http://localhost:8086/"
-echo ""
+  echo "  ✓ 5 phrases seeded → Redis Commander http://localhost:8086/"
+  echo ""
+fi
 
 # ── Phase 0: Deterministic Orchestration ─────────────────────────────────────
 
-hdr "PHASE 0 — Deterministic Orchestration (ValidationGate on LLM output)"
+if run_step "0" || run_step ""; then
+  hdr "PHASE 0 — Deterministic Orchestration (ValidationGate on LLM output)"
 echo "  v0.1.0 gateway validated incoming *client* requests (JSON-RPC shape, PII)."
 echo "  v1.0.0 adds a second gate that validates what the *LLM* returns as a plan"
 echo "  before any tool is allowed to execute."
@@ -259,182 +293,192 @@ except ValidationError as exc:
   print(f"  ✓ Duplicate adjacent step blocked: {exc.errors()[0]['msg']}")
 PYEOF
 
-echo ""
-echo "  ── Critic-Actor isolation ────────────────────────────────────────────"
-echo "  The evaluator (evaluator.py) runs as a stateless sandbox with no shared"
-echo "  context from the executing agent. It ingests the original constraints and"
-echo "  the final output, then runs a double-pass check:"
-echo "    1. Deterministic schema fulfillment validation"
-echo "    2. Isolated LLM call acting as a cynical QA auditor (0.0–1.0 score)"
-echo "  If the score is 0.0 (absolute failure) or a destructive tool is attempted,"
-echo "  the graph pauses via LangGraph interrupt() and persists state to Redis."
-echo "  Resume with: compiled.ainvoke(None, config)  [same thread_id]"
-echo "  Inspect paused state: http://localhost:8086 (Redis Commander)"
-echo ""
+  echo ""
+  echo "  ── Critic-Actor isolation ────────────────────────────────────────────"
+  echo "  The evaluator (evaluator.py) runs as a stateless sandbox with no shared"
+  echo "  context from the executing agent. It ingests the original constraints and"
+  echo "  the final output, then runs a double-pass check:"
+  echo "    1. Deterministic schema fulfillment validation"
+  echo "    2. Isolated LLM call acting as a cynical QA auditor (0.0–1.0 score)"
+  echo "  If the score is 0.0 (absolute failure) or a destructive tool is attempted,"
+  echo "  the graph pauses via LangGraph interrupt() and persists state to Redis."
+  echo "  Resume with: compiled.ainvoke(None, config)  [same thread_id]"
+  echo "  Inspect paused state: http://localhost:8086 (Redis Commander)"
+  echo ""
+fi
 
 # ── Phase 1: Privacy-First RAG ────────────────────────────────────────────────
 
-hdr "PHASE 1 — Privacy-First RAG (agents/analyze)"
-echo "  PDF:   $PDF_PATH"
-echo "  Query: $QUERY"
-echo ""
+if run_step "1" || run_step ""; then
+  hdr "PHASE 1 — Privacy-First RAG (agents/analyze)"
+  echo "  PDF:   $PDF_PATH"
+  echo "  Query: $QUERY"
+  echo ""
 
-# Seed Grafana panels by spreading calls across 2+ Prometheus scrape intervals.
-# Prometheus scrapes every 15s; rate() needs counter increments at ≥2 distinct
-# scrape points within the [1m] window. We run 4 calls spaced ~12s apart (~36s
-# total) before the display call so all 5 panels have data by the time Phase 1
-# output prints.
-#
-# Each agents/analyze call:
-#   • increments mcp_auction_bids_total × 3 (analyst, summarizer, extractor)
-#   • emits agent.pdf_extract / agent.prune / agent.pii_scrub / agent.llm_route spans
-#     → OTel collector converts to traces_calls_total (Agent Pipeline, Pages Read,
-#       Token Consumption panels)
-echo "  Seeding Grafana metric panels (4 calls spread over ~36s)..."
-for _i in 1 2 3 4; do
-  printf "    call %d/4 … " "$_i"
-  if mcp_call "agents/analyze" "$PARAMS" >/dev/null 2>&1; then
-    echo "ok"
-  else
-    echo "warn: call failed (non-fatal)"
+  # Seed Grafana panels by spreading calls across 2+ Prometheus scrape intervals.
+  # Prometheus scrapes every 15s; rate() needs counter increments at ≥2 distinct
+  # scrape points within the [1m] window. We run 4 calls spaced ~12s apart (~36s
+  # total) before the display call so all 5 panels have data by the time Phase 1
+  # output prints.
+  #
+  # Each agents/analyze call:
+  #   • increments mcp_auction_bids_total × 3 (analyst, summarizer, extractor)
+  #   • emits agent.pdf_extract / agent.prune / agent.pii_scrub / agent.llm_route spans
+  #     → OTel collector converts to traces_calls_total (Agent Pipeline, Pages Read,
+  #       Token Consumption panels)
+  echo "  Seeding Grafana metric panels (4 calls spread over ~36s)..."
+  for _i in 1 2 3 4; do
+    printf "    call %d/4 … " "$_i"
+    if mcp_call "agents/analyze" "$PARAMS" >/dev/null 2>&1; then
+      echo "ok"
+    else
+      echo "warn: call failed (non-fatal)"
+    fi
+    [ "$_i" -lt 4 ] && sleep 12
+  done
+  echo ""
+  echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
+  sleep 20
+  echo ""
+
+  PHASE1=$(mcp_call "agents/analyze" "$PARAMS")
+
+  if echo "$PHASE1" | jq -e '.error' >/dev/null 2>&1; then
+    ERROR_CODE=$(echo "$PHASE1" | jq -r '.error.code // empty')
+    if [ "$ERROR_CODE" = "-32601" ]; then
+      echo "ERROR: Method not found — the gateway image is stale."
+      echo ""
+      echo "  Rebuild and restart with:"
+      echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+      echo ""
+      echo "  (The agents/analyze handler was added after this image was built.)"
+    elif [ "$ERROR_CODE" = "-32001" ]; then
+      echo "ERROR: Authentication required — gateway started without MCP_DEV_MODE=1."
+      echo ""
+      echo "  Restart the stack with:"
+      echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+      echo ""
+    else
+      echo "ERROR from gateway:"
+      echo "$PHASE1" | jq '.error'
+    fi
+    exit 1
   fi
-  [ "$_i" -lt 4 ] && sleep 12
-done
-echo ""
-echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
-sleep 20
-echo ""
 
-PHASE1=$(mcp_call "agents/analyze" "$PARAMS")
-
-if echo "$PHASE1" | jq -e '.error' >/dev/null 2>&1; then
-  ERROR_CODE=$(echo "$PHASE1" | jq -r '.error.code // empty')
-  if [ "$ERROR_CODE" = "-32601" ]; then
-    echo "ERROR: Method not found — the gateway image is stale."
-    echo ""
-    echo "  Rebuild and restart with:"
-    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
-    echo ""
-    echo "  (The agents/analyze handler was added after this image was built.)"
-  elif [ "$ERROR_CODE" = "-32001" ]; then
-    echo "ERROR: Authentication required — gateway started without MCP_DEV_MODE=1."
-    echo ""
-    echo "  Restart the stack with:"
-    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
-    echo ""
-  else
-    echo "ERROR from gateway:"
-    echo "$PHASE1" | jq '.error'
-  fi
-  exit 1
+  echo "$PHASE1" | jq '{
+    provider: .result.provider,
+    pages_read: .result.pages_read,
+    chunks_before: .result.chunks_before_pruning,
+    chunks_after: .result.chunks_after_pruning,
+    input_tokens: .result.input_tokens,
+    output_tokens: .result.output_tokens,
+    cost_usd: .result.cost_usd
+  }'
+  echo ""
+  echo "EXECUTIVE SUMMARY:"
+  echo "$PHASE1" | jq -r '.result.summary'
 fi
-
-echo "$PHASE1" | jq '{
-  provider: .result.provider,
-  pages_read: .result.pages_read,
-  chunks_before: .result.chunks_before_pruning,
-  chunks_after: .result.chunks_after_pruning,
-  input_tokens: .result.input_tokens,
-  output_tokens: .result.output_tokens,
-  cost_usd: .result.cost_usd
-}'
-echo ""
-echo "EXECUTIVE SUMMARY:"
-echo "$PHASE1" | jq -r '.result.summary'
 
 # ── Phase 2: Jaeger Trace ─────────────────────────────────────────────────────
 
-hdr "PHASE 2 — Observe the Trace (Jaeger)"
-echo "  Jaeger Search — click 'Find Traces' after opening this URL:"
-echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze&limit=20&lookback=1h"
-echo ""
-echo "  Jaeger Monitor (SPM — live call rate / latency per operation):"
-echo "    http://localhost:16686/monitor"
-echo "    → select 'mcp-gateway' from the service dropdown"
-echo ""
-echo "  Expected span chain:"
-echo "    mcp.agents/analyze"
-echo "      └─ agent.pdf_extract   [pages_read, chunk_count]"
-echo "      └─ agent.prune         [input_tokens, output_tokens]"
-echo "      └─ agent.pii_scrub     [input_tokens, output_tokens]"
-echo "      └─ agent.llm_route     [provider, cost_usd]"
+if run_step "2" || run_step ""; then
+  hdr "PHASE 2 — Observe the Trace (Jaeger)"
+  echo "  Jaeger Search — click 'Find Traces' after opening this URL:"
+  echo "    http://localhost:16686/search?service=mcp-gateway&operation=mcp.agents%2Fanalyze&limit=20&lookback=1h"
+  echo ""
+  echo "  Jaeger Monitor (SPM — live call rate / latency per operation):"
+  echo "    http://localhost:16686/monitor"
+  echo "    → select 'mcp-gateway' from the service dropdown"
+  echo ""
+  echo "  Expected span chain:"
+  echo "    mcp.agents/analyze"
+  echo "      └─ agent.pdf_extract   [pages_read, chunk_count]"
+  echo "      └─ agent.prune         [input_tokens, output_tokens]"
+  echo "      └─ agent.pii_scrub     [input_tokens, output_tokens]"
+  echo "      └─ agent.llm_route     [provider, cost_usd]"
+fi
 
 # ── Phase 3: Provider Switch ──────────────────────────────────────────────────
 
-hdr "PHASE 3 — Live Provider Switch (Gemini)"
+if run_step "3" || run_step ""; then
+  hdr "PHASE 3 — Live Provider Switch (Gemini)"
 
-# Check whether the container has GEMINI_API_KEY.
-# In MCP_DEV_MODE=1, a missing key is allowed — the gateway simulates Gemini
-# via Ollama and still labels metrics as 'gemini' so Grafana panels show data.
-if [ -n "$GATEWAY_CONTAINER" ]; then
-  CONTAINER_GEMINI=$(docker exec "$GATEWAY_CONTAINER" sh -c 'echo $GEMINI_API_KEY' 2>/dev/null)
-  if [ -z "$CONTAINER_GEMINI" ]; then
-    echo "  ✗ GEMINI_API_KEY is not set — running in dev-mode simulation (Ollama backend, gemini label)."
-    echo ""
-    echo "  To use the real Gemini API, add your key and rebuild:"
-    echo "    echo 'GEMINI_API_KEY=<your-key>' >> .env"
-    echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
-    echo ""
+  # Check whether the container has GEMINI_API_KEY.
+  # In MCP_DEV_MODE=1, a missing key is allowed — the gateway simulates Gemini
+  # via Ollama and still labels metrics as 'gemini' so Grafana panels show data.
+  if [ -n "$GATEWAY_CONTAINER" ]; then
+    CONTAINER_GEMINI=$(docker exec "$GATEWAY_CONTAINER" sh -c 'echo $GEMINI_API_KEY' 2>/dev/null)
+    if [ -z "$CONTAINER_GEMINI" ]; then
+      echo "  ✗ GEMINI_API_KEY is not set — running in dev-mode simulation (Ollama backend, gemini label)."
+      echo ""
+      echo "  To use the real Gemini API, add your key and rebuild:"
+      echo "    echo 'GEMINI_API_KEY=<your-key>' >> .env"
+      echo "    MCP_DEV_MODE=1 docker compose --profile full up --build -d"
+      echo ""
+    fi
   fi
-fi
 
-# Seed Grafana Gemini panels with 4 calls spread over ~36s (same cadence as Phase 1).
-echo "  Seeding Grafana Gemini panels (4 calls spread over ~36s)..."
-for _i in 1 2 3 4; do
-  printf "    call %d/4 … " "$_i"
-  if mcp_call "agents/analyze" "$PARAMS_GEMINI" >/dev/null 2>&1; then
-    echo "ok"
-  else
-    echo "warn: call failed (non-fatal)"
-  fi
-  [ "$_i" -lt 4 ] && sleep 12
-done
-echo ""
-echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
-sleep 20
-echo ""
-
-echo "  Requesting provider=gemini (display call)..."
-echo ""
-
-PHASE3=$(mcp_call "agents/analyze" "$PARAMS_GEMINI" || true)
-
-if echo "$PHASE3" | jq -e '.error.code == -32602' >/dev/null 2>&1; then
-  echo "Gateway response:"
-  echo "$PHASE3" | jq '{code: .error.code, message: .error.message}'
+  # Seed Grafana Gemini panels with 4 calls spread over ~36s (same cadence as Phase 1).
+  echo "  Seeding Grafana Gemini panels (4 calls spread over ~36s)..."
+  for _i in 1 2 3 4; do
+    printf "    call %d/4 … " "$_i"
+    if mcp_call "agents/analyze" "$PARAMS_GEMINI" >/dev/null 2>&1; then
+      echo "ok"
+    else
+      echo "warn: call failed (non-fatal)"
+    fi
+    [ "$_i" -lt 4 ] && sleep 12
+  done
   echo ""
-  echo "  ✗ GEMINI_API_KEY not set — set it in your environment and rebuild to use Gemini."
-elif echo "$PHASE3" | jq -e '.result' >/dev/null 2>&1; then
-  PHASE3_CONTENT=$(echo "$PHASE3" | jq -r '.result.summary // empty')
-  PHASE3_PROVIDER=$(echo "$PHASE3" | jq -r '.result.provider // "unknown"')
-  PHASE3_COST=$(echo "$PHASE3" | jq -r '.result.cost_usd // 0')
-  PHASE3_META=$(echo "$PHASE3" | jq '{provider: .result.provider, input_tokens: .result.input_tokens, output_tokens: .result.output_tokens, cost_usd: .result.cost_usd}' 2>/dev/null || true)
-  echo "$PHASE3_META"
+  echo "  Waiting 20s for OTel BatchSpanProcessor flush + Prometheus scrape …"
+  sleep 20
   echo ""
-  echo "EXECUTIVE SUMMARY:"
-  echo "$PHASE3_CONTENT"
+
+  echo "  Requesting provider=gemini (display call)..."
   echo ""
-  if echo "$PHASE3_PROVIDER" | grep -qi "gemini"; then
-    echo "  ✓ Gemini responded successfully."
-    if [ "$PHASE3_COST" = "0" ] || [ "$PHASE3_COST" = "0.0" ]; then
-      echo "  ⚠ cost_usd=0 — gateway image may be stale. Rebuild: docker compose --profile full up --build -d"
+
+  PHASE3=$(mcp_call "agents/analyze" "$PARAMS_GEMINI" || true)
+
+  if echo "$PHASE3" | jq -e '.error.code == -32602' >/dev/null 2>&1; then
+    echo "Gateway response:"
+    echo "$PHASE3" | jq '{code: .error.code, message: .error.message}'
+    echo ""
+    echo "  ✗ GEMINI_API_KEY not set — set it in your environment and rebuild to use Gemini."
+  elif echo "$PHASE3" | jq -e '.result' >/dev/null 2>&1; then
+    PHASE3_CONTENT=$(echo "$PHASE3" | jq -r '.result.summary // empty')
+    PHASE3_PROVIDER=$(echo "$PHASE3" | jq -r '.result.provider // "unknown"')
+    PHASE3_COST=$(echo "$PHASE3" | jq -r '.result.cost_usd // 0')
+    PHASE3_META=$(echo "$PHASE3" | jq '{provider: .result.provider, input_tokens: .result.input_tokens, output_tokens: .result.output_tokens, cost_usd: .result.cost_usd}' 2>/dev/null || true)
+    echo "$PHASE3_META"
+    echo ""
+    echo "EXECUTIVE SUMMARY:"
+    echo "$PHASE3_CONTENT"
+    echo ""
+    if echo "$PHASE3_PROVIDER" | grep -qi "gemini"; then
+      echo "  ✓ Gemini responded successfully."
+      if [ "$PHASE3_COST" = "0" ] || [ "$PHASE3_COST" = "0.0" ]; then
+        echo "  ⚠ cost_usd=0 — gateway image may be stale. Rebuild: docker compose --profile full up --build -d"
+      fi
+    else
+      echo "  ✗ Gemini fell back to Ollama (provider=$PHASE3_PROVIDER)."
+      echo "    Check gateway logs: docker logs \$(docker ps -qf name=gateway) 2>&1 | grep -i gemini"
     fi
   else
-    echo "  ✗ Gemini fell back to Ollama (provider=$PHASE3_PROVIDER)."
-    echo "    Check gateway logs: docker logs \$(docker ps -qf name=gateway) 2>&1 | grep -i gemini"
+    echo "Gateway response:"
+    echo "$PHASE3"
   fi
-else
-  echo "Gateway response:"
-  echo "$PHASE3"
 fi
 
-hr
-echo "  Demo complete."
-hr
+# ── Phase 4: Orchestrator Modes ──────────────────────────────────────────────
 
-# ── Grafana verification ───────────────────────────────────────────────────────
-
-PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:9090}"
+if run_step "4" || run_step ""; then
+  if [ -n "$REQUESTED_STEP" ] && [ "$REQUESTED_STEP" != "4" ]; then
+    : # Don't print the hr and summary between 3 and 4 unless we're running all
+  else
+    hr
+    echo "  Phases 0–3 complete."
+    hr
+  fi
 
 echo ""
 echo "  Verifying Grafana panel metrics in Prometheus …"
@@ -479,114 +523,363 @@ echo "    Token cost:   sum(mcp_agent_cost_usd_total) by (provider)"
 echo "    Latency p99:  histogram_quantile(0.99, sum(rate(traces_duration_milliseconds_bucket{service_name=\"mcp-gateway\"}[1m])) by (le))"
 echo ""
 
-# ── Phase 4: Orchestrator Modes ──────────────────────────────────────────────
+  hdr "PHASE 4 — Orchestrator Modes (pydantic_ai + langgraph)"
+  echo "  Three orchestration backends are available via the 'orchestrate' tool:"
+  echo "    legacy      — regex-based ReAct loop (v0.1.0 default)"
+  echo "    pydantic_ai — LLM structured outputs with Pydantic validation"
+  echo "    langgraph   — state-machine with validate→plan→execute→evaluate→done"
+  echo ""
 
-hdr "PHASE 4 — Orchestrator Modes (pydantic_ai + langgraph)"
-echo "  Three orchestration backends are available via the 'orchestrate' tool:"
-echo "    legacy      — regex-based ReAct loop (v0.1.0 default)"
-echo "    pydantic_ai — LLM structured outputs with Pydantic validation"
-echo "    langgraph   — state-machine with validate→plan→execute→evaluate→done"
-echo ""
+  ORCH_TASK_PA="Echo the text: hello from pydantic_ai structured output"
+  ORCH_TASK_LG="Add the numbers 17 and 25 using the add tool"
 
-ORCH_TASK_PA="Echo the text: hello from pydantic_ai structured output"
-ORCH_TASK_LG="Add the numbers 17 and 25 using the add tool"
+  echo "  ── pydantic_ai mode ──────────────────────────────────────────────────"
+  echo "  Task: $ORCH_TASK_PA"
+  echo ""
+  ORCH_PA=$(mcp_call "tools/call" \
+    "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_PA\",\"mode\":\"pydantic_ai\"}}" \
+    || true)
 
-echo "  ── pydantic_ai mode ──────────────────────────────────────────────────"
-echo "  Task: $ORCH_TASK_PA"
-echo ""
-ORCH_PA=$(mcp_call "tools/call" \
-  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_PA\",\"mode\":\"pydantic_ai\"}}" \
-  || true)
+  if echo "$ORCH_PA" | jq -e '.result.content[0]' >/dev/null 2>&1; then
+    echo "$ORCH_PA" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
+  elif echo "$ORCH_PA" | jq -e '.error' >/dev/null 2>&1; then
+    echo "  ✗ pydantic_ai mode error:"
+    echo "$ORCH_PA" | jq '.error'
+  else
+    echo "$ORCH_PA"
+  fi
 
-if echo "$ORCH_PA" | jq -e '.result.content[0]' >/dev/null 2>&1; then
-  echo "$ORCH_PA" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
-elif echo "$ORCH_PA" | jq -e '.error' >/dev/null 2>&1; then
-  echo "  ✗ pydantic_ai mode error:"
-  echo "$ORCH_PA" | jq '.error'
-else
-  echo "$ORCH_PA"
+  echo ""
+  echo "  ── langgraph mode ───────────────────────────────────────────────────"
+  echo "  Task: $ORCH_TASK_LG"
+  echo "  (State machine: validate → plan → execute → evaluate → done)"
+  echo ""
+  ORCH_LG=$(mcp_call "tools/call" \
+    "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_LG\",\"mode\":\"langgraph\",\"thread_id\":\"demo-session-1\"}}" \
+    || true)
+
+  if echo "$ORCH_LG" | jq -e '.result.content[0]' >/dev/null 2>&1; then
+    echo "$ORCH_LG" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
+  elif echo "$ORCH_LG" | jq -e '.error' >/dev/null 2>&1; then
+    echo "  ✗ langgraph mode error:"
+    echo "$ORCH_LG" | jq '.error'
+  else
+    echo "$ORCH_LG"
+  fi
+
+  echo ""
+  echo "  ── HITL interrupt behaviour ──────────────────────────────────────────"
+  echo "  If the planner emits a step whose tool matches a destructive pattern"
+  echo "  (write, delete, drop, deploy, ...), execute_node calls interrupt()"
+  echo "  BEFORE running the tool. LangGraph serialises GraphState to Redis and"
+  echo "  returns GraphInterrupt — the graph is paused in mid-flight."
+  echo ""
+  echo "  To resume after approval:"
+  echo "    compiled.ainvoke(None, config)  # same thread_id"
+  echo ""
+  echo "  Inspect paused checkpoint:"
+  echo "    Redis Commander → http://localhost:8086  (keys prefixed by thread_id)"
+  echo "    Look for: require_user_approval=true, hitl_reason"
+  echo ""
+  echo "  evaluate_node also interrupts when the critic scores output 0.0"
+  echo "  (absolute failure — autonomous retry would reproduce the same result)."
+  echo ""
+  echo "  Set ORCHESTRATOR_MODE=pydantic_ai or ORCHESTRATOR_MODE=langgraph in .env"
+  echo "  to make a mode the default for all agents/analyze calls."
+  echo ""
 fi
 
-echo ""
-echo "  ── langgraph mode ───────────────────────────────────────────────────"
-echo "  Task: $ORCH_TASK_LG"
-echo "  (State machine: validate → plan → execute → evaluate → done)"
-echo ""
-ORCH_LG=$(mcp_call "tools/call" \
-  "{\"name\":\"orchestrate\",\"arguments\":{\"task\":\"$ORCH_TASK_LG\",\"mode\":\"langgraph\",\"thread_id\":\"demo-session-1\"}}" \
-  || true)
+# ── Phase 5: CrewAI Multi-Agent Scoping (Layer 3) ────────────────────────────
 
-if echo "$ORCH_LG" | jq -e '.result.content[0]' >/dev/null 2>&1; then
-  echo "$ORCH_LG" | jq -r '.result.content[0].text // (.result.content[0] | tostring)'
-elif echo "$ORCH_LG" | jq -e '.error' >/dev/null 2>&1; then
-  echo "  ✗ langgraph mode error:"
-  echo "$ORCH_LG" | jq '.error'
-else
-  echo "$ORCH_LG"
+if run_step "5" || run_step ""; then
+  hdr "PHASE 5 — CrewAI Multi-Agent Scoping (Layer 3)"
+  echo "  MCPCrew coordinates independent ScopedAgents, each restricted to a"
+  echo "  named subset of MCP tools.  Attempting a tool outside the allowed set"
+  echo "  raises PermissionError — a hard security boundary enforced at call time."
+  echo ""
+
+  echo "  ── Tool Scoping (PermissionError enforcement) ─────────────────────────────"
+  echo ""
+
+  python3 - <<'PYEOF'
+from mcp_agent_factory.crew import scope_tools, build_scoped_call_fn, ROLE_TOOL_PATTERNS
+
+# ── Simulated full tool catalogue ─────────────────────────────────────────────
+ALL_TOOLS = [
+  {"name": "read_file"},
+  {"name": "search_web"},
+  {"name": "write_file"},
+  {"name": "sql_query"},
+  {"name": "embed_text"},
+  {"name": "fetch_url"},
+]
+
+# ── Analyst role: read / search / fetch only ──────────────────────────────────
+analyst_tools = scope_tools("analyst", ALL_TOOLS)
+print(f"    analyst tools  ({len(analyst_tools)}/{len(ALL_TOOLS)}): "
+  f"{[t['name'] for t in analyst_tools]}")
+
+# ── Writer role: write / format only ─────────────────────────────────────────
+writer_tools = scope_tools("writer", ALL_TOOLS)
+print(f"    writer  tools  ({len(writer_tools)}/{len(ALL_TOOLS)}): "
+  f"{[t['name'] for t in writer_tools]}")
+
+# ── Orchestrator role: unrestricted ──────────────────────────────────────────
+orch_tools = scope_tools("orchestrator", ALL_TOOLS)
+print(f"    orchestrator   ({len(orch_tools)}/{len(ALL_TOOLS)}): all tools")
+
+print("")
+
+# ── PermissionError enforcement ───────────────────────────────────────────────
+def base_call(tool_name, args):
+  return f"called {tool_name}"
+
+analyst_call = build_scoped_call_fn("analyst", analyst_tools, base_call)
+
+# Allowed: read_file
+result = analyst_call("read_file", {"path": "/data/report.pdf"})
+print(f"    ✓ analyst → read_file:  {result}")
+
+# Blocked: write_file
+try:
+  analyst_call("write_file", {"path": "/etc/passwd", "content": "hacked"})
+  print("    ✗ write_file should have been blocked")
+except PermissionError as exc:
+  print(f"    ✓ analyst → write_file blocked (PermissionError)")
+  print(f"      {str(exc)[:80]}")
+PYEOF
+
+  echo ""
+  echo "  ── Live Crew Execution ────────────────────────────────────────────────────"
+  echo ""
+
+  python3 << 'PYEOF'
+import sys
+import os
+
+# Suppress verbose debug output from CrewAI
+os.environ["CREWAI_TRACING_ENABLED"] = "false"
+
+try:
+  from crewai import Agent as CrewAIAgent, Task as CrewAITask, Crew, Process, LLM
+
+  print("    Executing: 'Summarise Q3 sales and draft the executive report'")
+  print("")
+
+  # Initialize Gemini LLM
+  llm = LLM(model="gemini-2.5-flash", provider="google")
+
+  # Create analyst agent
+  analyst = CrewAIAgent(
+    role="analyst",
+    goal="Analyze Q3 sales data",
+    backstory="You are a data analyst expert",
+    llm=llm,
+    verbose=False,
+  )
+
+  # Create writer agent
+  writer = CrewAIAgent(
+    role="writer",
+    goal="Write executive reports",
+    backstory="You are a business writer expert",
+    llm=llm,
+    verbose=False,
+  )
+
+  # Create tasks
+  task1 = CrewAITask(
+    description="Summarize Q3 sales data",
+    expected_output="Key Q3 metrics and analysis",
+    agent=analyst,
+  )
+
+  task2 = CrewAITask(
+    description="Draft an executive report based on the Q3 analysis",
+    expected_output="Executive summary in Markdown format",
+    agent=writer,
+  )
+
+  # Create and run crew
+  crew = Crew(
+    agents=[analyst, writer],
+    tasks=[task1, task2],
+    process=Process.sequential,
+    verbose=False,
+  )
+
+  result = crew.kickoff()
+
+  # Display result (first 300 chars)
+  output_str = str(result)
+  preview = output_str[:300].replace('\n', '\n    ')
+  print(f"    Result:\n    {preview}...")
+  print("")
+
+  # Push LLM cost / token metrics to Prometheus Pushgateway
+  try:
+    from prometheus_client import CollectorRegistry, Counter, push_to_gateway
+
+    usage = getattr(crew, "usage_metrics", None) or {}
+    input_tokens  = int(getattr(usage, "prompt_tokens",     0) or usage.get("prompt_tokens",     0))
+    output_tokens = int(getattr(usage, "completion_tokens", 0) or usage.get("completion_tokens", 0))
+    total_tokens  = int(getattr(usage, "total_tokens",      0) or usage.get("total_tokens",      0))
+
+    # Cost estimate: Gemini 2.5 Flash — $0.075 / 1M input, $0.30 / 1M output
+    cost_usd = (input_tokens * 0.075 + output_tokens * 0.30) / 1_000_000
+
+    registry = CollectorRegistry()
+
+    c_in = Counter("mcp_agent_input_tokens_total",
+                   "Cumulative LLM input tokens (demo phase 5)",
+                   ["provider"], registry=registry)
+    c_out = Counter("mcp_agent_output_tokens_total",
+                    "Cumulative LLM output tokens (demo phase 5)",
+                    ["provider"], registry=registry)
+    c_cost = Counter("mcp_agent_cost_usd_total",
+                     "Cumulative LLM cost USD (demo phase 5)",
+                     ["provider"], registry=registry)
+
+    c_in.labels(provider="google").inc(input_tokens)
+    c_out.labels(provider="google").inc(output_tokens)
+    c_cost.labels(provider="google").inc(cost_usd)
+
+    push_to_gateway("localhost:9091", job="mcp_demo_phase5", registry=registry)
+
+    print(f"    ✓ Metrics pushed to Pushgateway (localhost:9091)")
+    print(f"      input tokens:  {input_tokens}")
+    print(f"      output tokens: {output_tokens}")
+    print(f"      total tokens:  {total_tokens}")
+    print(f"      est. cost:     ${cost_usd:.6f} USD")
+  except Exception as push_err:
+    print(f"    ⚠ Metric push skipped ({type(push_err).__name__}: {push_err})")
+    print(f"      Start the full stack with: docker compose --profile full up -d")
+  print("")
+
+except ImportError:
+  print("    ⚠ CrewAI not installed — install with: pip install 'mcp-agent-factory[crew]'")
+  sys.exit(1)
+except Exception as e:
+  print(f"    ✗ Error: {type(e).__name__}: {e}")
+  import traceback
+  traceback.print_exc()
+  sys.exit(1)
+PYEOF
+
+  echo ""
 fi
 
-echo ""
-echo "  ── HITL interrupt behaviour ──────────────────────────────────────────"
-echo "  If the planner emits a step whose tool matches a destructive pattern"
-echo "  (write, delete, drop, deploy, ...), execute_node calls interrupt()"
-echo "  BEFORE running the tool. LangGraph serialises GraphState to Redis and"
-echo "  returns GraphInterrupt — the graph is paused in mid-flight."
-echo ""
-echo "  To resume after approval:"
-echo "    compiled.ainvoke(None, config)  # same thread_id"
-echo ""
-echo "  Inspect paused checkpoint:"
-echo "    Redis Commander → http://localhost:8086  (keys prefixed by thread_id)"
-echo "    Look for: require_user_approval=true, hitl_reason"
-echo ""
-echo "  evaluate_node also interrupts when the critic scores output 0.0"
-echo "  (absolute failure — autonomous retry would reproduce the same result)."
-echo ""
-echo "  Set ORCHESTRATOR_MODE=pydantic_ai or ORCHESTRATOR_MODE=langgraph in .env"
-echo "  to make a mode the default for all agents/analyze calls."
-echo ""
+# ── Phase 6: DSPy + GEPA Offline Prompt Optimization (Layer 4) ───────────────
+
+if run_step "6" || run_step ""; then
+  hdr "PHASE 6 — DSPy + GEPA Offline Prompt Optimization (Layer 4)"
+  echo "  PromptOptimizer runs as an offline CI job — never in the request path."
+  echo "  It ingests Kafka traces, compiles via DSPy BootstrapFewShot, mutates"
+  echo "  via GEPA genetic evolution, then writes hot-reloadable JSON skill assets."
+  echo ""
+
+  # Publish sample traces to Kafka using publish_traces.py
+  echo "  Seeding mcp-traces topic…"
+  python3 scripts/publish_traces.py --count 20 >/dev/null 2>&1 || true
+  sleep 2
+  echo ""
+
+  python3 - <<'PYEOF'
+import asyncio
+import os
+from pathlib import Path
+from mcp_agent_factory.optimizer import PromptOptimizer, SkillCompiler
+
+SKILLS_DIR = "/tmp/mcp_demo_skills"
+
+async def run():
+  # Ingest from Kafka at localhost:9092 (host machine, mapped via docker-compose)
+  optimizer = PromptOptimizer(
+    kafka_topic="mcp-traces",
+    kafka_bootstrap="localhost:9092",  # Host machine port mapped from kafka:9092
+    skills_dir=SKILLS_DIR,
+    dry_run=False,
+  )
+
+  # reset_offset=True for demo: read all traces from the beginning
+  traces = await optimizer.ingest_traces(limit=20, reset_offset=True)
+  print(f"  traces ingested:            {len(traces)}")
+
+  # compile() degrades gracefully when dspy/gepa are absent
+  skills = await optimizer.compile(traces)
+  print(f"  skills compiled:            {len(skills)}")
+
+  # SkillCompiler writes JSON assets to disk
+  compiler = SkillCompiler(output_dir=SKILLS_DIR)
+  paths = compiler.compile_all(skills)
+  print(f"  skill assets written:       {len(paths)}")
+
+  # Show what was emitted
+  skill_dir = Path(SKILLS_DIR)
+  if skill_dir.exists():
+    files = sorted(skill_dir.glob("*.json"))
+    for f in files[:5]:
+      print(f"    → {f.name}")
+    if len(files) > 5:
+      print(f"    … and {len(files) - 5} more")
+  else:
+    print("  (no assets emitted — attach Kafka + dspy for live optimization)")
+
+asyncio.run(run())
+PYEOF
+
+  echo ""
+fi
 
 # ── Enterprise Architecture Reference ────────────────────────────────────────
 
-hdr "ENTERPRISE ARCHITECTURE REFERENCE"
-echo "  Pattern                     │ Where it runs                      │ What to observe"
-echo "  ──────────────────────────────────────────────────────────────────────────────────"
-echo "  Non-Determinism Gate        │ graph_orchestrator.py plan_node     │ ValidationError before any tool fires"
-echo "  Critic-Actor (Trust+Verify) │ evaluator.py → evaluate_node        │ EvaluationResult.score + per-criterion log"
-echo "  HITL Interrupt              │ execute_node / evaluate_node        │ GraphInterrupt; checkpoint in Redis :8086"
-echo ""
-echo "  Infrastructure"
-echo "  ──────────────────────────────────────────────────────────────────────────────────"
-echo "  Apache Kafka  │ Async backpressure & telemetry stream │ http://localhost:8085"
-echo "  Redis         │ Distributed state & session store     │ http://localhost:8086"
-echo "  MCP Server    │ Decoupled, secure data & action layer │ http://localhost:6274"
-echo ""
-echo "  Full rationale → README.md § Enterprise Production Patterns"
-echo ""
+if run_step "monitor" || run_step ""; then
+  hdr "ENTERPRISE ARCHITECTURE REFERENCE"
+  echo "  Layer │ Pattern                     │ Where it runs                      │ What to observe"
+  echo "  ────────────────────────────────────────────────────────────────────────────────────────────"
+  echo "  L1    │ Structured I/O (PydanticAI) │ orchestrator.py / structured_agent  │ ValidationError on malformed LLM output"
+  echo "  L2    │ Non-Determinism Gate        │ graph_orchestrator.py plan_node     │ ValidationError before any tool fires"
+  echo "  L2    │ Critic-Actor (Trust+Verify) │ evaluator.py → evaluate_node        │ EvaluationResult.score + per-criterion log"
+  echo "  L2    │ HITL Interrupt              │ execute_node / evaluate_node        │ GraphInterrupt; checkpoint in Redis :8086"
+  echo "  L3    │ Multi-Agent Crew (CrewAI)   │ crew.py → MCPCrew.kickoff           │ PermissionError on out-of-scope tool call"
+  echo "  L4    │ Offline Prompt Optimization │ optimizer.py → PromptOptimizer      │ JSON skill assets; SIGHUP reload"
+  echo ""
+  echo "  Infrastructure"
+  echo "  ────────────────────────────────────────────────────────────────────────────────────────────"
+  echo "  Apache Kafka  │ Async backpressure & trace stream for L4     │ http://localhost:8085"
+  echo "  Redis         │ Distributed state, session store, HITL pause │ http://localhost:8086"
+  echo "  MCP Inspector │ Decoupled, secure data & action layer        │ http://localhost:6274"
+  echo ""
+  echo "  Full rationale → README.md § Enterprise Production Patterns"
+  echo ""
+fi
 
 # ── Background traffic keeper ─────────────────────────────────────────────────
 # Keeps Jaeger Monitor and Prometheus rate() panels alive for 5 minutes by
 # sending a lightweight health check every 15s. Without this, rate() windows
 # drop to zero ~2 minutes after the demo ends and the UI tabs look empty.
-hdr "TRAFFIC KEEPER — keeping metrics alive for 5 minutes"
-echo "  Sending a /health ping every 15s so Jaeger Monitor + Prometheus rate()"
-echo "  panels stay populated while you explore the UIs."
-echo "  Press Ctrl-C to stop early."
-echo ""
 
-_KEEPER_END=$(( $(date +%s) + 300 ))
-_KEEPER_N=0
-while [ "$(date +%s)" -lt "$_KEEPER_END" ]; do
-  _KEEPER_N=$((_KEEPER_N + 1))
-  _remaining=$(( _KEEPER_END - $(date +%s) ))
-  printf "  ping %2d — %ds remaining  " "$_KEEPER_N" "$_remaining"
-  if curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
-    echo "ok"
-  else
-    echo "warn: gateway unreachable"
-  fi
-  sleep 15
-done
-echo ""
-echo "  Traffic keeper done. All UI panels show 5 min of activity."
-echo ""
+if run_step "monitor" || run_step ""; then
+  hdr "TRAFFIC KEEPER — keeping metrics alive for 5 minutes"
+  echo "  Sending a /health ping every 15s so Jaeger Monitor + Prometheus rate()"
+  echo "  panels stay populated while you explore the UIs."
+  echo "  Press Ctrl-C to stop early."
+  echo ""
+
+  _KEEPER_END=$(( $(date +%s) + 300 ))
+  _KEEPER_N=0
+  while [ "$(date +%s)" -lt "$_KEEPER_END" ]; do
+    _KEEPER_N=$((_KEEPER_N + 1))
+    _remaining=$(( _KEEPER_END - $(date +%s) ))
+    printf "  ping %2d — %ds remaining  " "$_KEEPER_N" "$_remaining"
+    if curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
+      echo "ok"
+    else
+      echo "warn: gateway unreachable"
+    fi
+    sleep 15
+  done
+  echo ""
+  echo "  Traffic keeper done. All UI panels show 5 min of activity."
+  echo ""
+fi

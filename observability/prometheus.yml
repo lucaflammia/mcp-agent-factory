@@ -16,3 +16,8 @@ scrape_configs:
     honor_labels: true
     static_configs:
       - targets: [otel-collector:8889]
+
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: [pushgateway:9091]

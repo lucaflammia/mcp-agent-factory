@@ -32,6 +32,8 @@ mcp-sim-server = "mcp_agent_factory.server:main"
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "fakeredis>=2.0"]
 infra = ["aiokafka>=0.10"]
 ml = ["sentence-transformers>=2.2"]
+crew = ["crewai>=0.80"]
+optimizer = ["dspy-ai>=2.5", "aiokafka>=0.10"]
 otel = [
     "opentelemetry-api>=1.24",
     "opentelemetry-sdk>=1.24",
