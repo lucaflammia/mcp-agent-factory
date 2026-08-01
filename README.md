@@ -82,6 +82,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 │  ✅ Layer 3: Orchestration (CrewAI)    ──► Multi-Agent Workflows       │
 │             crew.py                                                    │
 │             Role-based MCP tool scoping · PermissionError boundary    │
+│             use_langgraph=True → delegates to Layer 2 FSM per agent   │
 │                                                                        │
 │  ✅ Layer 4: Optimization (DSPy+GEPA)  ──► Offline Tuning             │
 │             optimizer.py                                               │
@@ -113,8 +114,8 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
 | **Orchestrator Modes** | `graph_orchestrator.py`, `structured_agent.py`, `server_http.py` | Three pluggable backends selected by `ORCHESTRATOR_MODE`: `react` (default ReAct loop), `pydantic_ai` (PydanticAI `Agent` with Gemini), `langgraph` (LangGraph `StateGraph` with thread checkpointing); `POST /orchestrate` endpoint added to gateway |
 | **Critic-Actor Evaluator** | `evaluator.py` | Deterministic critic-actor loop; LLM judge scores responses on faithfulness, relevance, and completeness; loops until score ≥ threshold or max rounds; emits structured `EvaluationResult` with per-criterion breakdown |
-| **Layer 3 — Multi-Agent Crew** | `crew.py` | `MCPCrew` coordinates specialised `ScopedAgent` personas over a shared task; `scope_tools(role, tools)` filters MCP tools per role (analyst/writer/db_agent/librarian/orchestrator); `build_scoped_call_fn` enforces hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process when installed, falls back to native PydanticAI sequential runner; optional `evaluator` callback validates the final `CrewResult` |
-| **Layer 4 — Offline Optimizer** | `optimizer.py` | `PromptOptimizer` ingests execution traces from Kafka (or local JSONL fallback), compiles DSPy `ChainOfThought` modules per `(role, phase)` pair, and runs `GEPAEvolver` genetic mutation across failure-trace Pareto frontier; `SkillCompiler` writes hot-reloadable `{skill_id}.json` assets + `index.json` manifest to disk; all optimization runs offline — never in the real-time request path |
+| **Layer 3 — Multi-Agent Crew** | `crew.py` | `MCPCrew` coordinates specialised `ScopedAgent` personas over a shared task; `scope_tools(role, tools)` filters MCP tools per role (analyst/writer/db_agent/librarian/orchestrator); `build_scoped_call_fn` enforces hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process when installed; `use_langgraph=True` routes each agent's subtask through the Layer 2 `GraphOrchestrator` FSM (bounded depth, checkpointing, critic evaluation); falls back to native PydanticAI sequential runner; optional `evaluator` callback validates the final `CrewResult` |
+| **Layer 4 — Offline Optimizer** | `optimizer.py` | `PromptOptimizer` ingests execution traces from Kafka (or local JSONL fallback); when DSPy is installed, runs real `BootstrapFewShot` compilation per `(role, phase)` pair (few-shot examples from passing traces); then runs `GEPAEvolver` genetic mutation across failure-trace Pareto frontier; `SkillCompiler` writes hot-reloadable `{skill_id}.json` assets + `index.json` manifest to disk; all optimization runs offline — never in the real-time request path |
 | **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
 | **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
 | **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub. Ollama defaults: `LLM_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:0.6b-q4_K_M`, `OLLAMA_TIMEOUT=300` (seconds), `OLLAMA_NUM_PREDICT=1024` |
@@ -1055,6 +1056,7 @@ tests/
 ├── test_evaluator_llm.py           # Feature: CriticActorEvaluator double-pass QA (schema + LLM judge)
 ├── test_crew.py                    # Layer 3: MCPCrew scoped-tool enforcement, native runner, CrewAI fallback (20 tests)
 ├── test_optimizer.py               # Layer 4: TraceRecord, GEPAEvolver, PromptOptimizer, SkillCompiler (22 tests)
+├── test_cross_layer_integration.py # Cross-layer: full 4-layer pipeline integration (Layer 1→2→3→4) (5 tests)
 └── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
 ```
 
@@ -1096,7 +1098,8 @@ tests/
 | Feature | **Enterprise production patterns**: `DeterministicOrchestrator` + `OrchestratorPlan`/`OrchestratorResult` Pydantic contracts in `orchestrator.py` enforce strict two-phase planning→execution separation; new `evaluator.py` implements Critic-Actor pattern (`CriticActorEvaluator`, `EvaluationContract`, `EvaluationVerdict`) to prevent self-certification bias; `docker-compose.yml` adds Kafka UI (`:8085`) and Redis Commander (`:8086`) so the full infrastructure is browsable immediately; README expanded with Non-Determinism, Critic-Actor, and Enterprise Infrastructure sections | +0 (361 unit + 14 integration) |
 | Hotfix | Phase 4 orchestrator modes unblocked: `graph_orchestrator.py` now accepts both `tool_name`/`arguments` and `name`/`args` step-key formats emitted by the planner; demo tasks changed to concrete single-tool calls (`echo` / `add`) to prevent `tool_name="None"` routing failure on open-ended prompts; `pydantic-ai` pinned to `0.0.20`; `PYDANTIC_AI_MODEL` default corrected to `google-gla:gemini-2.5-flash`; MCP Inspector service added to docker-compose on `:6274` | +0 (361 unit + 14 integration) |
 | **Layer 3** | **Multi-Agent Orchestration (CrewAI)**: `crew.py` adds `MCPCrew`, `ScopedAgent`, `scope_tools`, and `build_scoped_call_fn`; per-role MCP tool scoping with hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process (optional extra `.[crew]`) or native PydanticAI sequential runner; `test_crew.py` covers scoping, forbidden-tool enforcement, chained output passing, and evaluator callback (20 tests) | +20 (381 unit + 14 integration) |
-| **Layer 4** | **Offline Prompt Optimization (DSPy + GEPA)**: `optimizer.py` adds `PromptOptimizer` (Kafka trace ingestion → DSPy `BootstrapFewShot` compilation → `GEPAEvolver` genetic mutation), `SkillCompiler` (writes hot-reloadable `{skill_id}.json` + `index.json` manifest); entirely offline — never in the request path; optional extra `.[optimizer]`; `test_optimizer.py` covers trace ingestion, GEPA evolution, DSPy compilation fallback, and SkillCompiler disk output (22 tests) | +22 (403 unit + 14 integration) — **v1.0.0 pipeline complete** |
+| **Layer 4** | **Offline Prompt Optimization (DSPy + GEPA)**: `optimizer.py` adds `PromptOptimizer` (Kafka trace ingestion → DSPy `BootstrapFewShot` compilation → `GEPAEvolver` genetic mutation), `SkillCompiler` (writes hot-reloadable `{skill_id}.json` + `index.json` manifest); entirely offline — never in the request path; optional extra `.[optimizer]`; `test_optimizer.py` covers trace ingestion, GEPA evolution, DSPy compilation fallback, and SkillCompiler disk output (22 tests) | +22 (403 unit + 14 integration) |
+| **Cross-layer integration** | `crew.py` wired to Layer 2 `GraphOrchestrator` via `use_langgraph=True`; `optimizer.py` DSPy compilation enabled (real `_compile_with_dspy` path active when package is installed); `test_cross_layer_integration.py` exercises full 4-layer pipeline (Layer 1 PydanticAI → Layer 2 LangGraph FSM → Layer 3 CrewAI scoping → Layer 4 DSPy+GEPA skill compilation) | +5 (408 unit + 14 integration) — **v1.0.0 pipeline complete** |
 
 ## Enterprise Production Patterns
 
@@ -1159,6 +1162,42 @@ Slack/Telegram webhook identically.  No transport-specific code leaks into the s
 machine.  Adding a new inbound channel requires only a thin adapter that maps the
 channel's message format to the four-argument contract — the graph itself never
 changes.
+
+### LangGraph Finite State Machine (Layer 2)
+
+The core of Layer 2 is a cyclic finite state machine implemented in `graph_orchestrator.py` using LangGraph's `StateGraph`.  Every agent request flows through a bounded, checkpointed lifecycle with explicit phase transitions:
+
+```text
+              ┌──────────────────────────────────────────┐
+              │          LangGraph StateGraph             │
+              │                                          │
+  task ──►  VALIDATE ──► PLAN ──► EXECUTE ──► EVALUATE   │
+              ▲                                  │       │
+              │          retry (score < 0.7)      │       │
+              └──────────────────────────────────┘       │
+                                                  │       │
+                                    pass ──► DONE         │
+                                    fail ──► FAILED       │
+                                    HITL ──► interrupt()   │
+              └──────────────────────────────────────────┘
+```
+
+| Phase | Node function | What happens |
+|-------|---------------|-------------|
+| **VALIDATE** | `validate_node` | Checks task is non-empty, tools are available; rejects malformed input before any LLM call |
+| **PLAN** | `plan_node` | LLM generates an `ExecutionPlan` (Pydantic-validated); structural violations block execution |
+| **EXECUTE** | `execute_node` | Runs each plan step via the injected `call_tool_fn`; destructive tools trigger `interrupt()` for HITL approval |
+| **EVALUATE** | `evaluate_node` | `CriticActorEvaluator` scores the output; score < 0.7 routes back to PLAN (retry); score = 0.0 triggers HITL interrupt |
+| **DONE** | terminal | Final result emitted; `RedisSaver` persists the checkpoint |
+| **FAILED** | terminal | `max_iterations` (default 15) exceeded; graph halts with structured error |
+
+**Key properties:**
+- **Bounded depth** — `MAX_ITERATIONS=15` prevents infinite retry loops.
+- **Transactional checkpointing** — `RedisSaver` persists `GraphState` at every phase transition, enabling crash recovery and cross-process HITL resume.
+- **Decoupled I/O** — `GraphOrchestrator.run(task, tools, call_tool_fn, thread_id)` is transport-agnostic; the same FSM handles CLI, HTTP, and webhook invocations.
+- **Conditional edges** — LangGraph's `add_conditional_edges` routes EVALUATE output to DONE, FAILED, or back to PLAN based on score and iteration count.
+
+The 4-layer pipeline stacks on this FSM: Layer 1 (PydanticAI) validates the I/O contracts within PLAN and EXECUTE nodes, Layer 3 (CrewAI) orchestrates multiple FSM instances across agent roles, and Layer 4 (DSPy+GEPA) optimizes the prompts that feed into PLAN offline.
 
 ### The Critic-Actor Pattern
 
@@ -1266,7 +1305,7 @@ As task complexity grows, a single agent running all MCP tools becomes both an o
 
 **Execution strategy:**
 
-`MCPCrew.kickoff(task)` tries CrewAI first (sequential or hierarchical `Process`), then falls back to a native sequential runner.  Both paths enforce identical tool scopes.  The native runner also supports an `evaluator` callback that receives the final `CrewResult` and returns `True` if the output passes quality requirements — plugging directly into the `CriticActorEvaluator` from `evaluator.py`.
+`MCPCrew.kickoff(task)` tries CrewAI first (sequential or hierarchical `Process`).  When CrewAI is not installed and `use_langgraph=True`, each agent's subtask is routed through the Layer 2 `GraphOrchestrator` FSM — inheriting bounded depth (`MAX_ITERATIONS`), transactional Redis checkpointing, and critic-actor evaluation at every step.  Otherwise it falls back to a native PydanticAI sequential runner.  All paths enforce identical tool scopes.  An optional `evaluator` callback receives the final `CrewResult` and returns `True` if the output passes quality requirements — plugging directly into the `CriticActorEvaluator` from `evaluator.py`.
 
 ```python
 python -c 'import asyncio
@@ -1313,8 +1352,9 @@ Kafka topic (mcp-traces)
 TraceRecord list (filtered to failure_rate > 10%)
    │
    ▼ per (role, phase) pair
-DSPy BootstrapFewShot
+DSPy BootstrapFewShot (when installed)
    │ compiles few-shot examples from passing traces
+   │ falls back to base prompt when DSPy is unavailable
    ▼
 GEPAEvolver (genetic mutation)
    │ max_generations rounds, population_size candidates
