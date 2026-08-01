@@ -249,6 +249,18 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=7d"
 
+  # Prometheus Pushgateway — accepts metric pushes from batch jobs and demo scripts
+  pushgateway:
+    image: prom/pushgateway:v1.8.0
+    profiles: [full]
+    ports:
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9091/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Grafana — dashboards
   grafana:
     image: grafana/grafana:10.4.2

@@ -716,6 +716,46 @@ try:
   print(f"    Result:\n    {preview}...")
   print("")
 
+  # Push LLM cost / token metrics to Prometheus Pushgateway
+  try:
+    from prometheus_client import CollectorRegistry, Counter, push_to_gateway
+
+    usage = getattr(crew, "usage_metrics", None) or {}
+    input_tokens  = int(getattr(usage, "prompt_tokens",     0) or usage.get("prompt_tokens",     0))
+    output_tokens = int(getattr(usage, "completion_tokens", 0) or usage.get("completion_tokens", 0))
+    total_tokens  = int(getattr(usage, "total_tokens",      0) or usage.get("total_tokens",      0))
+
+    # Cost estimate: Gemini 2.5 Flash — $0.075 / 1M input, $0.30 / 1M output
+    cost_usd = (input_tokens * 0.075 + output_tokens * 0.30) / 1_000_000
+
+    registry = CollectorRegistry()
+
+    c_in = Counter("mcp_agent_input_tokens_total",
+                   "Cumulative LLM input tokens (demo phase 5)",
+                   ["provider"], registry=registry)
+    c_out = Counter("mcp_agent_output_tokens_total",
+                    "Cumulative LLM output tokens (demo phase 5)",
+                    ["provider"], registry=registry)
+    c_cost = Counter("mcp_agent_cost_usd_total",
+                     "Cumulative LLM cost USD (demo phase 5)",
+                     ["provider"], registry=registry)
+
+    c_in.labels(provider="google").inc(input_tokens)
+    c_out.labels(provider="google").inc(output_tokens)
+    c_cost.labels(provider="google").inc(cost_usd)
+
+    push_to_gateway("localhost:9091", job="mcp_demo_phase5", registry=registry)
+
+    print(f"    ✓ Metrics pushed to Pushgateway (localhost:9091)")
+    print(f"      input tokens:  {input_tokens}")
+    print(f"      output tokens: {output_tokens}")
+    print(f"      total tokens:  {total_tokens}")
+    print(f"      est. cost:     ${cost_usd:.6f} USD")
+  except Exception as push_err:
+    print(f"    ⚠ Metric push skipped ({type(push_err).__name__}: {push_err})")
+    print(f"      Start the full stack with: docker compose --profile full up -d")
+  print("")
+
 except ImportError:
   print("    ⚠ CrewAI not installed — install with: pip install 'mcp-agent-factory[crew]'")
   sys.exit(1)
