@@ -10,6 +10,12 @@ authlib>=1.2
 sse-starlette>=1.6
 anyio>=4.0
 numpy>=1.24
+pydantic-ai[google]==0.0.20
+langgraph>=1.0
+langgraph-checkpoint-redis>=0.5
+
+[crew]
+crewai>=0.80
 
 [dev]
 pytest>=8.0
@@ -21,6 +27,10 @@ aiokafka>=0.10
 
 [ml]
 sentence-transformers>=2.2
+
+[optimizer]
+dspy-ai>=2.5
+aiokafka>=0.10
 
 [otel]
 opentelemetry-api>=1.24
