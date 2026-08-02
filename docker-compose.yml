@@ -141,7 +141,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ORCHESTRATOR_MODE: ${ORCHESTRATOR_MODE:-react}
+      ORCHESTRATOR_MODE: ${ORCHESTRATOR_MODE:-legacy}
       PYDANTIC_AI_MODEL: ${PYDANTIC_AI_MODEL:-google-gla:gemini-2.5-flash}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: mcp-gateway
