@@ -112,7 +112,7 @@ A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrati
 | **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding; `client_credentials` grant for machine-to-machine auth |
 | **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream; `make_client_credentials_factory()` for headless bridge operation |
 | **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
-| **Orchestrator Modes** | `graph_orchestrator.py`, `structured_agent.py`, `server_http.py` | Three pluggable backends selected by `ORCHESTRATOR_MODE`: `react` (default ReAct loop), `pydantic_ai` (PydanticAI `Agent` with Gemini), `langgraph` (LangGraph `StateGraph` with thread checkpointing); `POST /orchestrate` endpoint added to gateway |
+| **Orchestrator Modes** | `graph_orchestrator.py`, `structured_agent.py`, `server_http.py` | Three pluggable backends selected by `ORCHESTRATOR_MODE`: `legacy` (default ReAct loop), `pydantic_ai` (PydanticAI `Agent` with Gemini), `langgraph` (LangGraph `StateGraph` with thread checkpointing); `POST /orchestrate` endpoint added to gateway |
 | **Critic-Actor Evaluator** | `evaluator.py` | Deterministic critic-actor loop; LLM judge scores responses on faithfulness, relevance, and completeness; loops until score ≥ threshold or max rounds; emits structured `EvaluationResult` with per-criterion breakdown |
 | **Layer 3 — Multi-Agent Crew** | `crew.py` | `MCPCrew` coordinates specialised `ScopedAgent` personas over a shared task; `scope_tools(role, tools)` filters MCP tools per role (analyst/writer/db_agent/librarian/orchestrator); `build_scoped_call_fn` enforces hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process when installed; `use_langgraph=True` routes each agent's subtask through the Layer 2 `GraphOrchestrator` FSM (bounded depth, checkpointing, critic evaluation); falls back to native PydanticAI sequential runner; optional `evaluator` callback validates the final `CrewResult` |
 | **Layer 4 — Offline Optimizer** | `optimizer.py` | `PromptOptimizer` ingests execution traces from Kafka (or local JSONL fallback); when DSPy is installed, runs real `BootstrapFewShot` compilation per `(role, phase)` pair (few-shot examples from passing traces); then runs `GEPAEvolver` genetic mutation across failure-trace Pareto frontier; `SkillCompiler` writes hot-reloadable `{skill_id}.json` assets + `index.json` manifest to disk; all optimization runs offline — never in the real-time request path |
@@ -1185,17 +1185,21 @@ The core of Layer 2 is a cyclic finite state machine implemented in `graph_orche
 | Phase | Node function | What happens |
 |-------|---------------|-------------|
 | **VALIDATE** | `validate_node` | Checks task is non-empty, tools are available; rejects malformed input before any LLM call |
-| **PLAN** | `plan_node` | LLM generates an `ExecutionPlan` (Pydantic-validated); structural violations block execution |
-| **EXECUTE** | `execute_node` | Runs each plan step via the injected `call_tool_fn`; destructive tools trigger `interrupt()` for HITL approval |
-| **EVALUATE** | `evaluate_node` | `CriticActorEvaluator` scores the output; score < 0.7 routes back to PLAN (retry); score = 0.0 triggers HITL interrupt |
-| **DONE** | terminal | Final result emitted; `RedisSaver` persists the checkpoint |
+| **PLAN** | `plan_node` | LLM generates an `ExecutionPlan` with typed `PlanStep` objects (id, tool_name, arguments); supports `{{steps.<id>.output}}` references for output chaining between steps |
+| **EXECUTE** | `execute_node` | Validates step references, builds a DAG via `graphlib.TopologicalSorter`, executes steps with bounded concurrency (`PLAN_MAX_PARALLEL`), per-step timeout (`STEP_TIMEOUT_S`), and HITL interrupt for destructive tools |
+| **EVALUATE** | `evaluate_node` | `CriticActorEvaluator` scores the output; collects **all** step outputs (not just the last); score < 0.7 routes back to PLAN (retry); score = 0.0 triggers HITL interrupt |
+| **DONE** | terminal | Final result emitted with `all_step_outputs` array; `AsyncRedisSaver` persists the checkpoint |
 | **FAILED** | terminal | `max_iterations` (default 15) exceeded; graph halts with structured error |
 
 **Key properties:**
 - **Bounded depth** — `MAX_ITERATIONS=15` prevents infinite retry loops.
-- **Transactional checkpointing** — `RedisSaver` persists `GraphState` at every phase transition, enabling crash recovery and cross-process HITL resume.
+- **Typed plan steps with output chaining** — `PlanStep(BaseModel)` replaces untyped dicts. Steps reference predecessors via `{{steps.<id>.output}}`, enabling multi-step composition where step N consumes step M's output.
+- **DAG-derived execution ordering** — Dependencies are extracted by static inspection of `{{steps.*}}` references — never from model-generated fields. `graphlib.TopologicalSorter` determines execution order and yields ready-batches for concurrent execution.
+- **Bounded concurrency** — `PLAN_MAX_PARALLEL` (default 4) caps concurrent tool calls via `asyncio.Semaphore`. `STEP_TIMEOUT_S` (default 30s) cancels hung tools. Feature flag `PLAN_PARALLEL_ENABLED` (default off) gates parallel execution.
+- **Transactional checkpointing** — `AsyncRedisSaver` persists `GraphState` at every phase transition without blocking the event loop, enabling crash recovery and cross-process HITL resume.
 - **Decoupled I/O** — `GraphOrchestrator.run(task, tools, call_tool_fn, thread_id)` is transport-agnostic; the same FSM handles CLI, HTTP, and webhook invocations.
 - **Conditional edges** — LangGraph's `add_conditional_edges` routes EVALUATE output to DONE, FAILED, or back to PLAN based on score and iteration count.
+- **HITL replay safety** — `completed_step_ids` in `GraphState` ensures that tools already executed before an interrupt are skipped on replay, preventing data corruption on non-idempotent tools.
 
 The 4-layer pipeline stacks on this FSM: Layer 1 (PydanticAI) validates the I/O contracts within PLAN and EXECUTE nodes, Layer 3 (CrewAI) orchestrates multiple FSM instances across agent roles, and Layer 4 (DSPy+GEPA) optimizes the prompts that feed into PLAN offline.
 
@@ -1244,7 +1248,7 @@ losing any state.
 
 2. **LangGraph `interrupt()`** — calling `interrupt()` raises a
    `GraphInterrupt` exception internally.  LangGraph catches it, **serialises
-   the current `GraphState` to Redis** via the `RedisSaver` checkpointer,
+   the current `GraphState` to Redis** via the `AsyncRedisSaver` checkpointer,
    and returns a `GraphInterrupt` value to the caller rather than a final
    state.  The graph is now *paused in mid-flight* — no further nodes run.
 
@@ -1267,7 +1271,7 @@ losing any state.
 | `hitl_reason` | `str \| None` | Human-readable explanation of why approval is needed |
 
 **Why Redis is essential here:** `MemorySaver` would lose all state the
-moment the process exits or the request times out.  `RedisSaver` persists
+moment the process exits or the request times out.  `AsyncRedisSaver` persists
 the exact graph checkpoint so the graph can be resumed by a *different*
 process, *at a different time*, with *full state fidelity* — enabling
 asynchronous human approval workflows across service restarts.
@@ -1277,7 +1281,7 @@ asynchronous human approval workflows across service restarts.
 | Component | Operational Role | Production Value | How to inspect |
 |-----------|-----------------|-----------------|----------------|
 | **Apache Kafka** (`kafka:29092`) | Asynchronous backpressure and durable telemetry stream for `token.usage` events | Absorbs high-volume telemetry spikes and persists traces for offline prompt tuning without stalling runtime requests; survives gateway restarts | Kafka UI → `http://localhost:8085/ui/clusters/local/topics` |
-| **Redis** (`redis:6379`) | In-memory distributed state and session store — `RedisSessionManager`, `RedisKVStore` phrase affinity, `AsyncIdempotencyGuard`, LangGraph `RedisSaver` checkpointer | Manages real-time, high-speed LangGraph checkpointing and conversational context storage with sub-millisecond latency | Redis Commander → `http://localhost:8086` |
+| **Redis** (`redis:6379`) | In-memory distributed state and session store — `RedisSessionManager`, `RedisKVStore` phrase affinity, `AsyncIdempotencyGuard`, LangGraph `AsyncRedisSaver` checkpointer | Manages real-time, high-speed LangGraph checkpointing and conversational context storage with sub-millisecond latency | Redis Commander → `http://localhost:8086` |
 | **Redis Redlock nodes** (`redis-node-1/2/3`, ports 6381–6383) | 3-node quorum for `RedlockClient` distributed locking — prevents split-brain during concurrent tool calls | Guarantees exactly-once tool execution across horizontally-scaled gateway replicas | Redis Commander → same UI, all four hosts pre-configured |
 | **MCP Server** (gateway `:8000`) | Decoupled, secure data and action layer secured by OAuth 2.1 / PKCE S256 | Isolates business logic, offering secure, audited access to external tools and data via strict API/OAuth boundaries; tool dispatch is stateless so any instance can handle any request | Gateway health → `http://localhost:8000/health`; MCP Inspector → `http://localhost:6274` |
 | **Jaeger** (`:16686`) | Distributed trace visualisation — every `agents/analyze` call produces 4 child spans (`pdf_extract`, `prune`, `pii_scrub`, `llm_route`) with token count attributes | Full request lineage from gateway to LLM, enabling latency attribution and bottleneck detection per pipeline stage | Jaeger UI → `http://localhost:16686` |
