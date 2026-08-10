@@ -1,1414 +1,289 @@
 # MCP Agent Factory
 
-A production-grade **Model Context Protocol (MCP)** server ecosystem demonstrating collaborative multi-agent architectures, economic task allocation, async messaging, OAuth 2.1 security, external client connectivity, a vector-backed RAG layer, a fault-tolerant streaming pipeline backed by real Kafka and multi-node Redis infrastructure, model-agnostic LLM routing with PII scrubbing, context pruning, async prompt caching, Caddy TLS, full-stack observability (OpenTelemetry → Jaeger, Prometheus, Grafana), and a zero-touch live demo with full OTel span chain — built across twelve progressive milestones.
+A **Model Context Protocol (MCP)** server ecosystem for collaborative multi-agent
+architectures — with privacy-first design, full-stack observability, fault-tolerant
+streaming, and standards-compliant security.
 
-## Architecture
+## What It Does
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     External Clients                         │
-│   Cursor / Claude Desktop / MCPGatewayClient + mcp.json      │
-└────────────────────────┬─────────────────────────────────────┘
-                         │ HTTPS (Caddy TLS termination → :8000)
-                         │ Bearer JWT (OAuth 2.1 / PKCE S256)
-┌────────────────────────▼─────────────────────────────────────┐
-│                 MCP API Gateway (FastAPI :8000)               │
-│  POST /mcp (Streamable HTTP)  POST /sampling   GET /health    │
-│  GET  /sse  POST /sse/messages (MCP legacy SSE transport)     │
-│  GET  /sse/v1/events          POST /sse/v1/messages           │
-│  PIIGate · ValidationGate · InternalServiceLayer             │
-│  UnifiedRouter → OpenAI / Anthropic / Ollama (auto-fallback) │
-│  ContextPruner (cosine) · AsyncIdempotencyGuard (SHA-256)    │
-└──────┬──────────────┬──────────────┬────────────────────────-┘
-       │              │              │
-┌──────▼──────┐ ┌─────▼──────────┐ ┌▼────────────────────────┐
-│  Analyst→   │ │  Knowledge-    │ │    MessageBus +          │
-│  Writer     │ │  Augmented     │ │    SSE v1 Transport      │
-│  Pipeline   │ │  Auction       │ └─────────────────────────-┘
-└──────┬──────┘ └────────────────┘
-       │ auto-ingest
-┌──────▼──────────────────────────────────────────────────────┐
-│         Knowledge Layer                                      │
-│  InMemoryVectorStore · StubEmbedder · IngestionWorker        │
-│  LibrarianAgent · query_knowledge_base tool                  │
-│  knowledge.retrieved SSE event                               │
-└─────────────────────────────────────────────────────────────┘
-       │
-┌──────▼─────────────────────────────────────────────────────┐
-│      Streaming / Reliability Layer                          │
-│  StreamWorker (XREADGROUP/ACK/PEL)                          │
-│  IdempotencyGuard · DistributedLock · OutboxRelay           │
-│  CircuitBreaker (CLOSED→OPEN→HALF_OPEN)                     │
-│  EventLog Protocol · InProcessEventLog · KafkaEventLog      │
-└──────┬─────────────────────────────────────────────────────┘
-       │
-┌──────▼──────────────────────────────────────────────────────┐
-│      Real Infrastructure Layer (M007)                        │
-│  docker-compose: Kafka + Zookeeper + 4 Redis nodes           │
-│  RedlockClient — 3-node quorum acquire / release             │
-│  Multi-process StreamWorker — horizontal scaling + PEL rec.  │
-└──────┬──────────────────────────────────────────────────────┘
-       │
-┌──────▼─────────────────────────────────────────────────────┐
-│       Redis Storage Layer (fakeredis / real)                │
-│  RedisSessionManager — cross-agent session handoffs         │
-│  RedisKVStore — topic-namespaced key-value store            │
-└────────────────────────────────────────────────────────────┘
+**Privacy-first design** — `PIIGate` scrubs PII (emails, API keys, private IPs,
+JWTs) at the gateway before any LLM call. `UnifiedRouter` dispatches to OpenAI,
+Anthropic, or a local Ollama instance with automatic 429 fallback, so sensitive
+payloads need not leave the host.
 
-┌──────────────────────────────────────────────────────────────┐
-│              OAuth 2.1 Auth Server (:8001)                   │
-│   POST /register   GET /authorize   POST /token              │
-│   PKCE S256 only · one-time codes · audience-bound JWTs      │
-└──────────────────────────────────────────────────────────────┘
-```
+**Observability** — `EventLog` protocol with pluggable backends (in-process or
+Kafka). OpenTelemetry span chain across gateway and agents, exported via
+OTLP/gRPC to Jaeger. Prometheus counters for token usage and cost per provider.
+Grafana dashboards included.
+
+**Reliability** — `CircuitBreaker` (CLOSED → OPEN → HALF_OPEN), `IdempotencyGuard`
+(SET NX + result cache), `DistributedLock` (single-node SET NX EX),
+`OutboxRelay` (transactional outbox), `RedlockClient` (3-node quorum).
+
+**Multi-tenant isolation** — `InMemoryVectorStore` namespaced by JWT `sub` claim.
+Cross-tenant queries return empty results by design.
+
+**Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
+PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
+
+> **Note on defaults:** The knowledge layer ships with `StubEmbedder` and
+> `InMemoryVectorStore` for zero-dependency startup. For production use, swap in
+> a persistent vector store and a real embedder (e.g. `LocalEmbedder` with
+> sentence-transformers via `pip install -e ".[ml]"`). The `Embedder` protocol in
+> `knowledge/embedder.py` defines the interface.
 
 ## 4-Layer Execution Pipeline
 
-```text
-[MCP Resources / Tools]
-│
-▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                        MCP-AGENT-FACTORY PIPELINE                      │
-│                                                                        │
-│  ✅ Layer 1: Foundations (PydanticAI)  ──► Validated I/O               │
-│             structured_agent.py · orchestrator.py                     │
-│             Schema-gated tool calls · Pydantic I/O contracts           │
-│                                                                        │
-│  ✅ Layer 2: Production (LangGraph)    ──► State Machines              │
-│             graph_orchestrator.py · evaluator.py                      │
-│             Deterministic plan→execute · Critic-Actor loop · HITL     │
-│                                                                        │
-│  ✅ Layer 3: Orchestration (CrewAI)    ──► Multi-Agent Workflows       │
-│             crew.py                                                    │
-│             Role-based MCP tool scoping · PermissionError boundary    │
-│             use_langgraph=True → delegates to Layer 2 FSM per agent   │
-│                                                                        │
-│  ✅ Layer 4: Optimization (DSPy+GEPA)  ──► Offline Tuning             │
-│             optimizer.py                                               │
-│             Kafka trace ingestion · text-gradient mutation             │
-│             Hot-reloadable JSON skill assets                           │
-└────────────────────────────────────────────────────────────────────────┘
-│
-▼
-[Predictable Enterprise Output & Dynamic Skillsets → v1.0.0]
-```
+| Layer | Framework | Module | Purpose |
+|-------|-----------|--------|---------|
+| 1 | PydanticAI | `structured_agent.py`, `orchestrator.py` | Schema-gated tool calls, Pydantic I/O contracts |
+| 2 | LangGraph | `graph_orchestrator.py`, `evaluator.py` | Cyclic FSM (validate → plan → execute → evaluate), critic-actor loop, HITL |
+| 3 | CrewAI | `crew.py` | Per-role MCP tool scoping, multi-agent coordination |
+| 4 | DSPy + GEPA | `optimizer.py` | Offline trace-driven prompt optimization, hot-reloadable skill assets |
 
-## Features
-
-| Layer | Module | What it does |
-|-------|--------|--------------|
-| **MCP Protocol** | `server.py` (STDIO), `server_http.py` (HTTP) | JSON-RPC 2.0 over STDIO and FastAPI; echo + add + query_knowledge_base tools |
-| **Task Scheduler** | `scheduler.py` | Priority queue, retry logic, structured state-transition logging |
-| **LLM Adapters** | `adapters.py` | Normalises tool schemas for Claude, OpenAI, and Gemini |
-| **ReAct Loop** | `react_loop.py` | Perception → Reasoning → Action agent loop |
-| **Agent Pipeline** | `agents/` | `AnalystAgent` → `WriterAgent` coordinated by `MultiAgentOrchestrator`; `LibrarianAgent` for RAG retrieval |
-| **Session State** | `session/manager.py` | Redis-backed key/value store for cross-agent handoffs |
-| **KV Store** | `kv/store.py` | Topic-namespaced Redis key-value store; registered topics enforced at runtime; JSON serialisation; async `set/get/delete/keys`; O(1) phrase-affinity check via Redis sets (`add_phrase` / `has_affinity` / `phrases`) |
-| **Economics** | `economics/` | Utility scoring + knowledge-augmented sealed-bid auction |
-| **Knowledge (RAG)** | `knowledge/` | `InMemoryVectorStore` (cosine similarity, multi-tenant), `StubEmbedder`, `IngestionWorker`, `query_knowledge_base` |
-| **Messaging** | `messaging/` | Async `MessageBus` (fan-out by topic) + SSE v1 router; `knowledge.retrieved` event on every RAG query |
-| **Gateway** | `gateway/` | Authenticated MCP API gateway; `ValidationGate` blocks malformed payloads; `InternalServiceLayer` handles tool dispatch; Streamable HTTP (`POST /mcp`), MCP legacy SSE (`GET /sse` + `POST /sse/messages`), and SSE v1 endpoints |
-| **Auth (OAuth 2.1)** | `auth/` | PKCE S256 auth server, JWT resource middleware, audience binding; `client_credentials` grant for machine-to-machine auth |
-| **Bridge** | `bridge/` | `OAuthMiddleware` (token cache + 60s refresh) + `MCPGatewayClient` with SSE stream; `make_client_credentials_factory()` for headless bridge operation |
-| **Streams** | `streams/` | `StreamWorker` (XREADGROUP consumer groups, PEL recovery); `IdempotencyGuard` (SET NX pre-check + result cache); `DistributedLock` (single-node SET NX EX); `OutboxRelay` (in-process transactional outbox); `CircuitBreaker` (CLOSED→OPEN→HALF_OPEN); `EventLog` protocol + `InProcessEventLog`; `KafkaEventLog` |
-| **Orchestrator Modes** | `graph_orchestrator.py`, `structured_agent.py`, `server_http.py` | Three pluggable backends selected by `ORCHESTRATOR_MODE`: `react` (default ReAct loop), `pydantic_ai` (PydanticAI `Agent` with Gemini), `langgraph` (LangGraph `StateGraph` with thread checkpointing); `POST /orchestrate` endpoint added to gateway |
-| **Critic-Actor Evaluator** | `evaluator.py` | Deterministic critic-actor loop; LLM judge scores responses on faithfulness, relevance, and completeness; loops until score ≥ threshold or max rounds; emits structured `EvaluationResult` with per-criterion breakdown |
-| **Layer 3 — Multi-Agent Crew** | `crew.py` | `MCPCrew` coordinates specialised `ScopedAgent` personas over a shared task; `scope_tools(role, tools)` filters MCP tools per role (analyst/writer/db_agent/librarian/orchestrator); `build_scoped_call_fn` enforces hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process when installed; `use_langgraph=True` routes each agent's subtask through the Layer 2 `GraphOrchestrator` FSM (bounded depth, checkpointing, critic evaluation); falls back to native PydanticAI sequential runner; optional `evaluator` callback validates the final `CrewResult` |
-| **Layer 4 — Offline Optimizer** | `optimizer.py` | `PromptOptimizer` ingests execution traces from Kafka (or local JSONL fallback); when DSPy is installed, runs real `BootstrapFewShot` compilation per `(role, phase)` pair (few-shot examples from passing traces); then runs `GEPAEvolver` genetic mutation across failure-trace Pareto frontier; `SkillCompiler` writes hot-reloadable `{skill_id}.json` assets + `index.json` manifest to disk; all optimization runs offline — never in the real-time request path |
-| **Real Infrastructure** | `docker-compose.yml`, `streams/redlock.py` | 6-service docker-compose stack (Kafka, Zookeeper, 4× Redis); `RedlockClient` 3-node quorum; multi-process `StreamWorker` horizontal scaling; 8 integration tests (skip without Docker) |
-| **Env-driven factories** | `gateway/app.py` | `REDIS_URL` → real `redis.asyncio` client; unset → `FakeRedis` fallback (tests need no docker); `KAFKA_BOOTSTRAP_SERVERS` → `KafkaEventLog`; unset → `InProcessEventLog` |
-| **Model-agnostic routing** | `gateway/router.py` | `UnifiedRouter` dispatches to OpenAI, Anthropic, or Ollama; automatic 429 → Ollama fallback; `token.usage` events with model, cost_usd, sub. Ollama defaults: `LLM_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:0.6b-q4_K_M`, `OLLAMA_TIMEOUT=300` (seconds), `OLLAMA_NUM_PREDICT=1024` |
-| **PII Gate** | `gateway/validation.py` | `PIIGate` deny-list regex scrubbing (email, API keys, private IPs, JWTs); `MCP_ALLOWED_FIELDS` env override |
-| **Context Pruner** | `gateway/pruner.py` | `ContextPruner.prune()` — cosine-similarity threshold filters irrelevant chunks before LLM dispatch |
-| **Async Prompt Cache** | `streams/async_idempotency.py` | `AsyncIdempotencyGuard` — SHA-256 cache key, async Redis SET NX; avoids redundant LLM calls for identical prompts |
-| **TLS / Caddy** | `Caddyfile`, `docker-compose.yml` | Caddy `tls internal` terminates HTTPS at `localhost`; `gateway` + `caddy` services in docker-compose stack |
-| **External Config** | `.mcp.json` (machine-local, gitignored) | IDE config for Cursor / Claude Desktop pointing at localhost gateway — generated from `.mcp.json.template` by `./setup-mcp.sh` |
+See [docs/architecture.md](docs/architecture.md) for detailed diagrams, request
+lifecycle, and the LangGraph state machine specification.
 
 ## Quick Start
 
-### 1. Install
+### Install
 
 ```bash
-# Generate machine-specific .mcp.json (run once after cloning or moving the repo)
-./setup-mcp.sh
-
-pip install -e .                   # core deps: fastapi, uvicorn, pydantic, authlib, redis, sse-starlette, numpy, python-dotenv
-pip install -e ".[ml]"            # add sentence-transformers for query_knowledge_base (downloads ~500MB PyTorch)
-pip install -e ".[crew]"          # Layer 3: CrewAI multi-agent orchestration (crewai>=0.80)
-pip install -e ".[optimizer]"     # Layer 4: DSPy + GEPA offline prompt optimization (dspy-ai>=2.5, aiokafka)
+pip install -e .                   # core: fastapi, uvicorn, pydantic, authlib, redis, numpy
+pip install -e ".[ml]"            # sentence-transformers for real RAG embeddings (~500 MB)
+pip install -e ".[crew]"          # Layer 3: CrewAI multi-agent orchestration
+pip install -e ".[optimizer]"     # Layer 4: DSPy + GEPA offline optimization
 ```
 
-### 2. Run the gateway (terminal 1)
-
-The bridge and integration tests both require the gateway to be running first.
+### Run the gateway
 
 ```bash
-# In-memory mode — no Redis required, auth bypassed
+# In-memory mode — no Redis, auth bypassed
 MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run
 
-# With real Redis (required for kv/* tools and stream workers)
+# With real Redis
 MCP_DEV_MODE=1 REDIS_URL=redis://localhost:6379 python -m mcp_agent_factory.gateway.run
 ```
 
-### 3. Connect with MCP Inspector
-
-Two transport options are supported (use whichever your client requires):
+### Connect with MCP Inspector
 
 | Transport | URL | Notes |
 |-----------|-----|-------|
-| **Streamable HTTP** (recommended) | `http://localhost:8000/mcp` | Modern MCP spec; full duplex over a single HTTP connection |
-| **Legacy SSE** | `http://localhost:8000/sse` | MCP 2024-11-05 spec; `GET /sse` opens stream, `POST /sse/messages?sessionId=<id>` sends requests |
+| **Streamable HTTP** (recommended) | `http://localhost:8000/mcp` | Modern MCP spec; full duplex |
+| **Legacy SSE** | `http://localhost:8000/sse` | MCP 2024-11-05 spec |
 
-In [MCP Inspector](https://github.com/modelcontextprotocol/inspector), select the matching Transport Type in the sidebar before connecting.
-
-### 4. Run the bridge smoke test (terminal 2)
+### Run the bridge smoke test
 
 ```bash
-# Requires the gateway from step 2 to be running
 MCP_DEV_MODE=1 python -m mcp_agent_factory.bridge
-# Expected: lists 5 available tools and prints "Echo result: hello from bridge"
+# Lists 5 tools, prints "Echo result: hello from bridge"
 ```
 
-### 4. Integration tests (Kafka + Redis cluster)
+## Full Stack (Docker Compose)
 
-> **Prerequisite:** Docker Compose v2 (`docker compose version` — must be ≥ 2.0).
-> Install: https://docs.docker.com/compose/install/
-
-```bash
-# Start infrastructure (Kafka, Redis cluster, Prometheus, Jaeger)
-MCP_DEV_MODE=1 docker compose up -d
-
-pip install -e ".[infra]"          # aiokafka extra
-REDIS_URL=redis://localhost:6379 pytest -m integration -v
-```
-
-> **Note:** The Kafka integration tests (`test_kafka_append_read`, `test_kafka_consumer_group`,
-> `test_kafka_multi_partition`) require the Kafka container to be fully healthy before running.
-> Each test is time-bounded (2 s consumer poll) and will fail fast with a connection error rather
-> than hang if Kafka isn't ready. If tests fail, check `docker compose ps` — the kafka container
-> may still be starting (~30 s). Run `docker compose logs kafka` to inspect.
-
-### Other server modes
+> Requires Docker Compose **v2** (`docker compose version` → v2.x).
 
 ```bash
-# Minimal STDIO server (no HTTP)
-python -m mcp_agent_factory.server
-
-# HTTP server (unauthenticated, no gateway)
-uvicorn mcp_agent_factory.server_http:app --reload
-
-# HTTP server (OAuth-secured)
-uvicorn mcp_agent_factory.server_http_secured:secured_app --reload
-
-# Gateway with a shared JWT secret (production — Bridge and gateway must share the same value)
-JWT_SECRET=<random-secret> python -m mcp_agent_factory.gateway.run
-```
-
-### JWT_SECRET and the Gateway / Auth Server handshake
-
-The Gateway acts as an OAuth 2.1 Resource Server. To verify incoming Bearer tokens it must
-share the same signing key as the Auth Server:
-
-| Scenario | What to do |
-|----------|-----------|
-| Dev / `MCP_DEV_MODE=1` | No `JWT_SECRET` needed — auth is bypassed |
-| Gateway + Auth Server in the same process | Key is set automatically at startup |
-| Gateway + Auth Server as separate processes | Set `JWT_SECRET=<random-secret>` for **both** processes — Auth Server signs with it, Gateway verifies with it |
-
-Without a shared `JWT_SECRET`, the Auth Server generates a random key at startup while the Gateway uses its own random key, so every token fails signature verification with `bad_signature`.
-
-### Live Demo (M012)
-
-**Prerequisites:** Docker Compose **v2** is required (`docker compose version` must show v2.x).
-The legacy `docker-compose` v1 binary is not supported and will crash with a `ContainerConfig`
-error on modern Docker Engine versions. Install the Compose v2 plugin:
-https://docs.docker.com/compose/install/
-
-Start the full stack with auth bypass enabled (required by the demo script):
-
-```bash
-# Always pass --build so the gateway image reflects the latest code changes
+# Start all 12+ services with auth bypass
 MCP_DEV_MODE=1 docker compose --profile full up --build -d
-```
 
-Then run the demo:
-
-> **Linux only:** Ollama must listen on all interfaces so the gateway container can reach it.
-> Start (or restart) Ollama with `OLLAMA_HOST=0.0.0.0 ollama serve` before running the demo.
-
-```bash
-# Pull the default local model first (lightweight, ~400 MB)
-ollama pull qwen3:0.6b-q4_K_M
-
-# Seven-phase zero-touch demo (all 4 pipeline layers):
-#   Phase 0 — Deterministic Orchestration: validation gate on LLM output (DeterministicOrchestrator)
-#   Phase 1 — Privacy-First RAG: agents/analyze with locked data
-#   Phase 2 — OTel trace: Jaeger at :16686 shows Gateway→AnalystAgent→LibrarianAgent→VectorStore span chain
-#   Phase 3 — Provider switch: per-request provider override, -32602 fail-fast on missing key
-#   Phase 4 — Orchestrator modes: pydantic_ai (echo tool) + langgraph (add tool) structured backends
-#   Phase 5 — Multi-Agent Crew (Layer 3): per-role MCP tool scoping via CrewAI
-#   Phase 6 — Offline Prompt Optimization (Layer 4): DSPy + GEPA compile skill JSON assets
-./scripts/demo.sh
-
-# Run a single phase (useful for demos and CI):
-./scripts/demo.sh 0          # Deterministic Orchestration only
-./scripts/demo.sh 1          # Privacy-First RAG only
-./scripts/demo.sh 5          # CrewAI multi-agent scoping only
-./scripts/demo.sh 6          # DSPy + GEPA optimization only
-./scripts/demo.sh infra      # Seed Kafka topics + Redis KV (no agent calls)
-./scripts/demo.sh monitor    # Grafana verification + traffic keeper
-
-# Override the model if you already have a different one pulled:
-OLLAMA_MODEL=llama3.2 ./scripts/demo.sh
-```
-
-## Full Stack Quickstart (Docker)
-
-Bring up all 12 services — gateway, auth, Redis (×4), Kafka, Zookeeper, Jaeger, Prometheus, Grafana, and Caddy — with one command:
-
-> **Requires Docker Compose v2** (`docker compose version` → v2.x). The legacy
-> `docker-compose` v1 binary is not supported.
-
-```bash
-# Optional: set a shared JWT secret (defaults to dev-secret-change-in-production)
-export JWT_SECRET=$(openssl rand -hex 32)
-
-# MCP_DEV_MODE=1 enables auth bypass (required for the live demo)
-# --build ensures the gateway image is rebuilt from the latest source
-MCP_DEV_MODE=1 docker compose --profile full up --build -d
-```
-
-Wait for all services to reach healthy state:
-
-```bash
-docker compose --profile full ps
-# Every row should show "(healthy)" — Kafka takes ~30 s to start
-```
-
-Verify the stack with the smoke test script:
-
-```bash
+# Verify
+docker compose --profile full ps     # all rows show "(healthy)"
 MCP_DEV_MODE=1 bash scripts/smoke_test.sh
-# === All checks passed ===
 ```
 
-> **Note:** `MCP_DEV_MODE=1` is required — it enables the auth bypass that the smoke test endpoints expect.
-
-Open the UIs:
-
-| Service | URL | Default credentials |
-|---------|-----|---------------------|
+| Service | URL | Credentials |
+|---------|-----|-------------|
 | MCP Gateway | http://localhost:8000/health | — |
 | Auth Server | http://localhost:8001/.well-known/oauth-authorization-server | — |
-| Jaeger traces | http://localhost:16686 | — |
-| Jaeger SPM (RED metrics) | http://localhost:16686/monitor | — |
+| Jaeger | http://localhost:16686 | — |
 | Prometheus | http://localhost:9090 | — |
-| Grafana dashboards | http://localhost:3000 | admin / admin |
+| Grafana | http://localhost:3000 | admin / admin |
 | Kafka UI | http://localhost:8085 | — |
 | Redis Commander | http://localhost:8086 | — |
 | MCP Inspector | http://localhost:6274 | — |
 
-### Service Performance Monitoring (Jaeger SPM)
-
-The stack is wired for Jaeger's RED metrics dashboard (`/monitor`) out of the box:
-
-```
-gateway → otel-collector:4317 (OTLP/gRPC)
-              ├─ spanmetrics connector → prometheus exporter :8889
-              └─ otlp/jaeger exporter → jaeger:4317
-prometheus scrapes otel-collector:8889
-jaeger queries prometheus for SPM data
-```
-
-After the stack is up, run `./scripts/demo.sh` to generate spans, then wait ~15 s for Prometheus to scrape. The `/monitor` tab in Jaeger will show per-service, per-operation rate/error/duration (RED) metrics. The OTel Collector configuration lives in `observability/otel-collector.yml`.
-
-To call a tool without OAuth (development only):
+### Live Demo
 
 ```bash
-# Rebuild and restart gateway with dev mode
-MCP_DEV_MODE=1 docker compose --profile full up --build -d gateway
+# Pull the default local model (~400 MB)
+ollama pull qwen3:0.6b-q4_K_M
 
-curl -s -X POST http://localhost:8000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"}}}' \
-  | python3 -m json.tool
+# Seven-phase zero-touch demo (all 4 pipeline layers)
+./scripts/demo.sh
+
+# Run a single phase
+./scripts/demo.sh 0    # Deterministic Orchestration
+./scripts/demo.sh 1    # Privacy-First RAG
+./scripts/demo.sh 5    # CrewAI multi-agent scoping
+./scripts/demo.sh 6    # DSPy + GEPA optimization
 ```
 
-Tear down:
+> **Linux:** Ollama must listen on all interfaces for the Docker gateway to reach
+> it. Start with `OLLAMA_HOST=0.0.0.0 ollama serve`.
 
-```bash
-docker compose --profile full down
-```
+## Configuration
 
----
-
-## External Client Integration
-
-The gateway implements RFC 8414 OAuth 2.1 auto-discovery. Any compliant MCP client — Cursor, Claude Desktop, a custom Python/Node client — connects using the same protocol: discover → register → PKCE auth → Bearer JWT on every request.
-
-### How it works end-to-end
-
-```
-MCP Client (Cursor / Claude Desktop / custom)
-  │
-  │ 1. GET /.well-known/oauth-authorization-server  (RFC 8414 discovery)
-  │    ← {issuer, authorization_endpoint, token_endpoint, registration_endpoint, ...}
-  │
-  │ 2. POST /register  (dynamic client registration)
-  │    ← {client_id}
-  │
-  │ 3. Redirect to /authorize?code_challenge=<S256>&...
-  │    (user approves in browser)
-  │    ← ?code=<one-time-code>
-  │
-  │ 4. POST /token  {code, code_verifier}
-  │    ← {access_token, token_type: "bearer"}
-  │
-  │ 5. POST /mcp   Authorization: Bearer <JWT>
-  │    {"jsonrpc":"2.0","method":"tools/call",...}
-  │
-  ▼
-MCP Gateway :8000  →  Auth Server :8001  (same JWT_SECRET)
-```
-
-Every 401 response includes `WWW-Authenticate: Bearer resource_metadata=<discovery-url>` (RFC 6750 §3.1), so clients that missed step 1 can self-correct without any hardcoded endpoint config.
-
----
-
-### Step 1 — Set environment variables
-
-Copy the template and fill in your values — the servers load `.env` automatically at startup via `python-dotenv`, so you never need to `export` manually in a new shell:
+Copy `.env.example` to `.env` — both servers load it automatically via `python-dotenv`:
 
 ```bash
 cp .env.example .env
-# edit .env and set at minimum:
-#   JWT_SECRET — shared signing key for auth + gateway
-#   REDIS_URL / AUTH_REDIS_URL — if using real Redis (optional for local dev)
+# Set at minimum: JWT_SECRET (shared key for auth + gateway)
 ```
 
-Generate a strong `JWT_SECRET`:
+Key environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `JWT_SECRET` | *(required for auth)* | Shared HS256 signing key — auth server and gateway must match |
+| `MCP_DEV_MODE` | `0` | Set `1` to bypass all auth (dev/demo only) |
+| `ORCHESTRATOR_MODE` | `legacy` | `legacy`, `pydantic_ai`, or `langgraph` |
+| `REDIS_URL` | *(unset → FakeRedis)* | Real Redis for sessions, KV, checkpoints |
+| `KAFKA_BOOTSTRAP_SERVERS` | *(unset → InProcessEventLog)* | Real Kafka for telemetry stream |
+| `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, or `ollama` |
+| `OLLAMA_MODEL` | `qwen3:0.6b-q4_K_M` | Default Ollama model |
+
+## External Client Integration
+
+The gateway implements RFC 8414 auto-discovery. Any MCP client connects via:
+discover → register → PKCE auth → Bearer JWT.
+
+### IDE Setup (Cursor / Claude Desktop)
 
 ```bash
-openssl rand -hex 32
+# Generate machine-local .mcp.json from template (run once after cloning)
+./setup-mcp.sh
 ```
 
-Both servers must share the same `JWT_SECRET`. System environment variables (exported in the shell) always take precedence over `.env` values.
+The generated `.mcp.json` (gitignored) points at `localhost:8000` with OAuth 2.1
+PKCE. Cursor and Claude Desktop perform the auth flow automatically.
 
-Optional but recommended for production — if you started Redis via `docker compose up -d`, use `localhost:6379`:
+A reference `mcp.json.example` is included showing the full tool catalogue and
+auth configuration.
+
+### Machine-to-Machine (no browser)
 
 ```bash
-REDIS_URL=redis://localhost:6379          # real Redis for gateway sessions
-AUTH_REDIS_URL=redis://localhost:6379     # real Redis for auth codes + client registry
-```
-
-Replace `localhost` with your Redis host when deploying to a remote environment.
-
-Without `REDIS_URL` / `AUTH_REDIS_URL` the servers fall back to an in-process `FakeRedis` — fine for development, not for multi-process or multi-node deployments. If `AUTH_REDIS_URL` is set but the configured Redis is unreachable at startup, the auth server logs a warning and falls back to FakeRedis automatically rather than crashing.
-
----
-
-### Step 2 — Start the auth server (port 8001)
-
-```bash
-python -m mcp_agent_factory.auth serve
-# or via uvicorn directly
-uvicorn mcp_agent_factory.auth.server:auth_app --host 0.0.0.0 --port 8001
-```
-
----
-
-### Step 3 — Start the MCP gateway (port 8000)
-
-```bash
-python -m mcp_agent_factory.gateway.run
-# or via uvicorn directly
-uvicorn mcp_agent_factory.gateway.run:app --host 0.0.0.0 --port 8000
-```
-
-If you also want the real Redis/Kafka infrastructure running locally:
-
-```bash
-docker compose up -d   # starts Redis + Kafka only (gateway/auth are Python processes)
-```
-
----
-
-### Step 4 — Verify the stack is healthy
-
-```bash
-# Health check
-curl http://localhost:8000/health
-# {"status": "ok", "service": "mcp-gateway"}
-
-# OAuth discovery document
-curl http://localhost:8000/.well-known/oauth-authorization-server | python3 -m json.tool
-# {
-#   "issuer": "http://localhost:8001",
-#   "authorization_endpoint": "http://localhost:8001/authorize",
-#   "token_endpoint": "http://localhost:8001/token",
-#   "registration_endpoint": "http://localhost:8001/register",
-#   ...
-# }
-
-# 401 with WWW-Authenticate hint (POST /mcp with no auth header)
-curl -i -X POST http://localhost:8000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# HTTP/1.1 401
-# WWW-Authenticate: Bearer realm="mcp-server",
-#   resource_metadata="http://localhost:8000/.well-known/oauth-authorization-server"
-
-# SSE stream (stays open — Ctrl-C to stop)
-curl -N "http://localhost:8000/sse/v1/events?topic=agent.events"
-# data: {"type":"connected","topic":"agent.events"}
-```
-
----
-
-### Connecting Cursor
-
-Cursor reads `.mcp.json` from the project root and runs the full PKCE flow automatically.
-
-`.mcp.json` is machine-local (gitignored) and generated from `.mcp.json.template` — run `./setup-mcp.sh` once after cloning or moving the repo to any path. The script substitutes the current working directory for the `__PROJECT_ROOT__` placeholder so paths are always correct regardless of where the repo lives on the machine.
-
-**Local development** — after running `./setup-mcp.sh` your `.mcp.json` will look like:
-
-```json
-{
-  "mcpServers": {
-    "mcp-agent-factory": {
-      "serverUrl": "http://localhost:8000",
-      "transport": "sse",
-      "discoveryUrl": "http://localhost:8000/.well-known/oauth-authorization-server",
-      "auth": {
-        "type": "oauth2",
-        "pkce": true,
-        "codeChallengeMethod": "S256",
-        "scopes": ["tools:call"]
-      }
-    }
-  }
-}
-```
-
-Open the project in Cursor. On first use Cursor fetches the discovery document, registers itself, opens a browser tab for the authorization redirect, exchanges the code for a JWT, and then attaches `Authorization: Bearer <token>` to every tool call — no manual configuration beyond placing `mcp.json` in the project root.
-
-**Remote/production deployment** — replace `localhost` with your host. TLS is strongly recommended:
-
-```json
-{
-  "mcpServers": {
-    "mcp-agent-factory": {
-      "serverUrl": "https://mcp.example.com",
-      "transport": "sse",
-      "discoveryUrl": "https://mcp.example.com/.well-known/oauth-authorization-server",
-      "auth": {
-        "type": "oauth2",
-        "pkce": true,
-        "codeChallengeMethod": "S256",
-        "scopes": ["tools:call"]
-      }
-    }
-  }
-}
-```
-
-Cursor re-reads `mcp.json` on project reload (or after a "Reconnect MCP server" from the Command Palette).
-
----
-
-### Connecting Claude Desktop
-
-Claude Desktop uses the same `mcp.json` format. Place it (or merge it into your global `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) with the same fields shown above. Claude Desktop performs the same PKCE flow; a browser tab will open once to authorise the connection.
-
----
-
-### Connecting any MCP client (Python example)
-
-The repo ships `bridge/gateway_client.py` — a minimal reference client you can copy into any project:
-
-```python
-import asyncio
-from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient
-from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware
-
-# 1. Obtain a Bearer JWT (e.g. from your auth server's /token endpoint)
-#    In production this is handled by OAuthMiddleware (token cache + auto-refresh).
-token = "eyJ..."
-
-# 2. Instantiate the client
-client = MCPGatewayClient(
-    base_url="http://localhost:8000",
-    token=token,
-)
-
-async def main():
-    # 3. List available tools
-    tools = await client.list_tools()
-    print(tools)
-
-    # 4. Call a tool
-    result = await client.call_tool("echo", {"text": "hello"})
-    print(result)
-
-    # 5. Stream SSE events
-    async for event in client.stream_events(topic="agent.events"):
-        print(event)
-
-asyncio.run(main())
-```
-
-For a self-contained demo that handles token acquisition automatically:
-
-```bash
-python -m mcp_agent_factory.bridge
-```
-
-#### Machine-to-machine bridge (no browser required)
-
-The bridge supports `client_credentials` grant so it can authenticate without a browser redirect — useful for CI, scripts, and server-side deployments.
-
-The auth server **must** share the same `JWT_SECRET` as the gateway. If they use different keys (or one uses an ephemeral key), every token the auth server issues will fail signature verification at the gateway with `bad_signature` or `Not Authorized`.
-
-**1. Set the shared secret in `.env` (once):**
-
-```bash
-# .env
-JWT_SECRET=<output of: openssl rand -hex 32>
-```
-
-Both servers load this automatically — no `export` needed in every shell.
-
-**2. Start the auth server:**
-
-```bash
-python -m mcp_agent_factory.auth serve
-```
-
-**3. Start the gateway:**
-
-```bash
-python -m mcp_agent_factory.gateway.run
-```
-
-**4. Register the bridge client once (auth server must be running):**
-
-```bash
+# Register a client
 curl -X POST http://localhost:8001/register \
   -H 'Content-Type: application/json' \
   -d '{"client_id":"my-bridge","client_secret":"s3cr3t","redirect_uri":"http://localhost","scope":"tools:call"}'
+
+# Run the bridge with client_credentials grant
+BRIDGE_CLIENT_ID=my-bridge BRIDGE_CLIENT_SECRET=s3cr3t python -m mcp_agent_factory.bridge
 ```
 
-**5. Run the bridge with the client credentials:**
+When only `JWT_SECRET` is set (no auth server), the bridge self-signs a valid
+HS256 JWT — no extra process needed for local dev:
 
 ```bash
-BRIDGE_CLIENT_ID=my-bridge \
-BRIDGE_CLIENT_SECRET=s3cr3t \
-python -m mcp_agent_factory.bridge
-```
-
-Or add `BRIDGE_CLIENT_ID` / `BRIDGE_CLIENT_SECRET` to `.env` and just run `python -m mcp_agent_factory.bridge`.
-
-When `BRIDGE_CLIENT_ID` and `BRIDGE_CLIENT_SECRET` are set, the bridge fetches a token from the auth server's `/token` endpoint (no user interaction). The gateway verifies that token using the shared `JWT_SECRET` — all three processes must use the same value.
-
-> **Common failure mode:** Starting the auth server without `JWT_SECRET` causes it to generate an ephemeral key. Tokens it issues are then signed with a different key than the gateway expects, producing a `Not Authorized` / `bad_signature` error on every call even though the credentials are correct.
-
-#### Simplest local dev — no auth server required
-
-When `JWT_SECRET` is set but neither `BRIDGE_CLIENT_ID` nor `GATEWAY_TOKEN` is configured, the bridge self-signs a valid HS256 JWT using the shared secret. The gateway validates it with the same key — no auth server process needed:
-
-```bash
-# Terminal 1
-JWT_SECRET=mysecret python -m mcp_agent_factory.gateway.run
-
-# Terminal 2
+JWT_SECRET=mysecret python -m mcp_agent_factory.gateway.run &
 JWT_SECRET=mysecret python -m mcp_agent_factory.bridge
 ```
 
-#### Generating a static GATEWAY_TOKEN
-
-If you need a pre-issued token (e.g. for CI or a static `.env`), the auth CLI can generate one:
+### Raw HTTP
 
 ```bash
-JWT_SECRET=mysecret python -m mcp_agent_factory.auth token
-# Prints a valid signed token to stdout
-```
-
-> **Note:** A `GATEWAY_TOKEN` must be signed with the same `JWT_SECRET` the gateway uses. Tokens from a different session or a gateway without `JWT_SECRET` will fail with `bad_signature` or `Invalid input segments length`.
-
-**Programmatic usage:**
-
-```python
-from mcp_agent_factory.bridge.oauth_middleware import make_client_credentials_factory
-
-token_factory = make_client_credentials_factory(
-    token_url="http://localhost:8001/token",
-    client_id="my-bridge",
-    client_secret="s3cr3t",
-    scope="tools:call",
-)
-```
-
----
-
-### Connecting via raw HTTP (curl / any HTTP client)
-
-All MCP calls are plain JSON-RPC 2.0 over HTTPS. Once you have a Bearer token:
-
-```bash
-TOKEN="eyJ..."   # JWT from POST /token
-
-# List tools
 curl -s -X POST http://localhost:8000/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
   | python3 -m json.tool
-
-# Call a tool
-curl -s -X POST http://localhost:8000/mcp \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {"name": "echo", "arguments": {"text": "hello"}}
-  }' | python3 -m json.tool
-
-# Query the knowledge base
-curl -s -X POST http://localhost:8000/mcp \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {"name": "query_knowledge_base", "arguments": {"query": "climate", "top_k": 3}}
-  }' | python3 -m json.tool
 ```
 
-**Dev mode (no auth)** — set `MCP_DEV_MODE=1` to disable token verification. Useful for local scripting:
+## Gateway Endpoints
 
-```bash
-MCP_DEV_MODE=1 python -m mcp_agent_factory.gateway.run &
-
-curl -s -X POST http://localhost:8000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-```
-
-> Never run `MCP_DEV_MODE=1` in production — it disables all authentication.
-
----
-
-### Gateway endpoint reference
-
-| Method | Path | Auth required | Purpose |
-|--------|------|---------------|---------|
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
 | `GET` | `/health` | No | Liveness probe |
-| `GET` | `/.well-known/oauth-authorization-server` | No | RFC 8414 discovery (proxies `:8001`) |
-| `GET` | `/mcp` | No | SSE channel for server→client messages (MCP Streamable HTTP transport, spec 2024-11-05) |
-| `POST` | `/mcp` | Bearer JWT | JSON-RPC 2.0 tool calls (`tools/list`, `tools/call`) |
-| `POST` | `/sampling` | Bearer JWT | `sampling/createMessage` |
-| `GET` | `/sse/v1/events` | No | SSE event stream (`?topic=<name>`) |
-| `POST` | `/sse/v1/messages` | Bearer JWT | Publish to SSE bus |
+| `GET` | `/.well-known/oauth-authorization-server` | No | RFC 8414 discovery |
+| `POST` | `/mcp` | JWT | JSON-RPC 2.0 tool calls |
+| `GET` | `/mcp` | No | SSE channel (Streamable HTTP) |
+| `POST` | `/sampling` | JWT | `sampling/createMessage` |
+| `GET` | `/sse/v1/events` | No | SSE event stream |
+| `POST` | `/sse/v1/messages` | JWT | Publish to SSE bus |
 
-Auth server endpoints (`:8001`):
+Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/register` | Dynamic client registration (RFC 7591) |
-| `GET` | `/authorize` | Authorization code + PKCE challenge |
-| `POST` | `/token` | Code exchange → JWT |
-
----
-
-### Production checklist
-
-| Item | Notes |
-|------|-------|
-| `JWT_SECRET` set on both processes | Same secret required — gateway can't verify tokens without it |
-| `MCP_DEV_MODE` unset or `0` | Never `1` in production |
-| Real Redis (`REDIS_URL`, `AUTH_REDIS_URL`) | In-process FakeRedis doesn't survive restarts |
-| TLS termination | Put a reverse proxy (nginx, Caddy) in front; JWT tokens must not travel over plain HTTP |
-| Token rotation | HS256 is fine for a single gateway+auth pair; switch to RS256 + JWKS for multi-service deployments |
-| Port exposure | Auth server (`:8001`) should not be public-facing; only the gateway (`:8000`) needs external access |
-
-## RAG Knowledge Base       
-
-The `query_knowledge_base` tool is registered on the gateway and callable from any MCP client:
-
-If you want to test right now without modifying files, please restart the gateway connection with the use of this one-liner that injects the override into the running process (using a temporary wrapper):
-
-```python
-# Via gateway (dev mode — no auth required)
-MCP_DEV_MODE=1 python -c "
-import os
-from mcp_agent_factory.gateway.app import gateway_app, make_verify_token
-import uvicorn
-import httpx
-import threading
-import time
-
-# 1. Apply the override dynamically
-async def mock_verify():
-	return {'sub': 'dev-user', 'scope': 'tools:call'}
-
-gateway_app.dependency_overrides[make_verify_token('tools:call', optional=True)] = mock_verify
-
-# 2. Run server in a thread or just use uvicorn to start it properly
-# For a quick check, let's just use uvicorn directly:
-if __name__ == '__main__':
-	uvicorn.run(gateway_app, host='127.0.0.1', port=8000)
-"
-```
-Once that server is running in Terminal A, run this in Terminal B:
+## Tests
 
 ```bash
-curl -X POST http://localhost:8000/mcp \
-	-H "Content-Type: application/json" \
-	-d '{
-		"jsonrpc": "2.0",
-		"id": 1,
-		"method": "tools/call",
-		"params": {"name": "query_knowledge_base", "arguments": {"query": "test", "top_k": 1}}
-	}'
-```
+pytest tests/ -v    # 460+ tests (integration tests skip without Docker)
 
-Every call emits a `knowledge.retrieved` SSE event with `owner_id`, `chunk_count`, and `source` — observable via `/sse/v1/events`. Data is namespace-isolated by JWT `sub` claim so one user's chunks are never visible to another.
-
-```python
-python -c '
-# Direct Python usage — LocalEmbedder (default) provides real semantic similarity
-from mcp_agent_factory.knowledge import InMemoryVectorStore, LocalEmbedder, query_knowledge_base
-
-store, embedder = InMemoryVectorStore(), LocalEmbedder()  # all-MiniLM-L6-v2, local, no API key
-store.upsert("alice", "prior climate analysis", embedder.embed("prior climate analysis"))
-chunks = query_knowledge_base("climate", "alice", store, embedder, top_k=3)
-print(chunks)
-'
-# [{"text": "prior climate analysis", "score": 0.87...}]
-# LocalEmbedder uses sentence-transformers/all-MiniLM-L6-v2 — 22 MB, fully offline,
-# genuine semantic similarity. StubEmbedder is still available for tests/CI (no model download).
-```
-
-## Fault-Tolerant Streaming Pipeline
-
-All components use `fakeredis` — no external Redis or Kafka process required.
-
-```python
-from mcp_agent_factory.streams import (
-	StreamWorker, IdempotencyGuard, DistributedLock,
-	OutboxRelay, CircuitBreaker, InProcessEventLog,
-)
-
-r = fakeredis.FakeRedis()
-worker = StreamWorker(r, "tasks.search", "workers", "worker-0")
-worker.ensure_group()
-
-guard = IdempotencyGuard(r, ttl=300)
-lock  = DistributedLock(r, ttl=10)
-cb    = CircuitBreaker(threshold=3, recovery_timeout=1.0)
-relay = OutboxRelay()
-log   = InProcessEventLog()
-
-# Publish → claim → guard → lock → circuit breaker → outbox → ACK
-msg_id = worker.publish(task)
-claimed_id, fields = worker.claim_one()
-
-if not guard.already_seen(task.id):        # Skip if already processed
-	lock.acquire(f"lock:{task.id}")          # Prevent double-execution
-	result = cb.call(llm_fn, fallback="[Internal Knowledge]")
-	guard.cache_result(task.id, result)      # Cache for retry
-	relay.add(write_state, dispatch_event)
-	relay.flush()                            # Atomic state+dispatch
-	worker.ack(claimed_id)
-```
-
-**Circuit breaker states:**
-- `CLOSED` — normal operation; failure count tracked
-- `OPEN` — threshold reached; returns `fallback` immediately without calling `fn`
-- `HALF_OPEN` — after `recovery_timeout`; one probe call; success → CLOSED, failure → OPEN
-
-## Topic Affinity — Checking Phrase Membership in Redis
-
-Two MCP tools let you tag phrases under topics in Redis and test membership at inference time.
-Topics are registered at gateway startup via the `KV_TOPICS` env var (comma-separated, defaults to `"default"`).
-Uses Redis native sets (`SADD` / `SISMEMBER`) so the membership test is O(1) regardless of vocabulary size.
-
-### Via the gateway (MCP tools)
-
-Start the gateway with `MCP_DEV_MODE=1` (required — the `rpc()` helper below reads `response["result"]`
-and will raise `KeyError` if auth is enforced) and optionally point it at a real Redis so phrases survive restarts:
-
-```bash
-# In-memory fakeredis (phrases reset on restart)
-MCP_DEV_MODE=1 KV_TOPICS=sports,finance,tech python -m mcp_agent_factory.gateway.run
-
-# Real Redis (phrases persist across restarts)
-MCP_DEV_MODE=1 REDIS_URL=redis://localhost:6379 KV_TOPICS=sports,finance,tech python -m mcp_agent_factory.gateway.run
-```
-
-```python
-import httpx
-
-BASE = "http://localhost:8000/mcp"
-HEADERS = {"Content-Type": "application/json"}
-
-def rpc(method, **params):
-    body = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
-    return httpx.post(BASE, json=body, headers=HEADERS).json()["result"]
-
-# Populate Redis — register phrases under a topic
-rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "hat trick"})
-rpc("tools/call", name="kv/add_phrase", arguments={"topic": "sports", "phrase": "penalty shootout"})
-rpc("tools/call", name="kv/add_phrase", arguments={"topic": "finance", "phrase": "hedge fund"})
-
-# Check topic affinity
-rpc("tools/call", name="kv/check_affinity", arguments={"topic": "sports", "phrase": "hat trick"})
-# → {"content": [{"type": "text", "text": "true"}]}
-
-rpc("tools/call", name="kv/check_affinity", arguments={"topic": "finance", "phrase": "hat trick"})
-# → {"content": [{"type": "text", "text": "false"}]}
-```
-
-Phrases are stored in Redis Sets (`kv:<topic>:__phrases__`). When `REDIS_URL` is set they survive restarts
-and are visible via `redis-cli`:
-
-```
-redis-cli TYPE "kv:sports:__phrases__"     # → set
-redis-cli SMEMBERS "kv:sports:__phrases__" # → hat trick, penalty shootout
-```
-
-Without `REDIS_URL` phrases live only in the in-process `FakeRedis` instance and `redis-cli` will show nothing.
-
-### Direct Python usage
-
-```python
-import asyncio
-import fakeredis.aioredis
-from mcp_agent_factory.kv import RedisKVStore
-
-async def main():
-    client = fakeredis.aioredis.FakeRedis()
-    store = RedisKVStore(client, topics=["climate", "finance", "health"])
-
-    # Populate topics with representative phrases
-    for phrase in ["global warming", "carbon footprint", "sea level rise"]:
-        await store.add_phrase("climate", phrase)
-
-    for phrase in ["interest rate", "equity market", "hedge fund"]:
-        await store.add_phrase("finance", phrase)
-
-    # Check affinity
-    print(await store.has_affinity("climate", "sea level rise"))   # True
-    print(await store.has_affinity("finance", "sea level rise"))   # False
-    print(await store.has_affinity("health",  "sea level rise"))   # False
-
-    # Inspect registered phrases for a topic
-    print(await store.phrases("climate"))
-    # ['carbon footprint', 'global warming', 'sea level rise']
-
-asyncio.run(main())
-```
-
-> **Note:** `add_phrase` / `has_affinity` / `phrases` use a dedicated internal
-> Redis set key (`kv:<topic>:__phrases__`) that is hidden from `keys()`, so
-> the standard CRUD surface stays clean. The above example uses `fakeredis`
-> (in-memory) — nothing is written to a real Redis instance.
-
-## Running Tests
-
-```bash
-pytest tests/ -v          # 417+ tests (2 skipped without Docker; live-provider acceptance tests need Ollama/OpenAI running)
-
-# By milestone
-pytest tests/test_mcp_lifecycle.py tests/test_react_loop.py tests/test_e2e_routing.py   # M001
-pytest tests/test_scheduler.py tests/test_auth.py tests/test_server_http.py             # M002
-pytest tests/test_pipeline.py tests/test_economics.py tests/test_message_bus.py tests/test_gateway.py tests/test_langchain_bridge.py  # M003
-pytest tests/test_m004_sse.py tests/test_m004_auth_pkce.py tests/test_m004_client_bridge.py  # M004
-pytest tests/test_vector_store.py tests/test_ingest.py tests/test_knowledge_auction.py tests/test_s04.py  # M005
-pytest tests/test_m006_streams.py tests/test_m006_eventlog.py tests/test_m006_gateway.py tests/test_m006_reliability.py tests/test_m006_integration.py  # M006
-pytest tests/test_m007_kafka.py tests/test_m007_redlock.py tests/test_m007_scaling.py   # M007 (unit)
-pytest tests/test_m008_integration.py                                                   # M008
-pytest tests/test_m009_s01.py tests/test_m009_s02.py tests/test_m009_s03.py tests/test_m009_s04.py tests/test_m009_s05.py  # M009
-pytest tests/test_otel_spans.py                                                          # M011: OTel unit tests (6)
-
-# Integration tests — requires docker compose --profile full up -d
-pytest -m integration -v  # KafkaEventLog, Redlock quorum, multi-process scaling, OTel→Jaeger traces
+# Integration tests (requires full Docker stack)
+REDIS_URL=redis://localhost:6379 pytest -m integration -v
 ```
 
 ## Project Layout
 
 ```
-scripts/
-├── scripts/demo.sh                  # Seven-phase live demo (all 4 layers); run a single phase with ./scripts/demo.sh <0-6|infra|monitor>
-└── demo_analyst.py                 # M010: Python analyst demo
-.mcp.json                           # Machine-local IDE config (gitignored — generated by setup-mcp.sh)
-.mcp.json.template                  # Template with __PROJECT_ROOT__ placeholder (committed)
-docker-compose.yml                  # Real infrastructure: Kafka + Zookeeper + 4× Redis
 src/mcp_agent_factory/
-├── server.py                       # STDIO MCP server
-├── server_http.py                  # FastAPI HTTP MCP server
-├── server_http_secured.py          # OAuth-secured variant
-├── models.py                       # Pydantic tool input models
-├── adapters.py                     # LLM adapter layer
-├── react_loop.py                   # ReAct agent loop
-├── scheduler.py                    # Task scheduler + priority queue
-├── orchestrator.py                 # MCP orchestrator client + DeterministicOrchestrator
-├── graph_orchestrator.py           # LangGraph cyclic state machine (validate→plan→execute→evaluate→done)
-├── structured_agent.py             # PydanticAI structured agent wrapper
-├── evaluator.py                    # CriticActorEvaluator — double-pass QA (schema + LLM judge)
-├── crew.py                         # Layer 3: MCPCrew + ScopedAgent + scope_tools/build_scoped_call_fn
-├── optimizer.py                    # Layer 4: PromptOptimizer (DSPy+GEPA) + SkillCompiler (hot-reloadable JSON assets)
-├── config/privacy.py               # PrivacyConfig + egress guard
-├── agents/                         # Multi-agent pipeline
-│   ├── models.py                   # AgentTask, MCPContext, RetrievalResult, shared models
-│   ├── analyst.py                  # AnalystAgent
-│   ├── writer.py                   # WriterAgent
-│   ├── librarian.py                # LibrarianAgent (RAG retrieval synthesis)
-│   └── pipeline_orchestrator.py
-├── session/manager.py              # Redis session manager
-├── kv/
-│   ├── __init__.py                 # Public re-exports
-│   └── store.py                    # RedisKVStore — topic-namespaced async KV store
-├── economics/
-│   ├── utility.py                  # Utility function scoring
-│   └── auction.py                  # Knowledge-augmented sealed-bid auction
-├── knowledge/                      # RAG layer (M005)
-│   ├── __init__.py                 # Public re-exports
-│   ├── vector_store.py             # InMemoryVectorStore (cosine, multi-tenant)
-│   ├── embedder.py                 # Embedder protocol + StubEmbedder
-│   ├── ingest.py                   # IngestionWorker
-│   └── tools.py                    # query_knowledge_base function
-├── messaging/
-│   ├── bus.py                      # Async MessageBus (topic fan-out)
-│   ├── sse_router.py               # Legacy SSE router (/sse/legacy)
-│   └── sse_v1_router.py            # SSE v1 router (/sse/v1/events + /messages)
-├── gateway/
-│   ├── app.py                      # MCP API Gateway FastAPI app
-│   ├── validation.py               # ValidationGate + PIIGate (PII scrubbing, deny-list)
-│   ├── service_layer.py            # InternalServiceLayer → UnifiedRouter
-│   ├── router.py                   # UnifiedRouter + OpenAI/Anthropic/Ollama handlers
-│   ├── pruner.py                   # ContextPruner (cosine threshold filtering)
-│   ├── run.py                      # Production uvicorn entrypoint
-│   └── sampling.py                 # Sampling/createMessage handler
-├── streams/                        # Fault-tolerant streaming layer (M006–M007)
-│   ├── __init__.py                 # Public re-exports (incl. RedlockClient)
-│   ├── worker.py                   # StreamWorker (XREADGROUP/ACK/PEL)
-│   ├── eventlog.py                 # EventLog protocol + InProcessEventLog
-│   ├── kafka_adapter.py            # KafkaEventLog (aiokafka, real Kafka)
-│   ├── idempotency.py              # IdempotencyGuard, DistributedLock, OutboxRelay
-│   ├── async_idempotency.py        # AsyncIdempotencyGuard (SHA-256 prompt cache)
-│   ├── circuit_breaker.py         # CircuitBreaker (CLOSED→OPEN→HALF_OPEN)
-│   └── redlock.py                  # RedlockClient — 3-node quorum acquire/release
-├── auth/
-│   ├── server.py                   # OAuth 2.1 auth server (PKCE S256)
-│   ├── resource.py                 # JWT Bearer middleware
-│   └── session.py                  # Session ID utilities
-└── bridge/
-    ├── __main__.py                 # CLI demo entrypoint
-    ├── oauth_middleware.py         # Token-caching OAuth middleware
-    └── gateway_client.py           # MCPGatewayClient (httpx + SSE stream)
-
-tests/
-├── test_mcp_lifecycle.py           # M001: STDIO protocol lifecycle
-├── test_react_loop.py              # M001: ReAct loop unit tests
-├── test_e2e_routing.py             # M001: End-to-end routing
-├── test_schema_validation.py       # M001: Pydantic validation + privacy
-├── test_scheduler.py               # M002: Scheduler + retry logic
-├── test_adapters.py                # M002: LLM adapter normalisation
-├── test_server_http.py             # M002: HTTP server endpoints
-├── test_auth.py                    # M002: OAuth 2.1 full flow
-├── test_integration.py             # M002: Scheduler ↔ HTTP integration
-├── test_pipeline.py                # M003: Analyst→Writer pipeline
-├── test_economics.py               # M003: Utility + auction
-├── test_message_bus.py             # M003: MessageBus + SSE
-├── test_gateway.py                 # M003: API Gateway
-├── test_langchain_bridge.py        # M003: OAuth bridge + client
-├── test_m004_sse.py                # M004: SSE /v1 endpoints
-├── test_m004_auth_pkce.py          # M004: PKCE hardening + 401 enforcement
-├── test_m004_client_bridge.py      # M004: MCPGatewayClient lifecycle
-├── test_vector_store.py            # M005: VectorStore cosine search + isolation
-├── test_ingest.py                  # M005: IngestionWorker lifecycle
-├── test_knowledge_auction.py       # M005: Knowledge-augmented auction
-├── test_s04.py                     # M005: LibrarianAgent + gateway tool + SSE event
-├── test_m006_streams.py            # M006: StreamWorker XREADGROUP/ACK/PEL
-├── test_m006_eventlog.py           # M006: EventLog protocol + topic routing
-├── test_m006_gateway.py            # M006: ValidationGate + InternalServiceLayer
-├── test_m006_reliability.py        # M006: Idempotency + CircuitBreaker (R008–R014)
-├── test_m006_integration.py        # M006: End-to-end pipeline integration
-├── test_m007_kafka.py              # M007: KafkaEventLog integration (real Kafka)
-├── test_m007_redlock.py            # M007: RedlockClient 3-node quorum
-├── test_m007_scaling.py            # M007: Multi-process StreamWorker scaling
-├── test_kv_store.py                # KV: RedisKVStore topic namespacing + CRUD
-├── test_kv_tools.py                # KV: kv/add_phrase and kv/check_affinity MCP tool dispatch
-├── test_m009_s01.py                # M009: UnifiedRouter + provider handlers
-├── test_m009_s02.py                # M009: PIIGate scrubbing
-├── test_m009_s03.py                # M009: ContextPruner cosine filtering
-├── test_m009_s04.py                # M009: AsyncIdempotencyGuard + token.usage events
-├── test_m009_s05.py                # M009: Caddy TLS + live Ollama fallback acceptance
-├── test_agents_dispatch.py         # M012: agents/analyze contract (response shape, -32602, -32603)
-├── test_graph_orchestrator.py      # Feature: LangGraph state machine (validate→plan→execute→evaluate→done)
-├── test_structured_agent.py        # Feature: PydanticAI structured agent wrapper
-├── test_evaluator_llm.py           # Feature: CriticActorEvaluator double-pass QA (schema + LLM judge)
-├── test_crew.py                    # Layer 3: MCPCrew scoped-tool enforcement, native runner, CrewAI fallback (20 tests)
-├── test_optimizer.py               # Layer 4: TraceRecord, GEPAEvolver, PromptOptimizer, SkillCompiler (22 tests)
-├── test_cross_layer_integration.py # Cross-layer: full 4-layer pipeline integration (Layer 1→2→3→4) (5 tests)
-└── conftest_integration.py         # M007: Docker-aware fixtures (real_redis, real_kafka)
-```
-
-## Milestone History
-
-| Milestone | Focus | Tests |
-|-----------|-------|-------|
-| M001 | STDIO MCP lifecycle, ReAct loop, schema validation, privacy config | 31 |
-| M002 | Async TaskScheduler, FastAPI HTTP server, LLM adapters, OAuth 2.1 + PKCE | +69 (100) |
-| M003 | Multi-agent pipeline, economic allocation, async message bus, API gateway, LangChain bridge | +61 (161) |
-| M004 | SSE /v1 streaming, PKCE hardening, client bridge with token cache, mcp.json IDE config | +37 (198) |
-| M005 | Vector RAG layer, multi-tenant isolation, async ingestion, knowledge-augmented auction, LibrarianAgent, SSE events | +7 (205) |
-| M006 | Redis Streams consumer groups, EventLog + KafkaEventLog, ValidationGate, IdempotencyGuard, DistributedLock, OutboxRelay, CircuitBreaker | +26 (231) |
-| M007 | docker-compose stack, real KafkaEventLog integration tests, RedlockClient 3-node quorum, multi-process StreamWorker scaling | +15 unit / +8 integration (246 unit) |
-| M008 | Production wiring: env-driven Redis/Kafka factories, Redis-backed OAuth state, EventLog on every tool call; `redis>=5` promoted to core dep | +5 (241 unit) |
-| Hotfix | Bridge `client_credentials` grant — headless machine-to-machine auth without browser redirect | +6 (246 unit) |
-| Hotfix | Auth server falls back to FakeRedis when configured Redis is unreachable at startup | +2 (248 unit) |
-| Hotfix | Auth server now reads `JWT_SECRET` env var to share the signing key with the gateway — fixes `bad_signature` when both run as separate processes | +0 (248 unit) |
-| Hotfix | Resource server reads `JWT_SECRET` from env as fallback; bridge warns on stale `GATEWAY_TOKEN` + `JWT_SECRET` combination that would cause `bad_signature` | +0 (248 unit) |
-| Hotfix | Bridge no longer injects `Authorization: Bearer ` when no credentials are configured; resource server guards against empty token before parsing — fixes `Invalid input segments length` 500 error | +0 (248 unit) |
-| Hotfix | Bridge self-signs a valid HS256 JWT with `JWT_SECRET` when no auth server is running — no extra process needed for local dev; `python -m mcp_agent_factory.auth token` generates a static `GATEWAY_TOKEN` | +0 (248 unit) |
-| Hotfix | README: `client_credentials` flow now documents that auth server, gateway, and bridge all require the **same** `JWT_SECRET`; missing this causes `Not Authorized` even with correct credentials | +0 (248 unit) |
-| Hotfix | `docker compose up` starts Redis + Kafka infrastructure only — gateway and auth are Python processes started separately; README corrected to remove misleading "already wired" claim | +0 (248 unit) |
-| KV Store | Topic-namespaced `RedisKVStore` (`kv/`) — async `set/get/delete/keys` with registered-topic enforcement; `add_phrase` / `has_affinity` / `phrases` topic-affinity API via Redis sets; tested with `fakeredis` | +13 (273 unit) |
-| KV Tools | `kv/add_phrase` and `kv/check_affinity` exposed as MCP tools on the gateway; dispatch tested end-to-end in dev mode | +8 (281 unit) |
-| M009 | Model agnosticism: `UnifiedRouter` (OpenAI / Anthropic / Ollama + auto-fallback), `PIIGate` scrubbing, `ContextPruner`, `AsyncIdempotencyGuard` prompt cache, `token.usage` EventLog schema, Caddy TLS in docker-compose | +63 (336 total) |
-| M010 | Production analyst demo (`scripts/demo_analyst.py`), provider-switch env var, OpenTelemetry setup | +0 (336) |
-| M011 | Dockerized observable reference architecture: `docker compose --profile full` brings up 12 services; OTel traces in Jaeger; Prometheus + Grafana dashboards; smoke test script | +22 (358 unit + 12 integration = 370 total) |
-| Hotfix | OTel integration tests now skip automatically when the Jaeger/Collector stack is down (`@pytest.mark.integration`); `pip install -e .` on a fresh machine now installs all required runtime deps (fastapi, uvicorn, pydantic, authlib, sse-starlette, numpy previously missing from `pyproject.toml`) | +0 (370) |
-| M012 | Live demo: `agents/analyze` JSON-RPC method via `_agents_dispatch()` sub-router; 4 OTel child spans (pdf_extract, prune, pii_scrub, llm_route) with token count attributes visible in Jaeger; `scripts/demo.sh` three-phase zero-touch demo (Privacy-First RAG → OTel trace → provider switch with -32602 fail-fast); contract tests cover response shape, -32602, and -32603 | +3 (361 unit + 14 integration) |
-| Hotfix | Auth server OTel instrumentation: `FastAPIInstrumentor` wired into `auth_app`; docker-compose auth service exports `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_SERVICE_NAME=mcp-auth` so auth server spans appear alongside gateway spans in Jaeger | +0 (361 unit + 14 integration) |
-| Hotfix | `test_m010_s01.py`: updated Gemini model reference from `gemini-1.5-flash` to `gemini-2.5-flash`; `test_m011_otel_integration.py`: `require_full_stack` fixture now probes gateway dev mode and skips with an actionable message when auth is enforced — prevents `AssertionError: assert None == 'otel-test-...'` masking an infrastructure misconfiguration | +0 (361 unit + 14 integration) |
-| Hotfix | Smoke test skips (not fails) the unauthenticated auth check when `MCP_DEV_MODE=1` — dev mode bypasses auth by design, so a 200 response is correct and should not be treated as a failure | +0 (361 unit + 14 integration) |
-| Hotfix | Grafana dashboard: rate windows widened from `[1m]` to `[5m]` and default time range extended to `now-30m` so Auction Bids, Agent Pipeline, Pages Read, and Token Consumption panels stay populated after `demo.sh` finishes; `demo.sh` now spaces its four gateway calls 12 s apart and sleeps 20 s post-call to give Prometheus time to scrape before the user opens Grafana | +0 (361 unit + 14 integration) |
-| Hotfix | Grafana Agent Pipeline panels: removed high-cardinality spanmetrics dimensions (`agent.input_tokens`, `agent.output_tokens`, `agent.cost_usd`) that produced single-point series with zero `rate()`; added `mcp_agent_input_tokens_total`, `mcp_agent_output_tokens_total`, and `mcp_agent_cost_usd_total` Prometheus counters (labelled by `provider`) incremented directly in `analyst.py` | +0 (361 unit + 14 integration) |
-| Hotfix | Grafana Agent Pipeline PromQL: replaced invalid `\.` RE2 escape sequences with `[.]` in all three regex matchers — Prometheus rejected the queries with `unknown escape sequence U+002E '.'` (400 bad_data) | +0 (361 unit + 14 integration) |
-| Hotfix | Grafana Token Consumption and Provider Distribution panels generalised to all providers (removed Gemini/Ollama hardcoding); Cost per Request section expanded with an aggregate USD/s stat, a per-provider rate timeseries, and a cumulative cost-by-provider timeseries using the new `mcp_agent_cost_usd_total` counter | +0 (361 unit + 14 integration) |
-| Hotfix | Grafana cost panels (Cost per Request, Cost per Provider, Cumulative Cost per Provider) updated to 4 decimal places so sub-cent Gemini costs display correctly (e.g. `$0.0003` instead of `$0.00`); `cost_usd` is now injected into the `route()` result dict so `analyst.py` increments the Prometheus counter with real values instead of 0 | +0 (361 unit + 14 integration) |
-| Feature | **Enterprise production patterns**: `DeterministicOrchestrator` + `OrchestratorPlan`/`OrchestratorResult` Pydantic contracts in `orchestrator.py` enforce strict two-phase planning→execution separation; new `evaluator.py` implements Critic-Actor pattern (`CriticActorEvaluator`, `EvaluationContract`, `EvaluationVerdict`) to prevent self-certification bias; `docker-compose.yml` adds Kafka UI (`:8085`) and Redis Commander (`:8086`) so the full infrastructure is browsable immediately; README expanded with Non-Determinism, Critic-Actor, and Enterprise Infrastructure sections | +0 (361 unit + 14 integration) |
-| Hotfix | Phase 4 orchestrator modes unblocked: `graph_orchestrator.py` now accepts both `tool_name`/`arguments` and `name`/`args` step-key formats emitted by the planner; demo tasks changed to concrete single-tool calls (`echo` / `add`) to prevent `tool_name="None"` routing failure on open-ended prompts; `pydantic-ai` pinned to `0.0.20`; `PYDANTIC_AI_MODEL` default corrected to `google-gla:gemini-2.5-flash`; MCP Inspector service added to docker-compose on `:6274` | +0 (361 unit + 14 integration) |
-| **Layer 3** | **Multi-Agent Orchestration (CrewAI)**: `crew.py` adds `MCPCrew`, `ScopedAgent`, `scope_tools`, and `build_scoped_call_fn`; per-role MCP tool scoping with hard `PermissionError` on out-of-scope calls; delegates to CrewAI sequential/hierarchical process (optional extra `.[crew]`) or native PydanticAI sequential runner; `test_crew.py` covers scoping, forbidden-tool enforcement, chained output passing, and evaluator callback (20 tests) | +20 (381 unit + 14 integration) |
-| **Layer 4** | **Offline Prompt Optimization (DSPy + GEPA)**: `optimizer.py` adds `PromptOptimizer` (Kafka trace ingestion → DSPy `BootstrapFewShot` compilation → `GEPAEvolver` genetic mutation), `SkillCompiler` (writes hot-reloadable `{skill_id}.json` + `index.json` manifest); entirely offline — never in the request path; optional extra `.[optimizer]`; `test_optimizer.py` covers trace ingestion, GEPA evolution, DSPy compilation fallback, and SkillCompiler disk output (22 tests) | +22 (403 unit + 14 integration) |
-| **Cross-layer integration** | `crew.py` wired to Layer 2 `GraphOrchestrator` via `use_langgraph=True`; `optimizer.py` DSPy compilation enabled (real `_compile_with_dspy` path active when package is installed); `test_cross_layer_integration.py` exercises full 4-layer pipeline (Layer 1 PydanticAI → Layer 2 LangGraph FSM → Layer 3 CrewAI scoping → Layer 4 DSPy+GEPA skill compilation) | +5 (408 unit + 14 integration) — **v1.0.0 pipeline complete** |
-
-## Enterprise Production Patterns
-
-### Handling Non-Determinism
-
-#### The problem this solves
-
-The v0.1.0 gateway already had a `ValidationGate` (in `gateway/validation.py`) that
-blocked malformed *client requests* — bad JSON-RPC payloads, PII in inputs, missing
-required fields on the HTTP boundary.  What it **did not** protect against was what
-the LLM produced *after* receiving a valid prompt.
-
-LLMs are probabilistic by design: the same prompt can return a plan with a
-misspelled tool name, a missing required field, or a structurally duplicated step.
-In v0.1.0, that raw output went straight to execution — no gate, no type check.  A
-garbage plan would silently call tools with wrong arguments, write malformed events
-to Kafka, and leave corrupted state in Redis with no clear error pointing at the LLM
-as the source.
-
-#### How v1.0.0 fixes it
-
-`DeterministicOrchestrator` (in `orchestrator.py`) adds a strict two-phase protocol
-*between* the LLM and the execution layer:
-
-1. **Planning phase (cognitive)** — the LLM generates a raw plan dict.  This phase
-   is intentionally allowed to be probabilistic and creative.
-2. **Validation gate** — `DeterministicOrchestrator.plan(raw)` passes the raw dict
-   through `OrchestratorPlan`, a Pydantic v1.0.0 model.  If the plan does not conform
-   (missing `intent`, empty `steps`, duplicate adjacent calls, wrong types),
-   a `ValidationError` is raised and execution is **blocked**.  The error is
-   explicit, structured, and points at the LLM output — not the tool it would have
-   called.  The LLM is retried or the failure is escalated rather than silently
-   swallowed.
-3. **Execution phase (deterministic)** — `DeterministicOrchestrator.execute(orc, plan)`
-   accepts **only** a validated `OrchestratorPlan` instance, never a raw dict.
-   By the time execution starts, every field is typed, every constraint is satisfied,
-   and the plan is a first-class Python object.
-
-#### What changed between v0.1.0 and v1.0.0
-
-| Concern | v0.1.0 (`ValidationGate`) | v1.0.0 (`DeterministicOrchestrator`) |
-|---------|----------------------|----------------------------------|
-| What is validated | Incoming *client* requests (JSON-RPC shape, PII) | *LLM output* plans before execution |
-| When it runs | At the HTTP boundary, before the LLM is called | After the LLM responds, before any tool fires |
-| What it blocks | Malformed client payloads, PII leakage | Malformed LLM plans, type violations, duplicate steps |
-| Error source | Client misbehaviour | LLM non-determinism |
-
-Both gates are active in v1.0.0 — they guard different points in the pipeline and are
-complementary, not redundant.  Only well-typed, schema-valid plans ever reach Kafka
-`token.usage` events and the Redis session store, preventing garbage-in / garbage-out
-cascades across services.
-
-#### Decoupled Input/Output Interface
-
-`GraphOrchestrator.run(task, tools, call_tool_fn, thread_id)` accepts an abstract
-payload — a plain task string, a list of tool descriptors, and a callable to invoke
-them.  The graph is entirely agnostic about *where* the task originated: the same
-entrypoint processes a CLI invocation, an HTTP `/orchestrate` request, or a future
-Slack/Telegram webhook identically.  No transport-specific code leaks into the state
-machine.  Adding a new inbound channel requires only a thin adapter that maps the
-channel's message format to the four-argument contract — the graph itself never
-changes.
-
-### LangGraph Finite State Machine (Layer 2)
-
-The core of Layer 2 is a cyclic finite state machine implemented in `graph_orchestrator.py` using LangGraph's `StateGraph`.  Every agent request flows through a bounded, checkpointed lifecycle with explicit phase transitions:
-
-```text
-              ┌──────────────────────────────────────────┐
-              │          LangGraph StateGraph             │
-              │                                          │
-  task ──►  VALIDATE ──► PLAN ──► EXECUTE ──► EVALUATE   │
-              ▲                                  │       │
-              │          retry (score < 0.7)      │       │
-              └──────────────────────────────────┘       │
-                                                  │       │
-                                    pass ──► DONE         │
-                                    fail ──► FAILED       │
-                                    HITL ──► interrupt()   │
-              └──────────────────────────────────────────┘
-```
-
-| Phase | Node function | What happens |
-|-------|---------------|-------------|
-| **VALIDATE** | `validate_node` | Checks task is non-empty, tools are available; rejects malformed input before any LLM call |
-| **PLAN** | `plan_node` | LLM generates an `ExecutionPlan` (Pydantic-validated); structural violations block execution |
-| **EXECUTE** | `execute_node` | Runs each plan step via the injected `call_tool_fn`; destructive tools trigger `interrupt()` for HITL approval |
-| **EVALUATE** | `evaluate_node` | `CriticActorEvaluator` scores the output; score < 0.7 routes back to PLAN (retry); score = 0.0 triggers HITL interrupt |
-| **DONE** | terminal | Final result emitted; `RedisSaver` persists the checkpoint |
-| **FAILED** | terminal | `max_iterations` (default 15) exceeded; graph halts with structured error |
-
-**Key properties:**
-- **Bounded depth** — `MAX_ITERATIONS=15` prevents infinite retry loops.
-- **Transactional checkpointing** — `RedisSaver` persists `GraphState` at every phase transition, enabling crash recovery and cross-process HITL resume.
-- **Decoupled I/O** — `GraphOrchestrator.run(task, tools, call_tool_fn, thread_id)` is transport-agnostic; the same FSM handles CLI, HTTP, and webhook invocations.
-- **Conditional edges** — LangGraph's `add_conditional_edges` routes EVALUATE output to DONE, FAILED, or back to PLAN based on score and iteration count.
-
-The 4-layer pipeline stacks on this FSM: Layer 1 (PydanticAI) validates the I/O contracts within PLAN and EXECUTE nodes, Layer 3 (CrewAI) orchestrates multiple FSM instances across agent roles, and Layer 4 (DSPy+GEPA) optimizes the prompts that feed into PLAN offline.
-
-### The Critic-Actor Pattern
-
-Autonomous agents have a fundamental conflict of interest: the agent that
-produces an output also wants that output to be judged correct.  This
-leads to systematic self-certification bias — the agent optimises for the
-*appearance* of correctness rather than actual correctness.
-
-`CriticActorEvaluator` (in `evaluator.py`) implements the **Trust but Verify**
-approach used in production QA systems:
-
-| Role | Responsibility | What it can see |
-|------|---------------|-----------------|
-| **Actor** | Produce the output (any agent) | Full task + context |
-| **Critic** | Evaluate the output | Original constraints only — not the actor's reasoning chain |
-
-The separation is enforced structurally:
-- The `EvaluationContract` is sealed at task creation time, before the actor runs.
-- The critic evaluates `actor_output` against `input_constraints` (word counts,
-  required terms, forbidden terms, required JSON fields) using deterministic
-  heuristics — no shared state with the actor.
-- For semantic correctness and hallucination detection, the critic can invoke an
-  independent LLM judge using a *different* provider or model, preventing
-  shared-model bias from inflating scores.
-
-The critic defaults to `needs_revision` — it requires explicit evidence to pass,
-not the absence of detected failures.  This "cynical default" catches subtle
-regressions that optimistic graders miss.
-
-### Human-in-the-Loop (HITL) Design
-
-Fully autonomous agents are unsuitable for high-stakes or irreversible
-operations.  This design combines LangGraph's built-in
-`interrupt()` primitive with Redis checkpointing to create a *pausable*
-execution graph that can receive out-of-band human approval without
-losing any state.
-
-**How it works:**
-
-1. **Destructive-tool detection** — before `execute_node` runs any step,
-   it scans the plan for tools whose names match a predefined list of
-   destructive patterns (`write`, `delete`, `drop`, `deploy`, …).  If
-   a match is found, `langgraph.types.interrupt()` is called.
-
-2. **LangGraph `interrupt()`** — calling `interrupt()` raises a
-   `GraphInterrupt` exception internally.  LangGraph catches it, **serialises
-   the current `GraphState` to Redis** via the `RedisSaver` checkpointer,
-   and returns a `GraphInterrupt` value to the caller rather than a final
-   state.  The graph is now *paused in mid-flight* — no further nodes run.
-
-3. **External approval signal** — a human operator (or a future Slack/Telegram
-   gateway) inspects the interrupted state (visible in Redis Commander at
-   `http://localhost:8086`) and, if approved, calls
-   `compiled.ainvoke(None, config)` with the same `thread_id`.  LangGraph
-   resumes execution from the exact point of interruption.
-
-4. **Critical-failure escalation** — `evaluate_node` also triggers an
-   interrupt when the LLM critic scores the output `0.0` (absolute failure).
-   An autonomous retry would likely produce the same broken output; human
-   context is required to resolve the underlying issue.
-
-**State flags in `GraphState`:**
-
-| Field | Type | Meaning |
-|-------|------|---------|
-| `require_user_approval` | `bool` | Set to `True` in the state snapshot when a HITL pause is triggered |
-| `hitl_reason` | `str \| None` | Human-readable explanation of why approval is needed |
-
-**Why Redis is essential here:** `MemorySaver` would lose all state the
-moment the process exits or the request times out.  `RedisSaver` persists
-the exact graph checkpoint so the graph can be resumed by a *different*
-process, *at a different time*, with *full state fidelity* — enabling
-asynchronous human approval workflows across service restarts.
-
-### Enterprise Infrastructure
-
-| Component | Operational Role | Production Value | How to inspect |
-|-----------|-----------------|-----------------|----------------|
-| **Apache Kafka** (`kafka:29092`) | Asynchronous backpressure and durable telemetry stream for `token.usage` events | Absorbs high-volume telemetry spikes and persists traces for offline prompt tuning without stalling runtime requests; survives gateway restarts | Kafka UI → `http://localhost:8085/ui/clusters/local/topics` |
-| **Redis** (`redis:6379`) | In-memory distributed state and session store — `RedisSessionManager`, `RedisKVStore` phrase affinity, `AsyncIdempotencyGuard`, LangGraph `RedisSaver` checkpointer | Manages real-time, high-speed LangGraph checkpointing and conversational context storage with sub-millisecond latency | Redis Commander → `http://localhost:8086` |
-| **Redis Redlock nodes** (`redis-node-1/2/3`, ports 6381–6383) | 3-node quorum for `RedlockClient` distributed locking — prevents split-brain during concurrent tool calls | Guarantees exactly-once tool execution across horizontally-scaled gateway replicas | Redis Commander → same UI, all four hosts pre-configured |
-| **MCP Server** (gateway `:8000`) | Decoupled, secure data and action layer secured by OAuth 2.1 / PKCE S256 | Isolates business logic, offering secure, audited access to external tools and data via strict API/OAuth boundaries; tool dispatch is stateless so any instance can handle any request | Gateway health → `http://localhost:8000/health`; MCP Inspector → `http://localhost:6274` |
-| **Jaeger** (`:16686`) | Distributed trace visualisation — every `agents/analyze` call produces 4 child spans (`pdf_extract`, `prune`, `pii_scrub`, `llm_route`) with token count attributes | Full request lineage from gateway to LLM, enabling latency attribution and bottleneck detection per pipeline stage | Jaeger UI → `http://localhost:16686` |
-| **Grafana** (`:3000`) | Real-time dashboards for token consumption, cost per provider, HTTP latency P50/P99, error rate, auction bids | Executive-level observability surface powered by OTel spanmetrics and direct Prometheus counters | Grafana → `http://localhost:3000` (admin / admin) |
-
-All infrastructure UIs start automatically with `docker compose --profile full up --build`.
-
-### Multi-Agent Orchestration (Layer 3)
-
-As task complexity grows, a single agent running all MCP tools becomes both an operational bottleneck and a security risk — any tool in the registry is reachable from any context.  `MCPCrew` solves both problems.
-
-**Tool scoping — the core primitive:**
-
-`scope_tools(role, tools, allowed_patterns?)` filters the full MCP tool registry to only the tools a given role is permitted to call.  The default `ROLE_TOOL_PATTERNS` map covers five built-in roles:
-
-| Role | Allowed tool patterns |
-|------|----------------------|
-| `analyst` | `read`, `search`, `fetch`, `list`, `get`, `describe` |
-| `writer` | `write`, `create`, `update`, `format`, `publish`, `send` |
-| `db_agent` | `sql`, `query`, `select`, `insert`, `upsert`, `delete` |
-| `librarian` | `embed`, `ingest`, `index`, `retrieve`, `vector` |
-| `orchestrator` | *(all tools)* |
-
-`build_scoped_call_fn(role, scoped_tools, base_call_fn)` wraps the underlying MCP call function so that any attempt to invoke a tool outside the permitted set raises `PermissionError` at call time — not at planning time.  This is a hard security boundary: a compromised or hallucinating agent cannot escalate beyond its assigned scope regardless of what it puts in the plan.
-
-**Execution strategy:**
-
-`MCPCrew.kickoff(task)` tries CrewAI first (sequential or hierarchical `Process`).  When CrewAI is not installed and `use_langgraph=True`, each agent's subtask is routed through the Layer 2 `GraphOrchestrator` FSM — inheriting bounded depth (`MAX_ITERATIONS`), transactional Redis checkpointing, and critic-actor evaluation at every step.  Otherwise it falls back to a native PydanticAI sequential runner.  All paths enforce identical tool scopes.  An optional `evaluator` callback receives the final `CrewResult` and returns `True` if the output passes quality requirements — plugging directly into the `CriticActorEvaluator` from `evaluator.py`.
-
-```python
-python -c 'import asyncio
-from mcp_agent_factory.crew import MCPCrew, ScopedAgent
-
-async def main():
-  agents = [
-    ScopedAgent(role="analyst"),
-    ScopedAgent(role="writer", system_prompt="Always output Markdown."),
-  ]
-  mcp_tool_list = [
-    {"name": "read_file",    "description": "Read a file"},
-    {"name": "search_web",   "description": "Search the web"},
-    {"name": "write_report", "description": "Write a report"},
-    {"name": "sql_query",    "description": "Run SQL query"},
-    {"name": "fetch_url",    "description": "Fetch a URL"},
-    {"name": "publish_doc",  "description": "Publish a document"},
-  ]
-  crew = MCPCrew(agents=agents, all_tools=mcp_tool_list)
-  result = await crew.kickoff("Summarise Q3 sales and draft the executive report")
-  print(result.final_output)
-
-asyncio.run(main())'
-```
-
-Install the CrewAI extra to use the full CrewAI backend:
-
-```bash
-pip install -e ".[crew]"
-```
-
-### Offline Prompt Optimization (Layer 4)
-
-Handcrafted system prompts degrade when LLM providers update their models or when the task distribution shifts.  `PromptOptimizer` replaces manual prompt engineering with an automated, offline CI/CD pipeline.
-
-**The offline boundary is non-negotiable:** DSPy compilation and GEPA evolution are expensive (multiple LLM calls per generation).  Running them in the request path would add seconds to every user call.  Instead, the pipeline runs asynchronously — triggered by CI, a cron job, or a manual `python -m optimizer` call — and writes its results to disk as hot-reloadable JSON skill assets.  The runtime loads those assets at startup (or on SIGHUP) without any service restart.
-
-**Pipeline stages:**
-
-```
-Kafka topic (mcp-traces)
-   │ AIOKafkaConsumer
-   ▼
-TraceRecord list (filtered to failure_rate > 10%)
-   │
-   ▼ per (role, phase) pair
-DSPy BootstrapFewShot (when installed)
-   │ compiles few-shot examples from passing traces
-   │ falls back to base prompt when DSPy is unavailable
-   ▼
-GEPAEvolver (genetic mutation)
-   │ max_generations rounds, population_size candidates
-   │ scores candidates by keyword coverage of failure findings
-   ▼
-SkillAsset (best_prompt, performance_score, few_shot_examples)
-   │
-   ▼
-SkillCompiler.compile_all()
-   ├── {skill_id}.json     ← one file per (role, phase)
-   └── index.json          ← manifest for runtime hot-reload
-```
-
-```python
-import asyncio
-from mcp_agent_factory.optimizer import PromptOptimizer, SkillCompiler
-
-async def run_optimization():
-	opt = PromptOptimizer(
-		kafka_topic="mcp-traces",
-		skills_dir="/opt/mcp/skills",
-	)
-	traces = await opt.ingest_traces(limit=500)
-	assets = await opt.compile(traces)
-	compiler = SkillCompiler(output_dir="/opt/mcp/skills")
-	paths = compiler.compile_all(assets)
-	print(f"Compiled {len(paths)} skill assets")
-
-asyncio.run(run_optimization())
-```
-
-For dry-run testing without Kafka:
-
-```python
-opt = PromptOptimizer(dry_run=True)
-traces = await opt.ingest_traces(limit=10)   # synthetic failure traces
-assets = await opt.compile(traces)
-```
-
-Install the optimizer extras:
-
-```bash
-pip install -e ".[optimizer]"   # dspy-ai>=2.5, aiokafka>=0.10
+├── server.py                    # STDIO MCP server
+├── server_http.py               # FastAPI HTTP MCP server
+├── server_http_secured.py       # OAuth-secured variant
+├── orchestrator.py              # DeterministicOrchestrator + MCP client
+├── graph_orchestrator.py        # LangGraph cyclic FSM
+├── structured_agent.py          # PydanticAI structured agent
+├── evaluator.py                 # Critic-Actor evaluator
+├── crew.py                      # Layer 3: MCPCrew + ScopedAgent
+├── optimizer.py                 # Layer 4: DSPy + GEPA optimizer
+├── agents/                      # Multi-agent pipeline (Analyst, Writer, Librarian)
+├── auth/                        # OAuth 2.1 server (PKCE S256)
+├── bridge/                      # MCPGatewayClient + OAuth middleware
+├── gateway/                     # API gateway, router, PII gate, pruner
+├── knowledge/                   # RAG: vector store, embedder, ingestion
+├── streams/                     # StreamWorker, CircuitBreaker, Redlock, EventLog
+├── session/                     # Redis session manager
+├── kv/                          # Topic-namespaced KV store
+├── economics/                   # Utility scoring + sealed-bid auction
+├── messaging/                   # MessageBus + SSE routers
+└── config/                      # Privacy config + egress guard
+
+docs/
+├── architecture.md              # Layered design, request lifecycle, span chain
+├── milestones.md                # Development history (M001–M012 + features)
+├── demo-walkthrough.md          # Live demo guide
+└── security_audit.md            # Security review
+
+scripts/
+├── demo.sh                      # Seven-phase zero-touch demo
+├── demo_analyst.py              # Python analyst demo
+├── smoke_test.sh                # Stack health verification
+└── publish_traces.py            # Kafka trace publisher
 ```
 
 ## Security Notes
 
-- JWT tokens use HS256. Both the Auth Server and the Gateway must read the same `JWT_SECRET` — the Auth Server uses it as the signing key; the Gateway uses it for verification. Without a shared secret the Gateway sees `bad_signature` on every token. Rotate to RS256 + JWKS for multi-service deployments.
-- All 401 responses carry a `WWW-Authenticate` header with `resource_metadata` pointing at the gateway's `/.well-known/oauth-authorization-server` endpoint — compliant clients (Cursor, Claude Desktop) use this to auto-discover auth endpoints without hardcoded URLs.
-- Gateway proxies the Auth Server's RFC 8414 discovery document at `GET /.well-known/oauth-authorization-server`. Clients need only the gateway URL; all auth endpoints are discovered at runtime.
-- `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls — checked at startup via FastAPI lifespan.
+- JWT tokens use HS256. Both auth server and gateway must share the same `JWT_SECRET`.
+  Rotate to RS256 + JWKS for multi-service deployments.
 - PKCE S256 enforced on all authorization code exchanges; codes are single-use.
 - Audience binding (`aud: mcp-server`) prevents confused-deputy attacks.
-- Gateway rejects all requests without a valid, non-expired Bearer JWT — 401 on missing/expired/wrong-audience tokens.
-- Bridge skips the `Authorization` header entirely when no credentials are configured — sending `Bearer ` with an empty token causes authlib to raise `Invalid input segments length` before any auth logic runs.
-- RAG vector store is namespace-isolated by `owner_id` (bound to JWT `sub`) — cross-tenant queries return empty results by design.
-- `DistributedLock` uses a UUID token to prevent a worker from releasing another holder's lock after TTL expiry.
+- `PIIGate` scrubs email, API key, private IP, and JWT patterns from request bodies.
+- RAG vector store is namespace-isolated by `owner_id` (bound to JWT `sub`).
+- `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls.
+- `DistributedLock` uses a UUID token to prevent cross-holder lock release.
+- See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
+## Production Checklist
+
+| Item | Notes |
+|------|-------|
+| `JWT_SECRET` set on both processes | Same secret required |
+| `MCP_DEV_MODE` unset or `0` | Never `1` in production |
+| Real Redis (`REDIS_URL`) | FakeRedis doesn't survive restarts |
+| TLS termination | Caddy or nginx in front; JWTs must not travel over plain HTTP |
+| Token rotation | HS256 → RS256 + JWKS for multi-service deployments |
+| Port exposure | Auth server (`:8001`) should not be public-facing |
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — layered design, request lifecycle, OTel span chain
+- [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
+- [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
+- [Security Audit](docs/security_audit.md) — security review
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+© 2026 Luca Flammia — Licensed under the Apache License, Version 2.0
