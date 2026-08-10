@@ -1,18 +1,24 @@
 # Codebase Map
 
-Generated: 2026-08-01T09:15:16Z | Files: 146 | Described: 0/146
-<!-- gsd:codebase-meta {"generatedAt":"2026-08-01T09:15:16Z","fingerprint":"9a0782c11ca9ec52dc8003bdf369ce4105ff41ad","fileCount":146,"truncated":false} -->
+Generated: 2026-08-10T15:26:16Z | Files: 152 | Described: 0/152
+<!-- gsd:codebase-meta {"generatedAt":"2026-08-10T15:26:16Z","fingerprint":"5b15b99783491b01bdca576a4f724177d7290a36","fileCount":152,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
 - `.gitignore`
 - `.mcp.json.template`
+- `AUTHORS`
 - `Caddyfile`
+- `CONTRIBUTING.md`
 - `docker-compose.yml`
 - `Dockerfile`
+- `LICENSE`
 - `mcp.json`
+- `mcp.json.example`
+- `NOTICE`
 - `pyproject.toml`
 - `README.md`
+- `SECURITY.md`
 - `setup-mcp.sh`
 
 ### data/samples/
