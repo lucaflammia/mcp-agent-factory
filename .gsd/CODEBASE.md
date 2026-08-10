@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-08-10T15:26:16Z | Files: 152 | Described: 0/152
-<!-- gsd:codebase-meta {"generatedAt":"2026-08-10T15:26:16Z","fingerprint":"5b15b99783491b01bdca576a4f724177d7290a36","fileCount":152,"truncated":false} -->
+Generated: 2026-08-10T16:25:54Z | Files: 153 | Described: 0/153
+<!-- gsd:codebase-meta {"generatedAt":"2026-08-10T16:25:54Z","fingerprint":"2b1b6ac6b9726f75c94da105889f3edca109e635","fileCount":153,"truncated":false} -->
 
 ### (root)/
 - `.env.example`
@@ -13,7 +13,6 @@ Generated: 2026-08-10T15:26:16Z | Files: 152 | Described: 0/152
 - `docker-compose.yml`
 - `Dockerfile`
 - `LICENSE`
-- `mcp.json`
 - `mcp.json.example`
 - `NOTICE`
 - `pyproject.toml`
@@ -25,7 +24,9 @@ Generated: 2026-08-10T15:26:16Z | Files: 152 | Described: 0/152
 - `data/samples/finance_q3_2024.pdf`
 
 ### docs/
+- `docs/architecture.md`
 - `docs/demo-walkthrough.md`
+- `docs/milestones.md`
 - `docs/security_audit.md`
 
 ### observability/
