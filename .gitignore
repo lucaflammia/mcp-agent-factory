@@ -45,6 +45,7 @@ tmp/
 # ── GSD baseline (auto-generated) ──
 .gsd-id
 .bg-shell/
+.gsd/CODEBASE.md
 .gsd/debug/
 .gsd/workflows/
 .gsd/repo-meta.json
