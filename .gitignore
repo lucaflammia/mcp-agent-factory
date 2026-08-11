@@ -46,6 +46,7 @@ tmp/
 .gsd-id
 .bg-shell/
 .gsd/CODEBASE.md
+.gsd/last-snapshot.md
 .gsd/debug/
 .gsd/workflows/
 .gsd/repo-meta.json
