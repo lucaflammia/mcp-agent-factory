@@ -6,6 +6,8 @@ that enforces:
   - Bounded depth (max iterations before forced termination)
   - Transactional state checkpointing (recoverable sessions)
   - Explicit state transitions (validate → plan → execute → evaluate → done/retry)
+  - Typed plan steps with output chaining via {{steps.<id>.output}} references
+  - DAG-derived execution ordering with bounded concurrency
 
 Gate: set ORCHESTRATOR_MODE=langgraph to use this path.
 """
@@ -13,15 +15,22 @@ from __future__ import annotations
 
 import logging
 import os
+import re as _re
 from dataclasses import dataclass, field
 from enum import Enum
+from graphlib import TopologicalSorter, CycleError
 from typing import Any, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = int(os.getenv("GRAPH_MAX_ITERATIONS", "15"))
+PLAN_MAX_PARALLEL = int(os.getenv("PLAN_MAX_PARALLEL", "4"))
+PLAN_PARALLEL_ENABLED = os.getenv("PLAN_PARALLEL_ENABLED", "0") == "1"
+STEP_TIMEOUT_S = float(os.getenv("STEP_TIMEOUT_S", "30"))
+
+STEP_REF_PATTERN = _re.compile(r"\{\{steps\.([a-zA-Z0-9_]+)\.output\}\}")
 
 
 # ---------------------------------------------------------------------------
@@ -59,18 +68,96 @@ class GraphState(TypedDict, total=False):
 	# awaiting an out-of-band approval signal before resuming.
 	require_user_approval: bool
 	hitl_reason: str | None
+	# Step IDs that completed before a HITL interrupt — skipped on replay.
+	completed_step_ids: list[str]
 
 
 # ---------------------------------------------------------------------------
 # Structured output models for LLM nodes
 # ---------------------------------------------------------------------------
 
+class PlanStep(BaseModel):
+	"""A single typed step in an execution plan."""
+	id: str = Field(..., description="Unique step identifier, e.g. step1, step2")
+	tool_name: str = Field(
+		..., description="Tool to invoke",
+		alias="tool_name",
+	)
+	arguments: dict[str, Any] = Field(
+		default_factory=dict, description="Arguments dict — may contain {{steps.<id>.output}} references",
+	)
+
+	model_config = ConfigDict(populate_by_name=True)
+
+	@classmethod
+	def from_loose_dict(cls, d: dict[str, Any], fallback_id: str) -> "PlanStep":
+		"""Accept the LLM's inconsistent naming and normalise."""
+		step_id = d.get("id", fallback_id)
+		tool = d.get("tool_name") or d.get("name") or d.get("tool") or ""
+		args = d.get("arguments") or d.get("args") or d.get("parameters") or {}
+		return cls(id=step_id, tool_name=tool, arguments=args)
+
+
 class ExecutionPlan(BaseModel):
 	"""LLM-generated execution plan validated via PydanticAI."""
 	intent: str = Field(..., description="One-line goal description")
 	steps: list[dict[str, Any]] = Field(
-		..., min_length=1, description="Ordered tool calls: [{tool_name, arguments}]"
+		..., min_length=1,
+		description=(
+			"Ordered tool calls: [{id, tool_name, arguments}]. "
+			"Use {{steps.<id>.output}} in arguments to reference a prior step's output."
+		),
 	)
+
+	def typed_steps(self) -> list[PlanStep]:
+		"""Convert raw dicts to typed PlanStep objects."""
+		return [
+			PlanStep.from_loose_dict(s, fallback_id=f"step{i+1}")
+			for i, s in enumerate(self.steps)
+		]
+
+
+def _resolve_references(
+	arguments: dict[str, Any],
+	step_outputs: dict[str, Any],
+) -> dict[str, Any]:
+	"""Replace {{steps.<id>.output}} tokens in argument values."""
+	resolved: dict[str, Any] = {}
+	for key, value in arguments.items():
+		if isinstance(value, str):
+			def _replacer(m: _re.Match) -> str:
+				ref_id = m.group(1)
+				out = step_outputs.get(ref_id)
+				return str(out) if out is not None else m.group(0)
+			resolved[key] = STEP_REF_PATTERN.sub(_replacer, value)
+		else:
+			resolved[key] = value
+	return resolved
+
+
+def _validate_step_references(steps: list[PlanStep]) -> list[str]:
+	"""Return list of errors for references to unknown step IDs."""
+	known_ids = {s.id for s in steps}
+	errors: list[str] = []
+	for step in steps:
+		for _key, value in step.arguments.items():
+			if isinstance(value, str):
+				for m in STEP_REF_PATTERN.finditer(value):
+					ref_id = m.group(1)
+					if ref_id not in known_ids:
+						errors.append(f"Step '{step.id}' references unknown step '{ref_id}'")
+	return errors
+
+
+def _build_dag(steps: list[PlanStep]) -> dict[str, set[str]]:
+	"""Build dependency graph by inspecting {{steps.*}} references."""
+	deps: dict[str, set[str]] = {s.id: set() for s in steps}
+	for step in steps:
+		for _key, value in step.arguments.items():
+			if isinstance(value, str):
+				for m in STEP_REF_PATTERN.finditer(value):
+					deps[step.id].add(m.group(1))
+	return deps
 
 
 class EvaluationResult(BaseModel):
@@ -100,6 +187,34 @@ class GraphOrchestrator:
 		default_factory=lambda: os.getenv("PYDANTIC_AI_MODEL", "google-gla:gemini-2.5-flash")
 	)
 	max_iterations: int = field(default_factory=lambda: MAX_ITERATIONS)
+	_checkpointer: Any = field(default=None, init=False, repr=False)
+	_redis_saver_ctx: Any = field(default=None, init=False, repr=False)
+
+	async def _ensure_checkpointer(self):
+		"""Lazily initialise the checkpointer once, reuse across run() calls."""
+		if self._checkpointer is not None:
+			return
+		redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+		try:
+			from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+			self._redis_saver_ctx = AsyncRedisSaver.from_conn_string(redis_url)
+			self._checkpointer = await self._redis_saver_ctx.__aenter__()
+			await self._checkpointer.setup()
+		except Exception as exc:  # noqa: BLE001
+			logger.warning("AsyncRedisSaver unavailable (%s), falling back to MemorySaver", exc)
+			self._redis_saver_ctx = None
+			from langgraph.checkpoint.memory import MemorySaver
+			self._checkpointer = MemorySaver()
+
+	async def close(self):
+		"""Release the checkpointer connection if one was opened."""
+		if self._redis_saver_ctx is not None:
+			try:
+				await self._redis_saver_ctx.__aexit__(None, None, None)
+			except Exception:
+				pass
+			self._redis_saver_ctx = None
+		self._checkpointer = None
 
 	async def run(
 		self,
@@ -115,19 +230,7 @@ class GraphOrchestrator:
 		"""
 		from langgraph.graph import StateGraph, END
 
-		redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
-		checkpointer = None
-		redis_saver_ctx = None
-		try:
-			from langgraph.checkpoint.redis import RedisSaver
-			redis_saver_ctx = RedisSaver.from_conn_string(redis_url)
-			checkpointer = redis_saver_ctx.__enter__()
-			checkpointer.setup()
-		except Exception as exc:  # noqa: BLE001
-			logger.warning("RedisSaver unavailable (%s), falling back to MemorySaver", exc)
-			redis_saver_ctx = None
-			from langgraph.checkpoint.memory import MemorySaver
-			checkpointer = MemorySaver()
+		await self._ensure_checkpointer()
 
 		# -- Node functions --------------------------------------------------
 
@@ -151,10 +254,15 @@ class GraphOrchestrator:
 			system = (
 				"You are a planning agent. Output a JSON object with exactly two keys:\n"
 				"  intent: one-line goal string\n"
-				"  steps: array of objects each with tool_name and arguments keys\n\n"
+				"  steps: array of objects each with id, tool_name, and arguments keys\n\n"
+				"Each step needs a unique id (e.g. step1, step2). To use a previous step's "
+				"output as input, reference it with {{steps.<id>.output}} in argument values.\n\n"
 				f"Available tools:\n{tool_descriptions}\n\n"
-				"Example for 'add 3 and 4':\n"
-				'{"intent": "add two numbers", "steps": [{"tool_name": "add", "arguments": {"a": 3, "b": 4}}]}'
+				"Example for 'add 3 and 4 then echo the result':\n"
+				'{"intent": "add then echo", "steps": ['
+				'{"id": "step1", "tool_name": "add", "arguments": {"a": 3, "b": 4}}, '
+				'{"id": "step2", "tool_name": "echo", "arguments": {"message": "{{steps.step1.output}}"}}'
+				']}'
 			)
 
 			prompt = state["task"]
@@ -205,7 +313,6 @@ class GraphOrchestrator:
 			import asyncio
 			from langgraph.types import interrupt as lg_interrupt
 
-			# Pass through if planning already failed
 			if state.get("phase") == Phase.FAILED.value:
 				return state
 
@@ -213,49 +320,91 @@ class GraphOrchestrator:
 			if not plan or not plan.get("steps"):
 				return {**state, "phase": Phase.FAILED.value, "error": "No plan to execute"}
 
-			# Scan for destructive tool calls and pause for human approval.
-			for step in plan["steps"]:
-				tool_name = (
-					step.get("tool_name") or step.get("name") or step.get("tool") or ""
-				).lower()
-				if any(pat in tool_name for pat in DESTRUCTIVE_TOOL_PATTERNS):
-					reason = f"Tool '{tool_name}' requires human approval before execution."
-					logger.info("HITL interrupt triggered: %s", reason)
-					# Persist the interrupt reason into state before suspending.
-					# LangGraph serialises current state to Redis, then raises
-					# GraphInterrupt — the caller resumes by replaying with approval.
-					lg_interrupt({"reason": reason, "plan": plan})
-					# Execution continues here only after external approval is received.
+			exec_plan = ExecutionPlan(**plan)
+			typed_steps = exec_plan.typed_steps()
 
-			results = []
-			for step in plan["steps"]:
-				# Accept multiple naming conventions LLMs use for the tool name
-				tool_name = (
-					step.get("tool_name")
-					or step.get("name")
-					or step.get("tool")
-					or ""
-				)
-				# Accept multiple naming conventions for the arguments dict
-				arguments = (
-					step.get("arguments")
-					or step.get("args")
-					or step.get("parameters")
-					or {}
-				)
-				try:
-					if asyncio.iscoroutinefunction(call_tool_fn):
-						result = await call_tool_fn(tool_name, arguments)
+			# Validate references before any execution.
+			ref_errors = _validate_step_references(typed_steps)
+			if ref_errors:
+				return {
+					**state,
+					"phase": Phase.FAILED.value,
+					"error": f"Invalid step references: {'; '.join(ref_errors)}",
+				}
+
+			# HITL: scan ALL steps for destructive tools before executing any.
+			for step in typed_steps:
+				if any(pat in step.tool_name.lower() for pat in DESTRUCTIVE_TOOL_PATTERNS):
+					reason = f"Tool '{step.tool_name}' requires human approval before execution."
+					logger.info("HITL interrupt triggered: %s", reason)
+					lg_interrupt({"reason": reason, "plan": plan})
+
+			# Build DAG and determine execution order.
+			deps = _build_dag(typed_steps)
+			step_map = {s.id: s for s in typed_steps}
+			step_outputs: dict[str, Any] = {}
+			completed_ids: set[str] = set(state.get("completed_step_ids", []))
+			results: list[dict[str, Any]] = []
+			semaphore = asyncio.Semaphore(PLAN_MAX_PARALLEL)
+
+			async def _run_step(step: PlanStep) -> dict[str, Any]:
+				if step.id in completed_ids:
+					return {"tool": step.tool_name, "step_id": step.id, "result": "skipped (already completed)", "success": True}
+				resolved_args = _resolve_references(step.arguments, step_outputs)
+				async with semaphore:
+					try:
+						if asyncio.iscoroutinefunction(call_tool_fn):
+							result = await asyncio.wait_for(
+								call_tool_fn(step.tool_name, resolved_args),
+								timeout=STEP_TIMEOUT_S,
+							)
+						else:
+							result = await asyncio.wait_for(
+								asyncio.get_event_loop().run_in_executor(None, call_tool_fn, step.tool_name, resolved_args),
+								timeout=STEP_TIMEOUT_S,
+							)
+						step_outputs[step.id] = result
+						completed_ids.add(step.id)
+						return {"tool": step.tool_name, "step_id": step.id, "result": result, "success": True}
+					except asyncio.TimeoutError:
+						return {"tool": step.tool_name, "step_id": step.id, "error": f"Timed out after {STEP_TIMEOUT_S}s", "success": False}
+					except Exception as exc:
+						return {"tool": step.tool_name, "step_id": step.id, "error": str(exc), "success": False}
+
+			try:
+				sorter = TopologicalSorter(deps)
+				sorter.prepare()
+
+				while sorter.is_active():
+					ready_batch = list(sorter.get_ready())
+					if PLAN_PARALLEL_ENABLED and len(ready_batch) > 1:
+						batch_results = await asyncio.gather(
+							*[_run_step(step_map[sid]) for sid in ready_batch],
+							return_exceptions=True,
+						)
+						for sid, br in zip(ready_batch, batch_results):
+							if isinstance(br, Exception):
+								results.append({"tool": step_map[sid].tool_name, "step_id": sid, "error": str(br), "success": False})
+							else:
+								results.append(br)
+							sorter.done(sid)
 					else:
-						result = call_tool_fn(tool_name, arguments)
-					results.append({"tool": tool_name, "result": result, "success": True})
-				except Exception as exc:
-					results.append({"tool": tool_name, "error": str(exc), "success": False})
+						for sid in ready_batch:
+							r = await _run_step(step_map[sid])
+							results.append(r)
+							sorter.done(sid)
+
+			except CycleError as exc:
+				logger.warning("Cyclic step references detected (%s), falling back to sequential", exc)
+				for step in typed_steps:
+					r = await _run_step(step)
+					results.append(r)
 
 			return {
 				**state,
 				"phase": Phase.EVALUATE.value,
 				"execution_result": {"steps": results},
+				"completed_step_ids": list(completed_ids),
 			}
 
 		async def evaluate_node(state: GraphState) -> GraphState:
@@ -294,22 +443,25 @@ class GraphOrchestrator:
 			})
 
 			if verdict.get("passed", False):
-				# Extract final text result
 				steps = exec_result.get("steps", [])
-				final_text = ""
+				step_texts: list[str] = []
 				for s in steps:
 					r = s.get("result", {})
 					try:
-						final_text = r["content"][0]["text"]
+						step_texts.append(r["content"][0]["text"])
 					except (KeyError, IndexError, TypeError):
-						final_text = str(r)
+						step_texts.append(str(r))
 
 				return {
 					**state,
 					"phase": Phase.DONE.value,
 					"iteration": iteration,
 					"evaluation_verdict": verdict,
-					"final_result": {"text": final_text, "iterations": iteration},
+					"final_result": {
+						"text": step_texts[-1] if step_texts else "",
+						"all_step_outputs": step_texts,
+						"iterations": iteration,
+					},
 					"history": history,
 					"require_user_approval": False,
 					"hitl_reason": None,
@@ -382,7 +534,7 @@ class GraphOrchestrator:
 		graph.add_edge("execute", "evaluate")
 		graph.add_conditional_edges("evaluate", route_after_evaluate, {"plan": "plan", "end": END})
 
-		compiled = graph.compile(checkpointer=checkpointer)
+		compiled = graph.compile(checkpointer=self._checkpointer)
 
 		initial_state: GraphState = {
 			"task": task,
@@ -397,15 +549,9 @@ class GraphOrchestrator:
 			"history": [],
 			"require_user_approval": False,
 			"hitl_reason": None,
+			"completed_step_ids": [],
 		}
 
 		config = {"configurable": {"thread_id": thread_id}}
-		try:
-			final_state = await compiled.ainvoke(initial_state, config=config)
-		finally:
-			if redis_saver_ctx is not None:
-				try:
-					redis_saver_ctx.__exit__(None, None, None)
-				except Exception:
-					pass
+		final_state = await compiled.ainvoke(initial_state, config=config)
 		return dict(final_state)
