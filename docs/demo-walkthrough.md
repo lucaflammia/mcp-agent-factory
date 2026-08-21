@@ -49,7 +49,7 @@ Phases 5 and 6 require only Python (no live gateway): they run inline scripts th
 | `PROMETHEUS_URL` | `http://localhost:9090` | Used for panel verification |
 | `JAEGER_URL` | `http://localhost:16686` | Health-checked at startup |
 | `OLLAMA_MODEL` | `qwen3:0.6b-q4_K_M` | Local model for Ollama provider |
-| `ORCHESTRATOR_MODE` | `react` | Orchestration backend: `react`, `pydantic_ai`, or `langgraph` |
+| `ORCHESTRATOR_MODE` | `legacy` | Orchestration backend: `legacy` (ReAct loop), `pydantic_ai`, or `langgraph` |
 | `PYDANTIC_AI_MODEL` | `google-gla:gemini-2.5-flash` | Model used by the PydanticAI and LangGraph backends |
 | `CREW_PROCESS` | `sequential` | `MCPCrew` execution strategy: `sequential` or `hierarchical` |
 | `SKILLS_DIR` | `/opt/mcp/skills` | Directory where `SkillCompiler` writes hot-reloadable JSON prompt assets |
@@ -304,7 +304,7 @@ The script lists all three modes and their descriptions, then fires two live `or
 | Call | Mode | Task | What it shows |
 |---|---|---|---|
 | 1 | `pydantic_ai` | `"Echo the text: hello from pydantic_ai structured output"` | Structured agent (pydantic-ai 0.0.20 `result_type` API) with Gemini back-end; calls the `echo` tool and returns a typed `StructuredResult` object |
-| 2 | `langgraph` | `"Add the numbers 17 and 25 using the add tool"` | Cyclic state machine (validate → plan → execute → evaluate → done) with `thread_id` checkpointing via `RedisSaver`; max 15 iterations |
+| 2 | `langgraph` | `"Add the numbers 17 and 25 using the add tool"` | Cyclic state machine (validate → plan → execute → evaluate → done) with `thread_id` checkpointing via `AsyncRedisSaver`; max 15 iterations |
 
 Tasks are chosen to be concrete and unambiguous: each maps to exactly one available tool (`echo` or `add`), so neither the planner nor the evaluator can route to a non-existent tool. Do not change these to open-ended prompts — generic tasks like "list the available tools" cause the LLM to emit `tool_name="None"`, which fails the tool-dispatch gate.
 
@@ -318,7 +318,7 @@ Inspect interrupted state in Redis Commander → `http://localhost:8086` (keys p
 
 The `evaluate_node` also triggers an interrupt when the LLM critic scores the output `0.0` (absolute failure) — an autonomous retry would likely produce the same result; human context is required.
 
-The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the gateway container env). Valid values: `react` (default), `pydantic_ai`, `langgraph`.
+The active default mode is controlled by `ORCHESTRATOR_MODE` in `.env` (or the gateway container env). Valid values: `legacy` (default, ReAct loop), `pydantic_ai`, `langgraph`.
 
 ```bash
 # Switch the running stack to pydantic_ai mode
@@ -341,12 +341,12 @@ When `ORCHESTRATOR_MODE=langgraph`, every request flows through a bounded cyclic
 | Phase | What happens |
 |-------|-------------|
 | **VALIDATE** | Rejects malformed input before any LLM call |
-| **PLAN** | LLM generates a Pydantic-validated `ExecutionPlan` |
-| **EXECUTE** | Runs plan steps via `call_tool_fn`; destructive tools trigger HITL `interrupt()` |
-| **EVALUATE** | `CriticActorEvaluator` scores output; score < 0.7 retries, score = 0.0 triggers HITL |
-| **DONE/FAILED** | Terminal states; `RedisSaver` persists the final checkpoint |
+| **PLAN** | LLM generates a Pydantic-validated `ExecutionPlan` with typed `PlanStep` objects; steps can reference predecessors via `{{steps.<id>.output}}` |
+| **EXECUTE** | Validates step references, builds a DAG via `graphlib.TopologicalSorter`, executes with bounded concurrency (`PLAN_MAX_PARALLEL=4`, `STEP_TIMEOUT_S=30`); destructive tools trigger HITL `interrupt()` before any execution; `completed_step_ids` prevents replay duplication |
+| **EVALUATE** | `CriticActorEvaluator` scores output; collects all step outputs (not just the last); score < 0.7 retries, score = 0.0 triggers HITL |
+| **DONE/FAILED** | Terminal states; `AsyncRedisSaver` persists the final checkpoint without blocking the event loop |
 
-The FSM is bounded to `MAX_ITERATIONS=15` (configurable via `GRAPH_MAX_ITERATIONS` env var). `RedisSaver` checkpoints state at every transition, enabling crash recovery and cross-process HITL resume. This FSM is the backbone of the 4-layer pipeline — Layer 1 validates I/O within PLAN/EXECUTE nodes, Layer 3 orchestrates multiple FSM instances across roles, and Layer 4 optimizes prompts feeding PLAN offline.
+The FSM is bounded to `MAX_ITERATIONS=15` (configurable via `GRAPH_MAX_ITERATIONS` env var). `AsyncRedisSaver` checkpoints state at every transition, enabling crash recovery and cross-process HITL resume. Execution ordering is derived by static inspection of `{{steps.*}}` references — never from model-generated fields. `PLAN_PARALLEL_ENABLED=1` enables concurrent execution of independent steps; the default is sequential. This FSM is the backbone of the 4-layer pipeline — Layer 1 validates I/O within PLAN/EXECUTE nodes, Layer 3 orchestrates multiple FSM instances across roles, and Layer 4 optimizes prompts feeding PLAN offline.
 
 **Dependency note:** The codebase uses **pydantic-ai 0.0.20** (`result_type` / `result.data` API). Later versions (≥ 0.0.21) renamed these to `output_type` / `result.output`. The Docker image is built with the pinned version from `pyproject.toml`; do not upgrade without updating all call sites in `structured_agent.py`, `graph_orchestrator.py`, and `evaluator.py`.
 
@@ -463,7 +463,8 @@ The demo exercises all four layers of the production pipeline documented in dept
 
 | Pattern | Where it runs | What to observe |
 |---------|--------------|-----------------|
-| **LangGraph FSM** — bounded cyclic state machine (VALIDATE→PLAN→EXECUTE→EVALUATE→DONE) with Redis checkpointing | `graph_orchestrator.py` `GraphOrchestrator` | Phase transitions logged; `MAX_ITERATIONS=15` prevents infinite loops; `RedisSaver` checkpoints visible in Redis Commander |
+| **LangGraph FSM** — bounded cyclic state machine (VALIDATE→PLAN→EXECUTE→EVALUATE→DONE) with async Redis checkpointing, typed `PlanStep` output chaining, and DAG-derived concurrency | `graph_orchestrator.py` `GraphOrchestrator` | Phase transitions logged; `MAX_ITERATIONS=15` prevents infinite loops; `AsyncRedisSaver` checkpoints visible in Redis Commander |
+| **Typed Plan Steps + Output Chaining** — `PlanStep(BaseModel)` with `{{steps.<id>.output}}` references; DAG built via `graphlib.TopologicalSorter`; bounded by `PLAN_MAX_PARALLEL` and `STEP_TIMEOUT_S` | `graph_orchestrator.py` `PlanStep`, `_build_dag`, `_resolve_references` | Unknown step references rejected at validation time; cyclic refs fall back to sequential; hung tools cancelled at timeout |
 | **Handling Non-Determinism** — Pydantic schemas gate all LLM output before execution | `graph_orchestrator.py` `plan_node` | Any schema violation raises `ValidationError` logged to stderr before any tool fires |
 | **Critic-Actor** — isolated evaluator re-scores actor output against original constraints | `evaluator.py` → `evaluate_node` | `EvaluationResult.score` and per-criterion breakdown logged after each execution round |
 | **HITL Interrupt** — destructive tools and zero-score failures pause the graph in Redis | `graph_orchestrator.py` `execute_node` / `evaluate_node` | `GraphInterrupt` returned to caller; checkpoint visible in Redis Commander at `:8086` |
