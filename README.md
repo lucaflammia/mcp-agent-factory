@@ -214,6 +214,34 @@ pytest tests/ -v    # 460+ tests (integration tests skip without Docker)
 REDIS_URL=redis://localhost:6379 pytest -m integration -v
 ```
 
+## Evaluation
+
+The project includes an LLM evaluation harness that measures output quality,
+not just code correctness. See [evals/README.md](evals/README.md) for details.
+
+**Current baseline** (55 examples, Wilson 95% CI):
+
+| Dataset | Examples | Pass Rate | 95% CI |
+|---------|----------|-----------|--------|
+| RAG Q&A | 25 | 100.0% | [86.7%, 100.0%] |
+| Extraction | 15 | 100.0% | [78.2%, 100.0%] |
+| Refusal | 15 | 100.0% | [78.2%, 100.0%] |
+| **Overall** | **55** | **100.0%** | **[93.5%, 100.0%]** |
+
+Minimum detectable effect at n=55: **26.4%** — changes smaller than this are
+indistinguishable from noise.
+
+Judge–human agreement on 20-example calibration subset: **65.0%** accuracy
+(heuristic groundedness; LLM judge calibration pending live API keys).
+
+```bash
+# Run all evaluations
+python -m evals.runner --all
+
+# Compare two runs
+python -m evals.compare baseline <sha>
+```
+
 ## Project Layout
 
 ```
@@ -238,6 +266,14 @@ src/mcp_agent_factory/
 ├── economics/                   # Utility scoring + sealed-bid auction
 ├── messaging/                   # MessageBus + SSE routers
 └── config/                      # Privacy config + egress guard
+
+evals/
+├── datasets/                    # 55 hand-curated JSONL examples
+├── metrics/                     # Groundedness, retrieval, schema, Wilson CI
+├── judge/                       # LLM-as-judge + calibration + KNOWN_BIASES.md
+├── runner.py                    # python -m evals.runner --all
+├── compare.py                   # python -m evals.compare <sha-a> <sha-b>
+└── results/                     # JSON reports tagged by git SHA
 
 docs/
 ├── architecture.md              # Layered design, request lifecycle, span chain
@@ -278,6 +314,7 @@ scripts/
 ## Documentation
 
 - [Architecture](docs/architecture.md) — layered design, request lifecycle, OTel span chain
+- [Evaluation](evals/README.md) — LLM evaluation harness, metrics, judge calibration
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review
