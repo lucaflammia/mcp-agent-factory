@@ -1,0 +1,1273 @@
+{
+  "meta": {
+    "tag": "baseline",
+    "git_sha": "5606b30c58084a0d78088b278a43aa3a335067a0",
+    "timestamp": "2026-08-21T19:26:21.493912+00:00",
+    "elapsed_seconds": 0.09
+  },
+  "calibration": {
+    "accuracy": 0.65,
+    "cohens_kappa": 0.1463,
+    "n": 20,
+    "confusion_matrix": {
+      "tp": 12,
+      "fp": 7,
+      "fn": 0,
+      "tn": 1
+    },
+    "method": "heuristic_groundedness",
+    "threshold": 0.7
+  },
+  "datasets": {
+    "extraction": {
+      "n": 15,
+      "pass_rate": {
+        "proportion": 1.0,
+        "lower": 0.7961,
+        "upper": 1.0,
+        "n": 15,
+        "successes": 15
+      },
+      "results": [
+        {
+          "id": "ext-001",
+          "category": "structured_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 0.8667,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "22%",
+              "42.3%",
+              "74,",
+              "arr",
+              "cac",
+              "cash",
+              "ebitda",
+              "flow",
+              "gross",
+              "growth",
+              "margin",
+              "nps",
+              "operating",
+              "revenue",
+              "usd",
+              "usd 1,240",
+              "usd 10.1m",
+              "usd 52.4m",
+              "usd 7.6m"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-002",
+          "category": "structured_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 0.8462,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "18%",
+              "4%",
+              "6%",
+              "growth",
+              "hardware",
+              "platform",
+              "professional",
+              "revenue",
+              "saas",
+              "services",
+              "usd",
+              "usd 38.2m",
+              "usd 5.1m",
+              "usd 9.1m",
+              "yoy"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-003",
+          "category": "structured_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 0.8636,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "12",
+              "18%",
+              "2",
+              "2025",
+              "3",
+              "3%",
+              "31%",
+              "4",
+              "5",
+              "5%",
+              "90",
+              "architecture",
+              "arr",
+              "attrition",
+              "chain",
+              "changes",
+              "churn",
+              "compliance",
+              "concentration",
+              "currency",
+              "customer",
+              "days",
+              "disruptions",
+              "elevated",
+              "exposure",
+              "guidance",
+              "headwind",
+              "impact",
+              "jan",
+              "lowered",
+              "name",
+              "regulatory",
+              "reported",
+              "required",
+              "retention",
+              "revenue",
+              "risk",
+              "risks",
+              "roles",
+              "senior",
+              "supply",
+              "talent",
+              "top",
+              "unfilled"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-004",
+          "category": "structured_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 0.8421,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "2025",
+              "25",
+              "4",
+              "57m",
+              "apac",
+              "enterprise",
+              "expansion",
+              "feature",
+              "ftes",
+              "guidance",
+              "headcount",
+              "initiatives",
+              "january",
+              "key",
+              "launch",
+              "office",
+              "opening",
+              "revenue",
+              "segment",
+              "target",
+              "usd",
+              "usd 54"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-005",
+          "category": "structured_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "16.8%",
+              "19.2%",
+              "39.1%",
+              "42.3%",
+              "current",
+              "ebitda",
+              "gross",
+              "margin",
+              "prior"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-006",
+          "category": "constrained_generation",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "14%",
+              "19.2%",
+              "concise",
+              "ebitda",
+              "growth",
+              "improvement",
+              "margin",
+              "mentioning",
+              "paragraph",
+              "revenue",
+              "usd",
+              "usd 52.4m",
+              "yoy"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-007",
+          "category": "constrained_generation",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "attrition",
+              "chain",
+              "concentration",
+              "covering",
+              "currency",
+              "customer",
+              "hiring",
+              "mentioning",
+              "regulatory",
+              "risks",
+              "summary",
+              "supply",
+              "talent",
+              "without"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-008",
+          "category": "numeric_transformation",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "52400",
+              "revenue",
+              "thousands"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-009",
+          "category": "numeric_transformation",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "0.192",
+              "ebitda",
+              "ratio"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-010",
+          "category": "exhaustive_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "57m",
+              "usd",
+              "usd 1,240",
+              "usd 10.1m",
+              "usd 38.2m",
+              "usd 5.1m",
+              "usd 500k",
+              "usd 52.4m",
+              "usd 54",
+              "usd 7.6m",
+              "usd 8.1m",
+              "usd 9.1m"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-011",
+          "category": "exhaustive_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "14%",
+              "16.8%",
+              "18%",
+              "19.2%",
+              "2",
+              "22%",
+              "3",
+              "3%",
+              "31%",
+              "38%",
+              "39.1%",
+              "4%",
+              "42.3%",
+              "5%",
+              "6%",
+              "8%"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-012",
+          "category": "structured_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 0.75,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "14%",
+              "16.8%",
+              "19.2%",
+              "2.4",
+              "2023",
+              "2024",
+              "3",
+              "3.2",
+              "39.1%",
+              "42.3%",
+              "52.4m",
+              "change",
+              "ebitda",
+              "gross",
+              "margin",
+              "metric",
+              "revenue"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-013",
+          "category": "constrained_generation",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "4",
+              "75",
+              "covering",
+              "key",
+              "outlook",
+              "performance",
+              "revenue",
+              "risks",
+              "sentences",
+              "three",
+              "within",
+              "words"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-014",
+          "category": "entity_extraction",
+          "match": {
+            "exact_match": false,
+            "fuzzy_score": 0.8667,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "2023",
+              "2024",
+              "2025",
+              "3",
+              "4",
+              "apac",
+              "currencies",
+              "eur",
+              "jan",
+              "january",
+              "regions",
+              "timeframes",
+              "usd"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        },
+        {
+          "id": "ext-015",
+          "category": "constrained_generation",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "analyst",
+              "arr",
+              "covering",
+              "expansion",
+              "growth",
+              "mentioning",
+              "note",
+              "only",
+              "performance",
+              "positive",
+              "revenue",
+              "risks",
+              "saas",
+              "segment",
+              "without"
+            ],
+            "missed_keywords": []
+          },
+          "pass": true
+        }
+      ],
+      "avg_keyword_recall": 1.0
+    },
+    "rag_qa": {
+      "n": 25,
+      "pass_rate": {
+        "proportion": 1.0,
+        "lower": 0.8668,
+        "upper": 1.0,
+        "n": 25,
+        "successes": 25
+      },
+      "results": [
+        {
+          "id": "rag-001",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "million",
+              "usd",
+              "usd 52.4"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "USD 52.4 million"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-002",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "14%"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "14%"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-003",
+          "category": "comparison",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "16.8%",
+              "19.2%",
+              "2023",
+              "3",
+              "ebitda",
+              "improved",
+              "margin"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "EBITDA margin was 19.2%, improved from 16.8% in Q3 2023"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-004",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "million",
+              "usd",
+              "usd 8.1"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "USD 8.1 million"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-005",
+          "category": "comparison",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "39.1%",
+              "42.3%",
+              "gross",
+              "margin",
+              "prior",
+              "year"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Gross margin is 42.3%, up from 39.1% in the prior year"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-006",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "8%",
+              "cac",
+              "decreased",
+              "quarter",
+              "usd",
+              "usd 1,240"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "CAC decreased 8% quarter-over-quarter to USD 1,240"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-007",
+          "category": "summarization",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "chain",
+              "compliance",
+              "concentration",
+              "currency",
+              "customer",
+              "disruptions",
+              "exposure",
+              "regulatory",
+              "retention",
+              "supply",
+              "talent"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Supply chain disruptions, regulatory compliance, currency exposure, customer concentration, and talent retention"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-008",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "57",
+              "million",
+              "usd",
+              "usd 54"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "USD 54-57 million"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-009",
+          "category": "reasoning",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "18%",
+              "growth",
+              "platform",
+              "saas",
+              "yoy"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "SaaS Platform at 18% YoY growth"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-010",
+          "category": "reasoning",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "6%",
+              "apac",
+              "constraints",
+              "declined",
+              "million",
+              "semiconductor",
+              "supply",
+              "usd",
+              "usd 5.1",
+              "yoy"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "USD 5.1 million, declined 6% YoY due to APAC semiconductor supply constraints"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-011",
+          "category": "comparison",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "58",
+              "74,",
+              "average",
+              "industry",
+              "nps"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "NPS is 74, compared to industry average of 58"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-012",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "3",
+              "deals",
+              "usd",
+              "usd 500k"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "3 deals, each over USD 500K"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-013",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "22%",
+              "annualized"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "22% annualized"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-014",
+          "category": "summarization",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "12",
+              "18%",
+              "90",
+              "annualized",
+              "attrition",
+              "days",
+              "engineering",
+              "more",
+              "open",
+              "roles",
+              "senior",
+              "unfilled"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Engineering attrition is at 18% annualized with 12 open senior roles unfilled for more than 90 days"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-015",
+          "category": "reasoning",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "2",
+              "3%",
+              "38%",
+              "creates",
+              "eur",
+              "headwind",
+              "reported",
+              "revenue",
+              "strengthening",
+              "usd"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "38% of revenue is in EUR; USD strengthening creates a 2-3% headwind on reported revenue"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-016",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "2025",
+              "january"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "January 2025"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-017",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "25",
+              "ftes"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "+25 FTEs"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-018",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "million",
+              "usd",
+              "usd 7.6"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "USD 7.6 million"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-019",
+          "category": "summarization",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "31%",
+              "5",
+              "arr",
+              "churn",
+              "customers",
+              "elevated",
+              "represent",
+              "risk",
+              "top"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Top 5 customers represent 31% of ARR, with elevated churn risk"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-020",
+          "category": "comparison",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "18%",
+              "4%",
+              "faster",
+              "grew",
+              "platform",
+              "professional",
+              "revenue",
+              "saas",
+              "services",
+              "significantly",
+              "usd",
+              "usd 38.2m",
+              "usd 9.1m",
+              "yoy"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "SaaS Platform revenue was USD 38.2M (+18% YoY) while Professional Services was USD 9.1M (+4% YoY)."
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-021",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "million",
+              "usd",
+              "usd 10.1"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "USD 10.1 million"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-022",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "2025",
+              "apac",
+              "january",
+              "office",
+              "opening"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "APAC office opening in January 2025"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-023",
+          "category": "factual_extraction",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "3",
+              "4",
+              "5%",
+              "guidance",
+              "lowered"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Q4 guidance was lowered by 3-5%"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-024",
+          "category": "summarization",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "apac",
+              "enterprise",
+              "expansion",
+              "feature",
+              "launch",
+              "office",
+              "opening",
+              "segment"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Enterprise segment expansion, AI feature launch, and APAC office opening"
+            ]
+          },
+          "pass": true
+        },
+        {
+          "id": "rag-025",
+          "category": "reasoning",
+          "match": {
+            "exact_match": true,
+            "fuzzy_score": 1.0,
+            "keyword_recall": 1.0,
+            "matched_keywords": [
+              "14%",
+              "16.8%",
+              "19.2%",
+              "22%",
+              "arr",
+              "cac",
+              "declining",
+              "ebitda",
+              "growing",
+              "growth",
+              "improving",
+              "margin",
+              "revenue",
+              "yoy"
+            ],
+            "missed_keywords": []
+          },
+          "groundedness": {
+            "score": 0.0,
+            "supported_claims": 0,
+            "total_claims": 1,
+            "unsupported": [
+              "Growing: 14% YoY revenue growth, improving EBITDA margin (16.8% to 19.2%), 22% ARR growth, and declining CAC"
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "avg_groundedness": 0.0,
+      "avg_fuzzy_score": 1.0,
+      "avg_keyword_recall": 1.0
+    },
+    "refusal": {
+      "n": 15,
+      "pass_rate": {
+        "proportion": 1.0,
+        "lower": 0.7961,
+        "upper": 1.0,
+        "n": 15,
+        "successes": 15
+      },
+      "results": [
+        {
+          "id": "ref-001",
+          "category": "temporal_gap",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-002",
+          "category": "missing_entity",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-003",
+          "category": "missing_data",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-004",
+          "category": "missing_external",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-005",
+          "category": "prediction_beyond_data",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-006",
+          "category": "missing_data",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-007",
+          "category": "missing_detail",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-008",
+          "category": "missing_data",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-009",
+          "category": "missing_data",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-010",
+          "category": "missing_detail",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-011",
+          "category": "temporal_gap",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-012",
+          "category": "missing_entity",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-013",
+          "category": "missing_detail",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-014",
+          "category": "missing_data",
+          "refused": true,
+          "pass": true
+        },
+        {
+          "id": "ref-015",
+          "category": "opinion_request",
+          "refused": true,
+          "pass": true
+        }
+      ],
+      "refusal_rate": {
+        "proportion": 1.0,
+        "lower": 0.7961,
+        "upper": 1.0,
+        "n": 15,
+        "successes": 15
+      }
+    }
+  },
+  "summary": {
+    "total_examples": 55,
+    "overall_pass_rate": {
+      "proportion": 1.0,
+      "lower": 0.9347,
+      "upper": 1.0,
+      "n": 55,
+      "successes": 55
+    },
+    "minimum_detectable_effect": 0.2643,
+    "mde_note": "With n=55, changes smaller than 26.4% are indistinguishable from noise."
+  }
+}
