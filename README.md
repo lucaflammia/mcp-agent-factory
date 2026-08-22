@@ -1,5 +1,7 @@
 # MCP Agent Factory
 
+[![CI](https://github.com/lucaflammia/mcp-agent-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/lucaflammia/mcp-agent-factory/actions/workflows/ci.yml)
+
 A **Model Context Protocol (MCP)** server ecosystem for collaborative multi-agent
 architectures — with privacy-first design, full-stack observability, fault-tolerant
 streaming, and standards-compliant security.
