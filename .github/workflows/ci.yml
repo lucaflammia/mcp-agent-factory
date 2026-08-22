@@ -50,7 +50,16 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run unit tests with coverage
-        run: pytest -m "not integration" --tb=short -q --cov=src/mcp_agent_factory --cov-report=term-missing
+        run: pytest -m "not integration" --tb=short -q --cov=src/mcp_agent_factory --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   integration:
     name: Integration tests
