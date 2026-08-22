@@ -7,6 +7,20 @@ A **Model Context Protocol (MCP)** server ecosystem for collaborative multi-agen
 architectures — with privacy-first design, full-stack observability, fault-tolerant
 streaming, and standards-compliant security.
 
+## Live Deployment
+
+| | |
+|---|---|
+| **Public endpoint** | `https://<app_runner_url>/health` — provisioned via `make demo-up` |
+| **Platform** | AWS App Runner (eu-west-1) — TLS, scale-to-zero, OIDC CI |
+| **Idle cost** | **<€0.10/month** (ECR storage only; nothing runs at rest) |
+| **Demo-day cost** | **~€1** (App Runner instance time) |
+| **IaC** | [`terraform/`](terraform/) — `make demo-up` / `make demo-down` |
+| **Deployment notes** | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — what broke and why |
+
+> The environment is ephemeral by design: `make demo-up` takes ~8 minutes, `make demo-down`
+> destroys everything. The cost at rest is zero because nothing is running.
+
 ## What It Does
 
 **Privacy-first design** — `PIIGate` scrubs PII (emails, API keys, private IPs,
