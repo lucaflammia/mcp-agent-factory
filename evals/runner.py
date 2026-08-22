@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from evals.metrics.groundedness import check_groundedness
+from evals.metrics.ranking import evaluate_retrieval, aggregate_retrieval_metrics
 from evals.metrics.retrieval import check_match, check_refusal
 from evals.metrics.statistics import wilson_ci, minimum_detectable_effect
 
@@ -85,24 +86,63 @@ def simulate_answer(example: dict[str, Any]) -> str:
 
 
 def evaluate_rag_qa(example: dict[str, Any], answer: str) -> dict[str, Any]:
+  category = example.get("category", "unknown")
   expected = str(example.get("expected", ""))
-  match_result = check_match(answer, expected)
 
-  context_text = example.get("context", "")
-  if isinstance(context_text, str):
-    chunks = [context_text] if context_text else []
+  # Cross-tenant isolation: evaluate as refusal, not match
+  if category == "cross_tenant_isolation":
+    refused = check_refusal(answer)
+    result: dict[str, Any] = {
+      "id": example["id"],
+      "category": category,
+      "refused": refused,
+      "pass": refused,
+    }
   else:
-    chunks = context_text
+    match_result = check_match(answer, expected)
 
-  ground = check_groundedness(answer, chunks)
+    context_text = example.get("context", "")
+    if isinstance(context_text, str):
+      chunks = [context_text] if context_text else []
+    else:
+      chunks = context_text
 
-  return {
-    "id": example["id"],
-    "category": example.get("category", "unknown"),
-    "match": match_result.to_dict(),
-    "groundedness": ground.to_dict(),
-    "pass": match_result.keyword_recall >= 0.5,
+    ground = check_groundedness(answer, chunks)
+
+    result = {
+      "id": example["id"],
+      "category": category,
+      "match": match_result.to_dict(),
+      "groundedness": ground.to_dict(),
+      "pass": match_result.keyword_recall >= 0.5,
+    }
+
+  # Retrieval metrics (simulate perfect retrieval = relevant_chunks as retrieved list)
+  relevant_chunks = example.get("relevant_chunks", [])
+  retrieved_chunks = list(relevant_chunks)  # baseline: perfect retrieval
+  retrieval_result = evaluate_retrieval(example["id"], retrieved_chunks, relevant_chunks)
+  result["retrieval"] = retrieval_result.to_dict()
+
+  # Oracle comparison
+  retrieved_pass = result["pass"]
+  oracle_pass = result["pass"]  # with simulation, oracle == retrieved
+
+  if oracle_pass and retrieved_pass:
+    diagnosis = "working"
+  elif oracle_pass and not retrieved_pass:
+    diagnosis = "retrieval_failure"
+  elif not oracle_pass and retrieved_pass:
+    diagnosis = "generation_failure"
+  else:
+    diagnosis = "both_failing"
+
+  result["oracle_comparison"] = {
+    "retrieved_pass": retrieved_pass,
+    "oracle_pass": oracle_pass,
+    "diagnosis": diagnosis,
   }
+
+  return result
 
 
 def evaluate_extraction(example: dict[str, Any], answer: str) -> dict[str, Any]:
@@ -228,6 +268,40 @@ def build_report(
       kw_recalls = [r["match"]["keyword_recall"] for r in results if "match" in r]
       if kw_recalls:
         ds_report["avg_keyword_recall"] = round(sum(kw_recalls) / len(kw_recalls), 4)
+
+      # Retrieval metrics (separate from generation metrics)
+      from evals.metrics.ranking import RetrievalResult
+      retrieval_objs = []
+      for r in results:
+        if "retrieval" in r:
+          rd = r["retrieval"]
+          retrieval_objs.append(RetrievalResult(
+            query_id=rd["query_id"],
+            relevant=frozenset(),  # not needed for aggregation
+            retrieved=tuple(),
+            recall_at_1=rd["recall@1"],
+            recall_at_3=rd["recall@3"],
+            recall_at_5=rd["recall@5"],
+            recall_at_10=rd["recall@10"],
+            mrr=rd["mrr"],
+            ndcg_at_10=rd["ndcg@10"],
+            context_precision=rd["context_precision"],
+          ))
+      if retrieval_objs:
+        ds_report["retrieval_metrics"] = aggregate_retrieval_metrics(retrieval_objs)
+
+      # Oracle comparison summary
+      oracle_counts: dict[str, int] = {
+        "working": 0,
+        "retrieval_failure": 0,
+        "generation_failure": 0,
+        "both_failing": 0,
+      }
+      for r in results:
+        if "oracle_comparison" in r:
+          diag = r["oracle_comparison"]["diagnosis"]
+          oracle_counts[diag] = oracle_counts.get(diag, 0) + 1
+      ds_report["oracle_comparison_summary"] = oracle_counts
 
     elif ds_name == "refusal":
       refusals = sum(1 for r in results if r.get("refused", False))
@@ -369,6 +443,23 @@ def main() -> None:
   print(f"Pass rate:   {overall.get('proportion', 0):.1%} "
      f"[{overall.get('lower', 0):.1%}, {overall.get('upper', 0):.1%}]")
   print(f"MDE:         {summary.get('minimum_detectable_effect', 0):.1%}")
+
+  # Retrieval metrics for rag_qa (printed before generation metrics)
+  rag_ds = report.get("datasets", {}).get("rag_qa", {})
+  ret_metrics = rag_ds.get("retrieval_metrics")
+  if ret_metrics:
+    print(f"\n--- Retrieval Metrics (rag_qa) ---")
+    print(f"recall@1:          {ret_metrics.get('recall@1', 0):.4f}")
+    print(f"recall@5:          {ret_metrics.get('recall@5', 0):.4f}")
+    print(f"MRR:               {ret_metrics.get('mrr', 0):.4f}")
+    print(f"nDCG@10:           {ret_metrics.get('ndcg@10', 0):.4f}")
+    print(f"context_precision: {ret_metrics.get('context_precision', 0):.4f}")
+    oracle_summary = rag_ds.get("oracle_comparison_summary", {})
+    if oracle_summary:
+      print(f"Oracle comparison: working={oracle_summary.get('working', 0)}, "
+            f"retrieval_failure={oracle_summary.get('retrieval_failure', 0)}, "
+            f"generation_failure={oracle_summary.get('generation_failure', 0)}, "
+            f"both_failing={oracle_summary.get('both_failing', 0)}")
 
   if "accuracy" in cal:
     print(f"Judge-human: {cal['accuracy']:.1%} accuracy, "
