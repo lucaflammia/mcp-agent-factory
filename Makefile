@@ -18,12 +18,13 @@ help:
 demo-up: ## Provision AWS infra + deploy gateway (~8 min)
 	@echo "==> Initialising Terraform"
 	cd $(TF_DIR) && terraform init -input=false
-	@echo "==> Applying Terraform (ECR, App Runner, IAM, SSM, CloudWatch)"
-	cd $(TF_DIR) && terraform apply -auto-approve -input=false
+	@echo "==> Applying ECR repository (image must exist before App Runner is created)"
+	cd $(TF_DIR) && terraform apply -auto-approve -input=false \
+		-target=aws_ecr_repository.gateway
 	@echo "==> Building and pushing gateway image"
 	$(MAKE) _build-and-push
-	@echo "==> Triggering App Runner deployment"
-	$(MAKE) _apprunner-deploy
+	@echo "==> Applying remaining Terraform resources (App Runner, IAM, SSM, CloudWatch)"
+	cd $(TF_DIR) && terraform apply -auto-approve -input=false
 	@echo ""
 	@echo "Gateway URL: $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)"
 	@echo "Health:      $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)/health"
@@ -38,16 +39,6 @@ demo-verify: ## Verify no billable resources remain after teardown
 	@echo "--- App Runner services ---"
 	aws apprunner list-services --region $(AWS_REGION) \
 		--query 'ServiceSummaryList[?contains(ServiceName, `mcp-agent-factory`)]' \
-		--output table
-	@echo "--- Unassociated Elastic IPs ---"
-	aws ec2 describe-addresses --region $(AWS_REGION) \
-		--filters Name=domain,Values=vpc \
-		--query 'Addresses[?AssociationId==null]' \
-		--output table
-	@echo "--- Available (unattached) EBS volumes ---"
-	aws ec2 describe-volumes --region $(AWS_REGION) \
-		--filters Name=status,Values=available \
-		--query 'Volumes[*].{ID:VolumeId,Size:Size,State:State}' \
 		--output table
 	@echo "--- App Runner CloudWatch log group ---"
 	aws logs describe-log-groups --region $(AWS_REGION) \
