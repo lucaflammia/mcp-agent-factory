@@ -59,8 +59,8 @@ demo-verify: ## Verify no billable resources remain after teardown
 
 ssm-populate: ## Interactively populate SSM SecureString parameters (run once after demo-up)
 	@echo "Setting SSM parameters for mcp-agent-factory..."
-	@read -s -p "ANTHROPIC_API_KEY: " v && aws ssm put-parameter \
-		--name /mcp-agent-factory/anthropic-api-key --value "$$v" \
+	@read -s -p "GEMINI_API_KEY: " v && aws ssm put-parameter \
+		--name /mcp-agent-factory/gemini-api-key --value "$$v" \
 		--type SecureString --overwrite --region $(AWS_REGION) && echo " OK"
 	@read -s -p "DATABASE_URL (Neon): " v && aws ssm put-parameter \
 		--name /mcp-agent-factory/database-url --value "$$v" \
