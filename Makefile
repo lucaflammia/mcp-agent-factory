@@ -1,3 +1,4 @@
+SHELL         := /bin/bash
 .DEFAULT_GOAL := help
 AWS_REGION    ?= eu-west-1
 TF_DIR        := terraform

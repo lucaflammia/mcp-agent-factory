@@ -136,7 +136,7 @@ resource "aws_apprunner_service" "gateway" {
 
 resource "aws_apprunner_auto_scaling_configuration_version" "gateway" {
   auto_scaling_configuration_name = "mcp-agent-factory"
-  min_size = 0
+  min_size = 1
   max_size = 2
 }
 

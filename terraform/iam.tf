@@ -2,8 +2,15 @@
 # OIDC provider for GitHub Actions — no static AWS keys in GitHub Secrets
 # ---------------------------------------------------------------------------
 
-data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+
+  lifecycle {
+    # Safe to import if the provider already exists in the account
+    prevent_destroy = false
+  }
 }
 
 # CI role — assumed by GitHub Actions via OIDC; scoped to this repo only
@@ -16,7 +23,7 @@ resource "aws_iam_role" "ci" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.github.arn
+          Federated = aws_iam_openid_connect_provider.github.arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
