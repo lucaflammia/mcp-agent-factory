@@ -83,7 +83,7 @@ resource "aws_apprunner_service" "gateway" {
         port = "8000"
         runtime_environment_secrets = {
           # Secrets pulled from SSM at runtime — never in the image or env vars at deploy time.
-          ANTHROPIC_API_KEY = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/anthropic-api-key"
+          GEMINI_API_KEY = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/gemini-api-key"
           DATABASE_URL      = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/database-url"
           REDIS_URL         = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/redis-url"
           JWT_SECRET        = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/jwt-secret"

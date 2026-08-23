@@ -137,7 +137,7 @@ jobs:
       - name: Run evaluation
         if: steps.check.outputs.exists == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python -m evals.runner --max-examples 20
 
       - name: Check for regressions

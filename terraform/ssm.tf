@@ -3,8 +3,8 @@
 # Values are SecureStrings set outside Terraform (never committed to the repo).
 #
 # One-time setup after `terraform apply`:
-#   aws ssm put-parameter --name /mcp-agent-factory/anthropic-api-key \
-#     --value "sk-ant-..." --type SecureString --overwrite
+#   aws ssm put-parameter --name /mcp-agent-factory/gemini-api-key \
+#     --value "AIza..." --type SecureString --overwrite
 #   aws ssm put-parameter --name /mcp-agent-factory/database-url \
 #     --value "postgresql://..." --type SecureString --overwrite
 #   aws ssm put-parameter --name /mcp-agent-factory/redis-url \
@@ -20,8 +20,8 @@
 # Declare the parameters so Terraform tracks their existence without managing values.
 # `ignore_changes = [value]` means `terraform apply` won't overwrite values set manually.
 
-resource "aws_ssm_parameter" "anthropic_api_key" {
-  name  = "/mcp-agent-factory/anthropic-api-key"
+resource "aws_ssm_parameter" "gemini_api_key" {
+  name  = "/mcp-agent-factory/gemini-api-key"
   type  = "SecureString"
   value = "PLACEHOLDER"  # set manually — see comment above
 
