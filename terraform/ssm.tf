@@ -21,9 +21,10 @@
 # `ignore_changes = [value]` means `terraform apply` won't overwrite values set manually.
 
 resource "aws_ssm_parameter" "gemini_api_key" {
-  name  = "/mcp-agent-factory/gemini-api-key"
-  type  = "SecureString"
-  value = "PLACEHOLDER"  # set manually — see comment above
+  name      = "/mcp-agent-factory/gemini-api-key"
+  type      = "SecureString"
+  value     = "PLACEHOLDER"  # set manually — see comment above
+  overwrite = true
 
   lifecycle {
     ignore_changes = [value]
@@ -31,9 +32,10 @@ resource "aws_ssm_parameter" "gemini_api_key" {
 }
 
 resource "aws_ssm_parameter" "database_url" {
-  name  = "/mcp-agent-factory/database-url"
-  type  = "SecureString"
-  value = "PLACEHOLDER"
+  name      = "/mcp-agent-factory/database-url"
+  type      = "SecureString"
+  value     = "PLACEHOLDER"
+  overwrite = true
 
   lifecycle {
     ignore_changes = [value]
@@ -41,9 +43,10 @@ resource "aws_ssm_parameter" "database_url" {
 }
 
 resource "aws_ssm_parameter" "redis_url" {
-  name  = "/mcp-agent-factory/redis-url"
-  type  = "SecureString"
-  value = "PLACEHOLDER"
+  name      = "/mcp-agent-factory/redis-url"
+  type      = "SecureString"
+  value     = "PLACEHOLDER"
+  overwrite = true
 
   lifecycle {
     ignore_changes = [value]
@@ -51,9 +54,10 @@ resource "aws_ssm_parameter" "redis_url" {
 }
 
 resource "aws_ssm_parameter" "jwt_secret" {
-  name  = "/mcp-agent-factory/jwt-secret"
-  type  = "SecureString"
-  value = "PLACEHOLDER"
+  name      = "/mcp-agent-factory/jwt-secret"
+  type      = "SecureString"
+  value     = "PLACEHOLDER"
+  overwrite = true
 
   lifecycle {
     ignore_changes = [value]
@@ -61,9 +65,10 @@ resource "aws_ssm_parameter" "jwt_secret" {
 }
 
 resource "aws_ssm_parameter" "otel_endpoint" {
-  name  = "/mcp-agent-factory/otel-endpoint"
-  type  = "SecureString"
-  value = "PLACEHOLDER"
+  name      = "/mcp-agent-factory/otel-endpoint"
+  type      = "SecureString"
+  value     = "PLACEHOLDER"
+  overwrite = true
 
   lifecycle {
     ignore_changes = [value]
@@ -71,9 +76,10 @@ resource "aws_ssm_parameter" "otel_endpoint" {
 }
 
 resource "aws_ssm_parameter" "otel_headers" {
-  name  = "/mcp-agent-factory/otel-headers"
-  type  = "SecureString"
-  value = "PLACEHOLDER"
+  name      = "/mcp-agent-factory/otel-headers"
+  type      = "SecureString"
+  value     = "PLACEHOLDER"
+  overwrite = true
 
   lifecycle {
     ignore_changes = [value]

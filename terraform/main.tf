@@ -36,6 +36,7 @@ provider "aws" {
 resource "aws_ecr_repository" "gateway" {
   name                 = "mcp-agent-factory/gateway"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
