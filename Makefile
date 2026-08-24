@@ -3,7 +3,7 @@ SHELL         := /bin/bash
 AWS_REGION    ?= eu-west-1
 TF_DIR        := terraform
 
-.PHONY: help demo-up demo-down demo-verify ssm-populate
+.PHONY: help demo-up demo-down demo-verify ssm-populate ssm-sync
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -25,6 +25,8 @@ demo-up: ## Provision AWS infra + deploy gateway (~8 min)
 	$(MAKE) _build-and-push
 	@echo "==> Applying remaining Terraform resources (App Runner, IAM, SSM, CloudWatch)"
 	cd $(TF_DIR) && terraform apply -auto-approve -input=false
+	@echo "==> Syncing secrets from .env into SSM (overwrites placeholders)"
+	$(MAKE) ssm-sync
 	@echo ""
 	@echo "Gateway URL: $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)"
 	@echo "Health:      $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)/health"
@@ -47,6 +49,23 @@ demo-verify: ## Verify no billable resources remain after teardown
 		--output table
 	@echo "==> Teardown verification complete."
 	@echo "    Check Cost Explorer tomorrow (billing lag ~24h) with filter project=mcp-agent-factory"
+
+ssm-sync: ## Sync secrets from .env into SSM (runs automatically in demo-up)
+	@if [ ! -f .env ]; then echo "ERROR: .env not found — copy .env.example and fill in values"; exit 1; fi
+	@set -a && source .env && set +a && \
+	_ssm_put() { \
+		aws ssm put-parameter --region $(AWS_REGION) \
+			--name "/mcp-agent-factory/$$1" --value "$$2" \
+			--type SecureString --overwrite --query Version --output text > /dev/null && \
+		echo "  /mcp-agent-factory/$$1 updated"; \
+	}; \
+	_ssm_put gemini-api-key   "$$GEMINI_API_KEY"; \
+	_ssm_put database-url     "$${NEON_CONNECTION_STRING:-$$DATABASE_URL}"; \
+	_ssm_put redis-url        "$${UPSTASH_REDIS_URL:-$$REDIS_URL}"; \
+	_ssm_put jwt-secret       "$$JWT_SECRET"; \
+	_ssm_put otel-endpoint    "$$OTEL_EXPORTER_OTLP_ENDPOINT"; \
+	_ssm_put otel-headers     "$$OTEL_EXPORTER_OTLP_HEADERS"
+	@echo "  SSM sync complete."
 
 ssm-populate: ## Interactively populate SSM SecureString parameters (run once after demo-up)
 	@echo "Setting SSM parameters for mcp-agent-factory..."
