@@ -108,7 +108,7 @@ resource "aws_apprunner_service" "gateway" {
 
   instance_configuration {
     cpu    = "0.25 vCPU"
-    memory = "0.5 GB"
+    memory = "1 GB"
     instance_role_arn = aws_iam_role.apprunner_instance.arn
   }
 
