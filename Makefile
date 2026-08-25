@@ -23,10 +23,10 @@ demo-up: ## Provision AWS infra + deploy gateway (~8 min)
 		-target=aws_ecr_repository.gateway
 	@echo "==> Building and pushing gateway image"
 	$(MAKE) _build-and-push
+	@echo "==> Syncing secrets from .env into SSM before App Runner is created"
+	$(MAKE) ssm-sync
 	@echo "==> Applying remaining Terraform resources (App Runner, IAM, SSM, CloudWatch)"
 	cd $(TF_DIR) && terraform apply -auto-approve -input=false
-	@echo "==> Syncing secrets from .env into SSM (overwrites placeholders)"
-	$(MAKE) ssm-sync
 	@echo ""
 	@echo "Gateway URL: $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)"
 	@echo "Health:      $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)/health"
