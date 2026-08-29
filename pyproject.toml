@@ -34,10 +34,12 @@ infra = ["aiokafka>=0.10"]
 ml = ["sentence-transformers>=2.2"]
 crew = ["crewai>=0.80"]
 optimizer = ["dspy-ai>=2.5", "aiokafka>=0.10"]
+pg = ["psycopg2-binary>=2.9", "pgvector>=0.3"]
 otel = [
     "opentelemetry-api>=1.24",
     "opentelemetry-sdk>=1.24",
     "opentelemetry-exporter-otlp-proto-grpc>=1.24",
+    "opentelemetry-exporter-otlp-proto-http>=1.24",
     "opentelemetry-instrumentation-fastapi>=0.45b0",
     "opentelemetry-instrumentation-httpx>=0.45b0",
     "prometheus-fastapi-instrumentator>=6.1",
