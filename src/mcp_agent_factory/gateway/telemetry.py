@@ -35,7 +35,6 @@ def configure_telemetry() -> None:
         from opentelemetry.sdk.resources import SERVICE_NAME, Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     except ImportError:
         logger.warning("opentelemetry packages not installed — tracing disabled")
         return
@@ -45,7 +44,24 @@ def configure_telemetry() -> None:
 
     resource = Resource(attributes={SERVICE_NAME: service_name})
     provider = TracerProvider(resource=resource)
-    exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+
+    headers_raw = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
+    headers = {}
+    for pair in headers_raw.split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            headers[k.strip()] = v.strip()
+
+    if endpoint.startswith("https://"):
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        exporter = OTLPSpanExporter(
+            endpoint=endpoint + "/v1/traces",
+            headers=headers or None,
+        )
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
