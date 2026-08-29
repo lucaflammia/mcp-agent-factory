@@ -11,7 +11,7 @@ streaming, and standards-compliant security.
 
 | | |
 |---|---|
-| **Public endpoint** | `https://<app_runner_url>/health` — provisioned via `make demo-up` |
+| **Public endpoint** | `https://<app_runner_url>/health` — run `make demo-up` then `terraform output gateway_url` |
 | **Platform** | AWS App Runner (eu-west-1) — TLS, scale-to-zero, OIDC CI |
 | **Idle cost** | **<€0.10/month** (ECR storage only; nothing runs at rest) |
 | **Demo-day cost** | **~€1** (App Runner instance time) |
