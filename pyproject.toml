@@ -34,7 +34,7 @@ infra = ["aiokafka>=0.10"]
 ml = ["sentence-transformers>=2.2"]
 crew = ["crewai>=0.80"]
 optimizer = ["dspy-ai>=2.5", "aiokafka>=0.10"]
-pg = ["psycopg2-binary>=2.9", "pgvector>=0.3"]
+pgvector = ["psycopg[binary]>=3.1", "pgvector>=0.3"]
 otel = [
     "opentelemetry-api>=1.24",
     "opentelemetry-sdk>=1.24",
