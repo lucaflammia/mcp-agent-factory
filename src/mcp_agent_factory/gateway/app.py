@@ -43,7 +43,7 @@ from authlib.jose import OctKey
 from mcp_agent_factory.auth.resource import make_verify_token, set_jwt_key
 from mcp_agent_factory.config.privacy import PrivacyConfig
 from mcp_agent_factory.economics.auction import Auction
-from mcp_agent_factory.knowledge import InMemoryVectorStore, LocalEmbedder, StubEmbedder, query_knowledge_base
+from mcp_agent_factory.knowledge import InMemoryVectorStore, PgVectorStore, LocalEmbedder, StubEmbedder, query_knowledge_base
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
 from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
@@ -146,7 +146,16 @@ bus: MessageBus = MessageBus()
 sampling_handler: SamplingHandler = SamplingHandler(StubSamplingClient())
 _redis_client = _make_redis_client()
 session: RedisSessionManager = RedisSessionManager(_redis_client)
-_vector_store: InMemoryVectorStore = InMemoryVectorStore()
+def _make_vector_store():
+	dsn = os.getenv("DATABASE_URL")
+	if dsn:
+		try:
+			return PgVectorStore(dsn)
+		except Exception as exc:
+			logger.warning('{"event":"pg_vector_store_init_failed","detail":"%s","fallback":"InMemoryVectorStore"}', exc)
+	return InMemoryVectorStore()
+
+_vector_store = _make_vector_store()
 _embedder: LocalEmbedder = LocalEmbedder()
 _event_log = _make_event_log()
 

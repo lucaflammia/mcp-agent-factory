@@ -137,7 +137,7 @@ jobs:
       - name: Run evaluation
         if: steps.check.outputs.exists == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python -m evals.runner --max-examples 20
 
       - name: Check for regressions
@@ -173,3 +173,54 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  deploy:
+    name: Build & deploy to App Runner
+    runs-on: ubuntu-latest
+    # Only deploy on push to main; never on PRs (avoids deploying unreviewed code)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, security]
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write   # required for OIDC — no static AWS keys in GitHub Secrets
+
+    env:
+      AWS_REGION: eu-west-1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push gateway image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg EXTRAS=infra,otel \
+            -t "$ECR_REGISTRY/mcp-agent-factory/gateway:$IMAGE_TAG" \
+            -t "$ECR_REGISTRY/mcp-agent-factory/gateway:latest" \
+            .
+          docker push "$ECR_REGISTRY/mcp-agent-factory/gateway:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/mcp-agent-factory/gateway:latest"
+
+      - name: Trigger App Runner deployment
+        env:
+          SERVICE_ARN: ${{ secrets.APP_RUNNER_SERVICE_ARN }}
+        run: |
+          aws apprunner start-deployment \
+            --service-arn "$SERVICE_ARN" \
+            --region "$AWS_REGION"
+          echo "Deployment triggered for image tag ${{ github.sha }}"

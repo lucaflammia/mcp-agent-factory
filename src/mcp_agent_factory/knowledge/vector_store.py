@@ -7,6 +7,16 @@ import numpy as np
 
 from mcp_agent_factory.gateway.telemetry import get_tracer
 
+_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(384) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS knowledge_chunks_owner_idx ON knowledge_chunks (owner_id);
+"""
+
 
 class VectorStore(Protocol):
   def upsert(self, owner_id: str, text: str, vector: np.ndarray) -> None: ...
