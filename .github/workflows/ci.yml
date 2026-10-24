@@ -13,7 +13,7 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
-  lintExpected:
+  lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
@@ -32,7 +32,7 @@ jobs:
       - name: Mypy
         run: mypy src/mcp_agent_factory/ --ignore-missing-imports || true
 
-  testExpected:
+  test:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +58,7 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  IntegrationExpected:
+  integration:
     name: Integration tests
     runs-on: ubuntu-latest
     services:
@@ -109,7 +109,7 @@ jobs:
           KAFKA_BOOTSTRAP: localhost:9092
         run: pytest -m integration --tb=short -q
 
-  EvalExpected:
+  eval:
     name: Evaluation harness
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
@@ -146,7 +146,7 @@ jobs:
             python -m evals.compare evals/results/baseline.json evals/results/latest.json --fail-on-regression
           fi
 
-  securityExpected:
+  security:
     name: Security scan
     runs-on: ubuntu-latest
     steps:
@@ -179,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only deploy on push to main; never on PRs (avoids deploying unreviewed code)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lintExpected, testExpected, securityExpected]
+    needs: [lint, test, security]
     environment: production
 
     permissions:
