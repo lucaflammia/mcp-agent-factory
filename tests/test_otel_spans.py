@@ -16,7 +16,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -86,6 +85,7 @@ def test_get_tracer_returns_noop_when_not_configured(monkeypatch):
 async def test_service_layer_emits_tool_span(span_exporter):
     """service_layer.handle('echo') must emit a tool.echo span with tool.name attribute."""
     from unittest.mock import AsyncMock, MagicMock
+
     from mcp_agent_factory.gateway.service_layer import InternalServiceLayer
     from mcp_agent_factory.messaging.bus import MessageBus
 
@@ -112,6 +112,7 @@ async def test_service_layer_emits_tool_span(span_exporter):
 async def test_service_layer_emits_add_span(span_exporter):
     """service_layer.handle('add') must emit a tool.add span."""
     from unittest.mock import AsyncMock, MagicMock
+
     from mcp_agent_factory.gateway.service_layer import InternalServiceLayer
     from mcp_agent_factory.messaging.bus import MessageBus
 
@@ -136,8 +137,10 @@ async def test_service_layer_emits_add_span(span_exporter):
 
 def test_knowledge_query_emits_span(span_exporter):
     """query_knowledge_base() must emit a knowledge.query span with owner_id and result_count."""
-    import numpy as np
     from unittest.mock import MagicMock
+
+    import numpy as np
+
     from mcp_agent_factory.knowledge.tools import query_knowledge_base
 
     embedder = MagicMock()
@@ -165,6 +168,7 @@ def test_knowledge_query_emits_span(span_exporter):
 async def test_tool_span_is_child_of_caller_span(span_exporter):
     """When handle() is called inside an outer span, tool.echo must be its child."""
     from unittest.mock import AsyncMock, MagicMock
+
     from mcp_agent_factory.gateway.service_layer import InternalServiceLayer
     from mcp_agent_factory.messaging.bus import MessageBus
 

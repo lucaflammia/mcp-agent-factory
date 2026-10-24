@@ -18,7 +18,6 @@ import pytest
 
 from mcp_agent_factory.scheduler import SchedulerState, TaskItem, TaskScheduler
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -12,9 +12,8 @@ from mcp_agent_factory.knowledge import query_knowledge_base
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.models import AddInput
 from mcp_agent_factory.session.manager import RedisSessionManager
-from mcp_agent_factory.streams.eventlog import EventLog
-
 from mcp_agent_factory.streams.async_idempotency import AsyncIdempotencyGuard
+from mcp_agent_factory.streams.eventlog import EventLog
 
 from .pruner import ContextPruner
 from .router import LLMRequest, UnifiedRouter
@@ -239,8 +238,9 @@ class InternalServiceLayer:
         return {"content": [{"type": "text", "text": result.result}]}
 
       elif mode == "langgraph":
-        from mcp_agent_factory.graph_orchestrator import GraphOrchestrator
         import uuid
+
+        from mcp_agent_factory.graph_orchestrator import GraphOrchestrator
         agent = GraphOrchestrator()
         thread_id = args.get("thread_id", str(uuid.uuid4()))
         state = await agent.run(task, available_tools, _call_tool, thread_id)

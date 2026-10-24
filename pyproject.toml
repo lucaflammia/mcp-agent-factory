@@ -29,15 +29,17 @@ dependencies = [
 mcp-sim-server = "mcp_agent_factory.server:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "fakeredis>=2.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "fakeredis>=2.0", "pytest-cov>=5.0"]
 infra = ["aiokafka>=0.10"]
 ml = ["sentence-transformers>=2.2"]
 crew = ["crewai>=0.80"]
 optimizer = ["dspy-ai>=2.5", "aiokafka>=0.10"]
+pgvector = ["psycopg[binary]>=3.1", "pgvector>=0.3"]
 otel = [
     "opentelemetry-api>=1.24",
     "opentelemetry-sdk>=1.24",
     "opentelemetry-exporter-otlp-proto-grpc>=1.24",
+    "opentelemetry-exporter-otlp-proto-http>=1.24",
     "opentelemetry-instrumentation-fastapi>=0.45b0",
     "opentelemetry-instrumentation-httpx>=0.45b0",
     "prometheus-fastapi-instrumentator>=6.1",

@@ -17,25 +17,24 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import secrets
 import json
+import secrets
 
 import fakeredis
 import pytest
+from authlib.jose import OctKey
 from fastapi.testclient import TestClient
 
+from mcp_agent_factory.auth.resource import set_jwt_key as set_resource_jwt_key
 from mcp_agent_factory.auth.server import (
-	_set_auth_redis,
-	auth_app,
-	_load_client,
 	_load_and_delete_code,
+	_load_client,
+	_set_auth_redis,
 	_store_client,
 	_store_code,
+	auth_app,
 	set_jwt_key,
 )
-from mcp_agent_factory.auth.resource import set_jwt_key as set_resource_jwt_key
-from authlib.jose import OctKey
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -237,8 +236,8 @@ def test_gateway_redis_liveness(real_redis):
 @pytest.mark.integration
 def test_auth_redis_persistence_across_restart(real_redis):
 	"""Client registration written to real Redis persists after re-creating the store."""
-	import redis as _redis_lib
 	import fakeredis
+	import redis as _redis_lib
 
 	# Use a real sync redis client pointing at test DB
 	real_sync = _redis_lib.Redis(host="localhost", port=6379, db=1, decode_responses=True)

@@ -5,15 +5,14 @@ from __future__ import annotations
 
 import time
 
-import pytest
 import httpx
+import pytest
 from authlib.jose import OctKey, jwt
 
 from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
-from mcp_agent_factory.gateway.app import gateway_app
-from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware
 from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient
-
+from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware
+from mcp_agent_factory.gateway.app import gateway_app
 
 # ---------------------------------------------------------------------------
 # Helpers

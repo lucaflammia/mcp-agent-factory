@@ -1,8 +1,8 @@
 """Tests for RedisKVStore using fakeredis."""
 from __future__ import annotations
 
-import pytest
 import fakeredis.aioredis
+import pytest
 
 from mcp_agent_factory.kv import RedisKVStore
 

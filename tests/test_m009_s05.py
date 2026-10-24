@@ -31,7 +31,6 @@ from mcp_agent_factory.gateway.router import (
 )
 from mcp_agent_factory.streams.eventlog import InProcessEventLog
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ Start the stack with: docker-compose up -d
 import pytest
 import redis as redis_lib
 
-
 # ---------------------------------------------------------------------------
 # Standalone Redis (port 6379) — StreamWorker, IdempotencyGuard
 # ---------------------------------------------------------------------------

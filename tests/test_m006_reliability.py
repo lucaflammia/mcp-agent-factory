@@ -12,7 +12,6 @@ from mcp_agent_factory.streams import (
 )
 from mcp_agent_factory.streams.circuit_breaker import State
 
-
 # ---------------------------------------------------------------------------
 # R008 — pre-check idempotency
 # ---------------------------------------------------------------------------

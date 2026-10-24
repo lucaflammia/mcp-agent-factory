@@ -1,14 +1,12 @@
 """Tests for the kv/add_phrase and kv/check_affinity MCP tools via the gateway."""
 from __future__ import annotations
 
-import pytest
 import fakeredis.aioredis
-
+import pytest
 from fastapi.testclient import TestClient
 
 from mcp_agent_factory.gateway.app import gateway_app, set_kv_store
 from mcp_agent_factory.kv.store import RedisKVStore
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

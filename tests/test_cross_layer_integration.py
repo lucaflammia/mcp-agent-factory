@@ -13,9 +13,13 @@ import unittest.mock as mock
 
 import pytest
 
-from mcp_agent_factory.crew import MCPCrew, ScopedAgent, scope_tools, build_scoped_call_fn
+from mcp_agent_factory.crew import (
+  MCPCrew,
+  ScopedAgent,
+  build_scoped_call_fn,
+  scope_tools,
+)
 from mcp_agent_factory.optimizer import PromptOptimizer, SkillCompiler, TraceRecord
-
 
 SAMPLE_TOOLS = [
   {"name": "read_file", "description": "Read a file", "inputSchema": {"properties": {"path": {}}}},
@@ -31,7 +35,11 @@ class TestCrossLayerPipeline:
   @pytest.mark.asyncio
   async def test_layer1_pydantic_validation_feeds_layer2_graph(self):
     """Layer 1 (PydanticAI structured output) is used inside Layer 2 (GraphOrchestrator) nodes."""
-    from mcp_agent_factory.graph_orchestrator import GraphOrchestrator, ExecutionPlan, EvaluationResult
+    from mcp_agent_factory.graph_orchestrator import (
+      EvaluationResult,
+      ExecutionPlan,
+      GraphOrchestrator,
+    )
 
     plan = ExecutionPlan(intent="test", steps=[{"tool_name": "read_file", "arguments": {"path": "/tmp"}}])
     evaluation = EvaluationResult(passed=True, score=0.95, findings=[], revision_notes="")
@@ -76,7 +84,7 @@ class TestCrossLayerPipeline:
   @pytest.mark.asyncio
   async def test_layer3_crew_with_langgraph_flag(self):
     """Layer 3 MCPCrew with use_langgraph=True delegates to Layer 2 GraphOrchestrator."""
-    from mcp_agent_factory.graph_orchestrator import ExecutionPlan, EvaluationResult
+    from mcp_agent_factory.graph_orchestrator import EvaluationResult, ExecutionPlan
 
     plan = ExecutionPlan(intent="test", steps=[{"tool_name": "read_file", "arguments": {"path": "/"}}])
     eval_pass = EvaluationResult(passed=True, score=0.9, findings=[], revision_notes="")
@@ -135,7 +143,7 @@ class TestCrossLayerPipeline:
     3. MCPCrew scopes tools per agent (Layer 3)
     4. PromptOptimizer compiles skills from traces (Layer 4)
     """
-    from mcp_agent_factory.graph_orchestrator import ExecutionPlan, EvaluationResult
+    from mcp_agent_factory.graph_orchestrator import EvaluationResult, ExecutionPlan
 
     # Layers 1+2: Graph produces structured output
     plan = ExecutionPlan(intent="analyse", steps=[{"tool_name": "read_file", "arguments": {"path": "/data"}}])
