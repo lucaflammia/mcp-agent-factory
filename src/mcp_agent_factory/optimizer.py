@@ -437,6 +437,7 @@ class PromptOptimizer:
   async def _ingest_from_kafka(self, limit: int, reset_offset: bool = False) -> list[TraceRecord]:
     """Read traces from Kafka using aiokafka."""
     import asyncio
+
     from aiokafka import AIOKafkaConsumer  # type: ignore[import]
 
     # Probe TCP reachability before handing off to aiokafka, which retries

@@ -6,8 +6,8 @@ Tests prove R001 (orchestration routing) and R002 (JSON-RPC 2.0 communication).
 from __future__ import annotations
 
 import pytest
-from mcp_agent_factory.orchestrator import MCPOrchestrator
 
+from mcp_agent_factory.orchestrator import MCPOrchestrator
 
 # ---------------------------------------------------------------------------
 # Fixtures

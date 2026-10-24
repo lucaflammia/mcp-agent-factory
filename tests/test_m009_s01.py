@@ -9,20 +9,20 @@ Test layers:
 """
 from __future__ import annotations
 
-import os
 import asyncio
-import pytest
+import os
+
 import httpx
+import pytest
 
 from mcp_agent_factory.gateway.router import (
-	LLMRequest,
 	LLMHandler,
+	LLMRequest,
 	OllamaHandler,
 	ProviderError,
 	UnifiedRouter,
 )
 from mcp_agent_factory.streams.eventlog import InProcessEventLog
-
 
 # ---------------------------------------------------------------------------
 # Helpers / stubs

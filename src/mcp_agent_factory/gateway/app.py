@@ -26,30 +26,37 @@ import sys
 import uuid
 
 from dotenv import load_dotenv
+
 load_dotenv()
 from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
+from authlib.jose import OctKey
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse as _JSONResponse
-from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, ValidationError
+from sse_starlette.sse import EventSourceResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mcp_agent_factory.agents.models import AgentTask, MCPContext
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
-from authlib.jose import OctKey
 from mcp_agent_factory.auth.resource import make_verify_token, set_jwt_key
 from mcp_agent_factory.config.privacy import PrivacyConfig
 from mcp_agent_factory.economics.auction import Auction
-from mcp_agent_factory.knowledge import InMemoryVectorStore, LocalEmbedder, StubEmbedder, query_knowledge_base
+from mcp_agent_factory.knowledge import (
+    InMemoryVectorStore,
+    LocalEmbedder,
+    PgVectorStore,
+    StubEmbedder,
+    query_knowledge_base,
+)
+from mcp_agent_factory.kv.store import RedisKVStore
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
 from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
-from mcp_agent_factory.server_http import MCPRequest, MCPResponse, TOOLS
+from mcp_agent_factory.server_http import TOOLS, MCPRequest, MCPResponse
 from mcp_agent_factory.session.manager import RedisSessionManager
-from mcp_agent_factory.kv.store import RedisKVStore
 
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
@@ -146,7 +153,16 @@ bus: MessageBus = MessageBus()
 sampling_handler: SamplingHandler = SamplingHandler(StubSamplingClient())
 _redis_client = _make_redis_client()
 session: RedisSessionManager = RedisSessionManager(_redis_client)
-_vector_store: InMemoryVectorStore = InMemoryVectorStore()
+def _make_vector_store():
+	dsn = os.getenv("DATABASE_URL")
+	if dsn:
+		try:
+			return PgVectorStore(dsn)
+		except Exception as exc:
+			logger.warning('{"event":"pg_vector_store_init_failed","detail":"%s","fallback":"InMemoryVectorStore"}', exc)
+	return InMemoryVectorStore()
+
+_vector_store = _make_vector_store()
 _embedder: LocalEmbedder = LocalEmbedder()
 _event_log = _make_event_log()
 

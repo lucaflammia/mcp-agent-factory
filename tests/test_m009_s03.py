@@ -6,7 +6,6 @@ import pytest
 
 from mcp_agent_factory.gateway.pruner import ContextPruner, _cosine
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

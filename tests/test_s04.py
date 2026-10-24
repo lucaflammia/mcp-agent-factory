@@ -11,7 +11,13 @@ from fastapi.testclient import TestClient
 import mcp_agent_factory.gateway.app as gateway_module
 from mcp_agent_factory.agents.librarian import LibrarianAgent
 from mcp_agent_factory.agents.models import AgentTask, MCPContext, RetrievalResult
-from mcp_agent_factory.gateway.app import bus, gateway_app, set_embedder, set_pruner, set_vector_store
+from mcp_agent_factory.gateway.app import (
+	bus,
+	gateway_app,
+	set_embedder,
+	set_pruner,
+	set_vector_store,
+)
 from mcp_agent_factory.gateway.pruner import ContextPruner
 from mcp_agent_factory.knowledge import (
 	InMemoryVectorStore,
@@ -19,7 +25,6 @@ from mcp_agent_factory.knowledge import (
 	query_knowledge_base,
 )
 from mcp_agent_factory.server_http import TOOLS
-
 
 # ---------------------------------------------------------------------------
 # Helper

@@ -12,7 +12,6 @@ from typing import Any, Type
 
 from pydantic import BaseModel
 
-
 # ---------------------------------------------------------------------------
 # PII patterns — ordered from most specific to most general
 # ---------------------------------------------------------------------------

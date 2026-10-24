@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import subprocess
 import sys
 import threading
-import queue
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator

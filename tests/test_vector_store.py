@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from mcp_agent_factory.knowledge import StubEmbedder, InMemoryVectorStore
+from mcp_agent_factory.knowledge import InMemoryVectorStore, StubEmbedder
 
 
 @pytest.fixture
