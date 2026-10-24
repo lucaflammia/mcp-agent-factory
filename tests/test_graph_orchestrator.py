@@ -8,19 +8,18 @@ import pytest
 
 from mcp_agent_factory.graph_orchestrator import (
 	DESTRUCTIVE_TOOL_PATTERNS,
-	ExecutionPlan,
+	PLAN_MAX_PARALLEL,
+	STEP_TIMEOUT_S,
 	EvaluationResult,
+	ExecutionPlan,
 	GraphOrchestrator,
 	GraphState,
-	PLAN_MAX_PARALLEL,
-	PlanStep,
 	Phase,
-	STEP_TIMEOUT_S,
+	PlanStep,
 	_build_dag,
 	_resolve_references,
 	_validate_step_references,
 )
-
 
 # ---------------------------------------------------------------------------
 # Unit: Phase enum
@@ -251,11 +250,12 @@ def _make_graph_with_execute_only(call_tool_fn, plan_dict, *, parallel=False):
 
 	# Re-import to pick up env var changes
 	import importlib
+
 	import mcp_agent_factory.graph_orchestrator as mod
 	importlib.reload(mod)
 
-	from langgraph.graph import StateGraph, END
 	from langgraph.checkpoint.memory import MemorySaver
+	from langgraph.graph import END, StateGraph
 
 	orchestrator = mod.GraphOrchestrator(max_iterations=1)
 
@@ -298,7 +298,7 @@ def _make_graph_with_execute_only(call_tool_fn, plan_dict, *, parallel=False):
 					return {"tool": step.tool_name, "step_id": step.id, "error": str(exc), "success": False}
 
 		try:
-			from graphlib import TopologicalSorter, CycleError
+			from graphlib import CycleError, TopologicalSorter
 			sorter = TopologicalSorter(deps)
 			sorter.prepare()
 			while sorter.is_active():

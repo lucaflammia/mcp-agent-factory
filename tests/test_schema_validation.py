@@ -7,8 +7,9 @@ PrivacyConfig enforces local-only defaults.
 from __future__ import annotations
 
 import pytest
-from mcp_agent_factory.orchestrator import MCPOrchestrator
+
 from mcp_agent_factory.config.privacy import PrivacyConfig
+from mcp_agent_factory.orchestrator import MCPOrchestrator
 
 
 @pytest.fixture

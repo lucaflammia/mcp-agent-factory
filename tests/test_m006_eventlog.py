@@ -9,13 +9,12 @@ import asyncio
 
 import pytest
 
+from mcp_agent_factory.agents.models import AgentTask
 from mcp_agent_factory.streams import (
 	InProcessEventLog,
 	capability_topic,
 	session_topic,
 )
-from mcp_agent_factory.agents.models import AgentTask
-
 
 # ---------------------------------------------------------------------------
 # R003: append then read returns the same event

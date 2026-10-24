@@ -9,7 +9,6 @@ from mcp_agent_factory.economics.auction import Auction
 from mcp_agent_factory.economics.utility import AgentProfile, UtilityFunction
 from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 
-
 # ---------------------------------------------------------------------------
 # UtilityFunction.score() — knowledge_boost flag
 # ---------------------------------------------------------------------------

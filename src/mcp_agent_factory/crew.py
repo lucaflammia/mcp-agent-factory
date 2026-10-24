@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
@@ -303,7 +303,10 @@ class MCPCrew:
   async def _run_with_crewai(self, task: str) -> CrewResult:
     """Delegate execution to CrewAI."""
     import asyncio
-    from crewai import Agent as CrewAIAgent, Task as CrewAITask, Crew, Process
+
+    from crewai import Agent as CrewAIAgent
+    from crewai import Crew, Process
+    from crewai import Task as CrewAITask
 
     crewai_agents = []
     crewai_tasks = []
@@ -495,6 +498,7 @@ class MCPCrew:
     context into the next agent's task prompt.
     """
     import asyncio
+
     from pydantic_ai import Agent as PydanticAgent
 
     agent_results: list[AgentResult] = []

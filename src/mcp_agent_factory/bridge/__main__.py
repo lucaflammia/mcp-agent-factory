@@ -40,7 +40,8 @@ try:
 except ImportError:
     pass
 
-from authlib.jose import OctKey, jwt as _jwt
+from authlib.jose import OctKey
+from authlib.jose import jwt as _jwt
 
 from mcp_agent_factory.auth.session import generate_session_id
 from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient

@@ -1,8 +1,25 @@
 # MCP Agent Factory
 
+[![CI](https://github.com/lucaflammia/mcp-agent-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/lucaflammia/mcp-agent-factory/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/lucaflammia/mcp-agent-factory/branch/main/graph/badge.svg)](https://codecov.io/gh/lucaflammia/mcp-agent-factory)
+
 A **Model Context Protocol (MCP)** server ecosystem for collaborative multi-agent
 architectures — with privacy-first design, full-stack observability, fault-tolerant
 streaming, and standards-compliant security.
+
+## Live Deployment
+
+| | |
+|---|---|
+| **Public endpoint** | `https://<app_runner_url>/health` — run `make demo-up` then `terraform output gateway_url` |
+| **Platform** | AWS App Runner (eu-west-1) — TLS, scale-to-zero, OIDC CI |
+| **Idle cost** | **<€0.10/month** (ECR storage only; nothing runs at rest) |
+| **Demo-day cost** | **~€1** (App Runner instance time) |
+| **IaC** | [`terraform/`](terraform/) — `make demo-up` / `make demo-down` |
+| **Deployment notes** | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — what broke and why |
+
+> The environment is ephemeral by design: `make demo-up` takes ~8 minutes, `make demo-down`
+> destroys everything. The cost at rest is zero because nothing is running.
 
 ## What It Does
 
@@ -31,6 +48,39 @@ PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 > a persistent vector store and a real embedder (e.g. `LocalEmbedder` with
 > sentence-transformers via `pip install -e ".[ml]"`). The `Embedder` protocol in
 > `knowledge/embedder.py` defines the interface.
+
+## RAG Pipeline
+
+### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
+
+| Configuration | recall@5 | MRR | p95 latency | Cost/query |
+|---|---|---|---|---|
+| Dense only (baseline, InMemory) | 0.44 [0.28–0.61] | 0.31 | 1.2 s | $0.0004 |
+| + pgvector (persistent, cosine) | 0.47 [0.30–0.64] | 0.33 | 0.8 s | $0.0004 |
+| + hybrid RRF (dense + full-text) | 0.59 [0.42–0.75] | 0.42 | 0.9 s | $0.0004 |
+| + cross-encoder reranking | 0.66 [0.49–0.80] | 0.51 | 2.1 s | $0.0004 |
+| + structure-aware chunking | 0.63 [0.46–0.78] | 0.49 | 2.2 s | $0.0004 |
+
+> The reranking row improves, but adding structure-aware chunking *alone* (without reranking on) slightly
+> regressed recall@5 vs reranking. Chunking helps MRR but not recall at this corpus size — included for
+> honest reporting.
+
+Intervals are 95% Wilson CIs. k=60 used for RRF. Reranker: `cross-encoder/ms-marco-MiniLM-L-6-v2`.
+
+### Migration path (InMemory → pgvector)
+
+1. Start the pgvector service: `docker compose --profile full up pgvector -d`
+2. Apply the schema: `psql $DATABASE_URL -f migrations/001_pgvector_init.sql`
+3. Configure the store:
+
+```python
+from mcp_agent_factory.knowledge import PgVectorStore, LocalEmbedder
+
+store = PgVectorStore(dsn=os.environ["DATABASE_URL"])
+embedder = LocalEmbedder()  # all-MiniLM-L6-v2, 384-dim
+```
+
+4. `InMemoryVectorStore` remains available for unit tests — no test changes needed.
 
 ## 4-Layer Execution Pipeline
 
@@ -214,6 +264,34 @@ pytest tests/ -v    # 460+ tests (integration tests skip without Docker)
 REDIS_URL=redis://localhost:6379 pytest -m integration -v
 ```
 
+## Evaluation
+
+The project includes an LLM evaluation harness that measures output quality,
+not just code correctness. See [evals/README.md](evals/README.md) for details.
+
+**Current baseline** (55 examples, Wilson 95% CI):
+
+| Dataset | Examples | Pass Rate | 95% CI |
+|---------|----------|-----------|--------|
+| RAG Q&A | 25 | 100.0% | [86.7%, 100.0%] |
+| Extraction | 15 | 100.0% | [78.2%, 100.0%] |
+| Refusal | 15 | 100.0% | [78.2%, 100.0%] |
+| **Overall** | **55** | **100.0%** | **[93.5%, 100.0%]** |
+
+Minimum detectable effect at n=55: **26.4%** — changes smaller than this are
+indistinguishable from noise.
+
+Judge–human agreement on 20-example calibration subset: **65.0%** accuracy
+(heuristic groundedness; LLM judge calibration pending live API keys).
+
+```bash
+# Run all evaluations
+python -m evals.runner --all
+
+# Compare two runs
+python -m evals.compare baseline <sha>
+```
+
 ## Project Layout
 
 ```
@@ -238,6 +316,14 @@ src/mcp_agent_factory/
 ├── economics/                   # Utility scoring + sealed-bid auction
 ├── messaging/                   # MessageBus + SSE routers
 └── config/                      # Privacy config + egress guard
+
+evals/
+├── datasets/                    # 55 hand-curated JSONL examples
+├── metrics/                     # Groundedness, retrieval, schema, Wilson CI
+├── judge/                       # LLM-as-judge + calibration + KNOWN_BIASES.md
+├── runner.py                    # python -m evals.runner --all
+├── compare.py                   # python -m evals.compare <sha-a> <sha-b>
+└── results/                     # JSON reports tagged by git SHA
 
 docs/
 ├── architecture.md              # Layered design, request lifecycle, span chain
@@ -278,6 +364,7 @@ scripts/
 ## Documentation
 
 - [Architecture](docs/architecture.md) — layered design, request lifecycle, OTel span chain
+- [Evaluation](evals/README.md) — LLM evaluation harness, metrics, judge calibration
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review

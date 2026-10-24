@@ -14,9 +14,11 @@ from authlib.jose import OctKey, jwt
 
 from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.bridge.gateway_client import MCPGatewayClient
-from mcp_agent_factory.bridge.oauth_middleware import OAuthMiddleware, make_client_credentials_factory
-from mcp_agent_factory.gateway.app import gateway_app, bus
-
+from mcp_agent_factory.bridge.oauth_middleware import (
+	OAuthMiddleware,
+	make_client_credentials_factory,
+)
+from mcp_agent_factory.gateway.app import bus, gateway_app
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -192,6 +194,7 @@ async def test_stream_events_method_exists(shared_key, transport):
 async def test_stream_events_via_bus_delivery(shared_key):
 	"""Verify bus publish/subscribe works end-to-end (unit test of the underlying mechanism)."""
 	import asyncio
+
 	from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 
 	test_bus = MessageBus()

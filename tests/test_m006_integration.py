@@ -15,7 +15,6 @@ from mcp_agent_factory.streams import (
 )
 from mcp_agent_factory.streams.circuit_breaker import State
 
-
 STREAM = "tasks.integration"
 GROUP = "workers"
 CONSUMER = "worker-0"

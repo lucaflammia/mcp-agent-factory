@@ -8,13 +8,12 @@ from __future__ import annotations
 import pytest
 
 from mcp_agent_factory.crew import (
-  MCPCrew,
   ROLE_TOOL_PATTERNS,
+  MCPCrew,
   ScopedAgent,
   build_scoped_call_fn,
   scope_tools,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

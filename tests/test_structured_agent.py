@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_agent_factory.structured_agent import AgentResponse, StructuredAgent, ToolArgument, ToolSelection
-
+from mcp_agent_factory.structured_agent import (
+	AgentResponse,
+	StructuredAgent,
+	ToolArgument,
+	ToolSelection,
+)
 
 # ---------------------------------------------------------------------------
 # Unit: ToolSelection model validation

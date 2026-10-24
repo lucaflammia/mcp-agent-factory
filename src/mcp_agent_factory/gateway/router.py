@@ -94,6 +94,7 @@ def _prompt_from(request: LLMRequest) -> str:
 
 
 import re as _re
+
 _THINK_RE = _re.compile(r"<think>.*?</think>", _re.DOTALL)
 
 def _strip_think(text: str) -> str:
