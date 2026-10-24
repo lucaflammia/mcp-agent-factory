@@ -11,22 +11,22 @@ import base64
 import hashlib
 import secrets
 
+import fakeredis as _fakeredis_mod
 import pytest
 from authlib.jose import OctKey
 from fastapi.testclient import TestClient
-
-import fakeredis as _fakeredis_mod
 
 from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.auth.server import (
 	_set_auth_redis,
 	auth_app,
+)
+from mcp_agent_factory.auth.server import (
 	set_jwt_key as auth_set_key,
 )
 from mcp_agent_factory.scheduler import SchedulerState, TaskItem, TaskScheduler
 from mcp_agent_factory.server_http import app as http_app
 from mcp_agent_factory.server_http_secured import secured_app
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -137,6 +137,7 @@ class TestSchedulerHTTPIntegration:
 	async def test_full_stack_pkce_session_id_in_claims(self, auth_client, shared_key):
 		"""Full flow: PKCE → token → JWT contains session_id in user_id:token format."""
 		from authlib.jose import jwt
+
 		from mcp_agent_factory.auth.session import validate_session_id
 
 		token = _get_token(auth_client)

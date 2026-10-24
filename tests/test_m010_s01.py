@@ -23,7 +23,6 @@ from mcp_agent_factory.gateway.router import (
 	provider_factory,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -76,6 +75,7 @@ class TestGeminiHandlerMapping:
 
 		async def _patched_call():
 			import json as _json
+
 			import httpx as _httpx2
 			req = _make_request("Analyze Q3 report")
 			payload = {
@@ -261,11 +261,11 @@ class TestFileContextExtractor:
 	def test_returns_expected_keys(self, tmp_path):
 		"""Create a minimal valid PDF and verify the return shape."""
 		pytest.importorskip("pypdf")
-		from mcp_agent_factory.knowledge.pdf_tool import file_context_extractor
-
 		# Create a minimal PDF using pypdf
 		import pypdf
 		from pypdf import PdfWriter
+
+		from mcp_agent_factory.knowledge.pdf_tool import file_context_extractor
 		writer = PdfWriter()
 		writer.add_blank_page(width=200, height=200)
 		pdf_path = tmp_path / "test.pdf"

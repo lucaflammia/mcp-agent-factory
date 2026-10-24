@@ -4,12 +4,12 @@ Shared pytest fixtures for mcp-agent-factory tests.
 from __future__ import annotations
 
 import asyncio
+import json
+import queue
 import socket
 import subprocess
 import sys
-import json
 import threading
-import queue
 from typing import Generator
 
 import pytest

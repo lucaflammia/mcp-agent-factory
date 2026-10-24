@@ -16,8 +16,7 @@ import pytest
 from authlib.jose import OctKey, jwt
 
 from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
-from mcp_agent_factory.gateway.app import gateway_app, bus
-
+from mcp_agent_factory.gateway.app import bus, gateway_app
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,14 +88,14 @@ def sync_client():
 # Tests — SSE v1 routes registered
 # ---------------------------------------------------------------------------
 
-def test_sse_v1_events_route_registered():
-	routes = [str(getattr(r, "path", "")) for r in gateway_app.routes]
-	assert "/sse/v1/events" in routes
+def test_sse_v1_events_route_registered(sync_client):
+	paths = sync_client.get("/openapi.json").json()["paths"]
+	assert "/sse/v1/events" in paths
 
 
-def test_sse_v1_messages_route_registered():
-	routes = [str(getattr(r, "path", "")) for r in gateway_app.routes]
-	assert "/sse/v1/messages" in routes
+def test_sse_v1_messages_route_registered(sync_client):
+	paths = sync_client.get("/openapi.json").json()["paths"]
+	assert "/sse/v1/messages" in paths
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +134,8 @@ def test_publish_message_delivers_to_bus_subscriber():
 @pytest.mark.anyio
 async def test_sse_events_first_event_is_connected():
 	"""Test the SSE generator directly — first event must be 'connected'."""
-	from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 	from mcp_agent_factory.messaging.bus import MessageBus
+	from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 
 	test_bus = MessageBus()
 	router = create_sse_v1_router(test_bus)
@@ -175,6 +174,7 @@ async def test_sse_events_receives_published_message():
 	"""Test that bus messages are delivered through the SSE generator."""
 	import asyncio
 	import json
+
 	from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 
 	test_bus = MessageBus()

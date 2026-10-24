@@ -17,7 +17,6 @@ import redis as redis_lib
 from mcp_agent_factory.agents.models import AgentTask
 from mcp_agent_factory.streams.worker import StreamWorker
 
-
 # ---------------------------------------------------------------------------
 # Worker subprocess function (must be module-level for multiprocessing pickling)
 # ---------------------------------------------------------------------------

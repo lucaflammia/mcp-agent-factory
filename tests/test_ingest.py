@@ -22,7 +22,6 @@ from mcp_agent_factory.knowledge.ingest import IngestionWorker
 from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -53,7 +52,7 @@ class TestIngestionWorker:
 		bus = MessageBus()
 		store = InMemoryVectorStore()
 		embedder = StubEmbedder()
-		worker = IngestionWorker(bus, store, embedder)
+		worker = IngestionWorker(bus, store, embedder, chunk_size=12, overlap=0)
 
 		msg = _make_message("Hello world\n\nSecond chunk\n\nThird chunk", owner_id="alice")
 		await worker._process(msg)

@@ -13,10 +13,10 @@ import time
 import fakeredis
 import pytest
 from authlib.jose import OctKey, jwt
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
-from mcp_agent_factory.auth.server import auth_app, _set_auth_redis
 from mcp_agent_factory.auth import resource as _resource
+from mcp_agent_factory.auth.server import _set_auth_redis, auth_app
 from mcp_agent_factory.gateway.app import gateway_app
 
 
@@ -118,6 +118,7 @@ async def test_gateway_discovery_proxy_returns_endpoints():
 async def test_get_mcp_returns_sse_stream():
     """GET /sse SSE generator must yield an endpoint event as its first item."""
     from unittest.mock import MagicMock
+
     from mcp_agent_factory.gateway.app import mcp_legacy_sse_endpoint
 
     # Build a minimal Request mock so the handler can derive base_url.

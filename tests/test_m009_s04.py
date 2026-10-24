@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mcp_agent_factory.streams.async_idempotency import AsyncIdempotencyGuard, _prompt_hash
-
+from mcp_agent_factory.streams.async_idempotency import (
+	AsyncIdempotencyGuard,
+	_prompt_hash,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -127,9 +129,10 @@ async def test_cache_read_failure_returns_none():
 @pytest.mark.asyncio
 async def test_service_layer_cache_hit_skips_router():
 	"""Second identical sampling_demo call returns from cache; router not called."""
+	from unittest.mock import AsyncMock, MagicMock
+
 	from mcp_agent_factory.gateway.service_layer import InternalServiceLayer
 	from mcp_agent_factory.streams.eventlog import InProcessEventLog
-	from unittest.mock import MagicMock, AsyncMock
 
 	bus = MagicMock()
 	bus.publish = MagicMock()
@@ -175,7 +178,12 @@ async def test_service_layer_cache_hit_skips_router():
 @pytest.mark.asyncio
 async def test_token_usage_readable_per_sub():
 	"""token.usage events written by UnifiedRouter are readable from EventLog."""
-	from mcp_agent_factory.gateway.router import UnifiedRouter, LLMRequest, LLMHandler, ProviderError
+	from mcp_agent_factory.gateway.router import (
+		LLMHandler,
+		LLMRequest,
+		ProviderError,
+		UnifiedRouter,
+	)
 	from mcp_agent_factory.streams.eventlog import InProcessEventLog
 
 	class StubHandler(LLMHandler):
