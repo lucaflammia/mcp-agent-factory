@@ -31,6 +31,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
+
 load_dotenv()
 import secrets
 import time
@@ -184,8 +185,9 @@ auth_app = FastAPI(
 # Requires OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_SERVICE_NAME env vars (set in
 # docker-compose.yml).  Import is best-effort; missing packages are silent.
 try:
-	from mcp_agent_factory.gateway.telemetry import configure_telemetry
 	from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+	from mcp_agent_factory.gateway.telemetry import configure_telemetry
 	configure_telemetry()
 	FastAPIInstrumentor.instrument_app(auth_app)
 except Exception:  # noqa: BLE001

@@ -17,7 +17,6 @@ from mcp_agent_factory.agents.analyst import (
 )
 from mcp_agent_factory.agents.models import MCPContext
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

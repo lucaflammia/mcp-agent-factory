@@ -18,7 +18,7 @@ import os
 import re as _re
 from dataclasses import dataclass, field
 from enum import Enum
-from graphlib import TopologicalSorter, CycleError
+from graphlib import CycleError, TopologicalSorter
 from typing import Any, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -228,7 +228,7 @@ class GraphOrchestrator:
 
 		Returns the final GraphState as a dict.
 		"""
-		from langgraph.graph import StateGraph, END
+		from langgraph.graph import END, StateGraph
 
 		await self._ensure_checkpointer()
 
@@ -244,6 +244,7 @@ class GraphOrchestrator:
 		async def plan_node(state: GraphState) -> GraphState:
 			import json
 			import re
+
 			from pydantic_ai import Agent
 
 			tool_descriptions = "\n".join(
@@ -311,6 +312,7 @@ class GraphOrchestrator:
 
 		async def execute_node(state: GraphState) -> GraphState:
 			import asyncio
+
 			from langgraph.types import interrupt as lg_interrupt
 
 			if state.get("phase") == Phase.FAILED.value:

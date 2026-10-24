@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -117,8 +116,9 @@ class TestSSERouter:
 	def test_sse_router_registers_events_endpoint(self, bus):
 		"""Verify the /events route is registered on the app."""
 		app = self._make_app(bus)
-		routes = [r.path for r in app.routes]
-		assert "/events" in routes
+		client = TestClient(app)
+		paths = client.get("/openapi.json").json()["paths"]
+		assert "/events" in paths
 
 	def test_sse_subscriber_count_before_connection(self, bus):
 		"""Before any connection, subscriber count is 0."""

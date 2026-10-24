@@ -8,26 +8,26 @@ import hashlib
 import secrets
 import time
 
+import fakeredis as _fakeredis_mod
 import pytest
 from authlib.jose import OctKey, jwt
 from fastapi.testclient import TestClient
 
-import fakeredis as _fakeredis_mod
-
+from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.auth.server import (
 	_set_auth_redis,
 	auth_app,
 	get_jwt_key,
+)
+from mcp_agent_factory.auth.server import (
 	set_jwt_key as auth_set_key,
 )
-from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.auth.session import (
 	generate_session_id,
 	parse_session_id,
 	validate_session_id,
 )
 from mcp_agent_factory.server_http_secured import secured_app
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -335,6 +335,7 @@ class TestRedisFallback:
 		host is unreachable, so the auth server stays operational."""
 		import fakeredis as _fr
 		import redis as _redis
+
 		import mcp_agent_factory.auth.server as auth_server_mod
 
 		monkeypatch.setenv("AUTH_REDIS_URL", "redis://127.0.0.1:19999")  # nothing there
@@ -349,6 +350,7 @@ class TestRedisFallback:
 		"""POST /register must return 200 even when AUTH_REDIS_URL points at an
 		unreachable host (regression for ConnectionError 111 crash)."""
 		import fakeredis as _fr
+
 		import mcp_agent_factory.auth.server as auth_server_mod
 
 		# Inject a fresh FakeRedis so the test is isolated

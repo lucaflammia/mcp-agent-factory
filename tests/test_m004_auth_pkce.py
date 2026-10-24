@@ -11,20 +11,20 @@ import hashlib
 import secrets
 import time
 
+import fakeredis as _fakeredis_mod
 import pytest
 from authlib.jose import OctKey, jwt
 from fastapi.testclient import TestClient
 
-import fakeredis as _fakeredis_mod
-
+from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.auth.server import (
 	_set_auth_redis,
 	auth_app,
+)
+from mcp_agent_factory.auth.server import (
 	set_jwt_key as auth_set_key,
 )
-from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.gateway.app import gateway_app
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -330,6 +330,7 @@ def test_client_credentials_issues_valid_token(auth_client, shared_key):
 
 	# Verify the JWT is accepted by the gateway
 	from fastapi.testclient import TestClient
+
 	from mcp_agent_factory.gateway.app import gateway_app
 	gw = TestClient(gateway_app)
 	tool_resp = gw.post(

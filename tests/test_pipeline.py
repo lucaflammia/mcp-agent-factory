@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
 import fakeredis.aioredis
+import pytest
 
 from mcp_agent_factory.agents.analyst import AnalystAgent
 from mcp_agent_factory.agents.models import (
@@ -22,7 +22,6 @@ from mcp_agent_factory.agents.models import (
 from mcp_agent_factory.agents.pipeline_orchestrator import MultiAgentOrchestrator
 from mcp_agent_factory.agents.writer import WriterAgent
 from mcp_agent_factory.session.manager import RedisSessionManager
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

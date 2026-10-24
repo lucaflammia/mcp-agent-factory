@@ -16,12 +16,13 @@ Usage:
 from __future__ import annotations
 
 import json
-import sys
 import logging
+import sys
 from typing import Any
 
 from pydantic import ValidationError
-from mcp_agent_factory.models import EchoInput, AddInput
+
+from mcp_agent_factory.models import AddInput, EchoInput
 
 # ---------------------------------------------------------------------------
 # Logging — one JSON line per event to stderr so tests can grep/replay

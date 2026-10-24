@@ -1,0 +1,20 @@
+line-length = 120
+indent-width = 4
+
+[lint]
+select = ["E", "W", "F", "I"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "W191",   # tab indentation — existing codebase uses tabs
+    "E101",   # mixed spaces/tabs — existing codebase uses tabs
+    "E402",   # module import not at top — patterns used in tests
+    "F401",   # unused import — many re-exports in __init__.py files
+    "F841",   # unused variable — common in async test scaffolding
+    "F811",   # redefined while unused
+    "F821",   # undefined name — false positives with dynamic attrs
+    "E702",   # multiple statements on one line (semicolon)
+    "F541",   # f-string without placeholders
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E", "W", "F401", "F811", "F841"]

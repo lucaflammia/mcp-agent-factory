@@ -10,9 +10,12 @@ from authlib.jose import OctKey, jwt
 from fastapi.testclient import TestClient
 
 from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
-from mcp_agent_factory.gateway.app import gateway_app, bus, set_sampling_client
-from mcp_agent_factory.gateway.sampling import SamplingClient, SamplingResult, StubSamplingClient
-
+from mcp_agent_factory.gateway.app import bus, gateway_app, set_sampling_client
+from mcp_agent_factory.gateway.sampling import (
+	SamplingClient,
+	SamplingResult,
+	StubSamplingClient,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -148,8 +151,6 @@ def test_sampling_stub_returns_prompt_prefix(client):
 
 def test_sse_route_registered(client):
 	# The SSE sub-app is mounted; verify the mount point exists by checking routes
-	routes = [r.path for r in gateway_app.routes]
-	# The SSE app is mounted at /sse so it appears as a Mount
 	mounts = [str(getattr(r, 'path', '')) for r in gateway_app.routes]
 	assert any("/sse" in m for m in mounts)
 

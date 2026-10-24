@@ -8,6 +8,10 @@ GET /health is unauthenticated (liveness probe must not require auth).
 """
 from __future__ import annotations
 
+import json
+import logging
+import sys
+
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 
@@ -18,9 +22,6 @@ from mcp_agent_factory.server_http import (
 	_dispatch,
 	lifespan,
 )
-import json
-import logging
-import sys
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format="%(message)s")
 logger = logging.getLogger("mcp_http_server_secured")

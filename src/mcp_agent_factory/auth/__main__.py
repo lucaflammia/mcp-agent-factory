@@ -28,6 +28,7 @@ import time
 
 def _cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
+
     from mcp_agent_factory.auth.server import auth_app
 
     host = os.getenv("HOST", "0.0.0.0")
@@ -44,6 +45,7 @@ def _cmd_token(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     from authlib.jose import OctKey, jwt
+
     from mcp_agent_factory.auth.session import generate_session_id
 
     key = OctKey.import_key(jwt_secret.encode())

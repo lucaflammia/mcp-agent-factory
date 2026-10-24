@@ -9,11 +9,11 @@ Test layers:
 from __future__ import annotations
 
 import os
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from mcp_agent_factory.gateway.validation import PIIGate, PIIViolation
+import pytest
 
+from mcp_agent_factory.gateway.validation import PIIGate, PIIViolation
 
 # ---------------------------------------------------------------------------
 # T01: PIIGate unit tests
