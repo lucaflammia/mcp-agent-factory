@@ -294,6 +294,75 @@ class GeminiHandler(LLMHandler):
 
 
 # ---------------------------------------------------------------------------
+# Bedrock handler
+# ---------------------------------------------------------------------------
+
+class BedrockHandler(LLMHandler):
+	"""AWS Bedrock provider using IAM role credentials via boto3.
+
+	Requires boto3 installed and AWS credentials available (IAM role, env vars,
+	or ~/.aws/credentials). No API key is used — authentication is IAM-only.
+
+	Falls through to ProviderError on any connectivity failure, which causes
+	UnifiedRouter to try the next handler (Ollama fallback).
+	"""
+
+	provider_name = "bedrock"
+
+	def __init__(self, region: str | None = None) -> None:
+		self._region = region or os.getenv("AWS_REGION", "us-east-1")
+		self._model_id = os.getenv(
+			"BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+		)
+
+	async def call(self, request: LLMRequest) -> dict[str, Any]:
+		import asyncio
+		import json as _json
+
+		try:
+			import boto3  # type: ignore[import]
+		except ImportError as exc:
+			raise ProviderError("bedrock", detail="boto3 not installed") from exc
+
+		prompt = _prompt_from(request)
+		max_tokens = request.args.get("max_tokens", 1000)
+
+		body = _json.dumps({
+			"anthropic_version": "bedrock-2023-05-31",
+			"messages": [{"role": "user", "content": prompt}],
+			"max_tokens": max_tokens,
+		})
+
+		def _invoke() -> dict[str, Any]:
+			client = boto3.client("bedrock-runtime", region_name=self._region)
+			return client.invoke_model(
+				modelId=self._model_id,
+				contentType="application/json",
+				accept="application/json",
+				body=body,
+			)
+
+		try:
+			response = await asyncio.get_event_loop().run_in_executor(None, _invoke)
+		except Exception as exc:
+			raise ProviderError("bedrock", detail=str(exc)) from exc
+
+		import json as _json2
+		data = _json2.loads(response["body"].read())
+		content_blocks = data.get("content", [])
+		content_text = " ".join(
+			b.get("text", "") for b in content_blocks if b.get("type") == "text"
+		)
+		usage = data.get("usage", {})
+		return {
+			"content": content_text,
+			"model": self._model_id,
+			"input_tokens": usage.get("input_tokens", 0),
+			"output_tokens": usage.get("output_tokens", 0),
+		}
+
+
+# ---------------------------------------------------------------------------
 # Provider factory — re-read LLM_PROVIDER on every call for live switching
 # ---------------------------------------------------------------------------
 
@@ -301,6 +370,7 @@ def provider_factory(event_log: EventLog | None = None, provider: str | None = N
 	"""Build a UnifiedRouter with handler order driven by LLM_PROVIDER env var.
 
 	LLM_PROVIDER=anthropic → [AnthropicHandler, OllamaHandler]
+	LLM_PROVIDER=bedrock   → [BedrockHandler, OllamaHandler]
 	LLM_PROVIDER=gemini    → [GeminiHandler, OllamaHandler]
 	LLM_PROVIDER=ollama    → [OllamaHandler]
 	LLM_PROVIDER=openai    → [OpenAIHandler, OllamaHandler]
@@ -315,6 +385,8 @@ def provider_factory(event_log: EventLog | None = None, provider: str | None = N
 		handlers: list[LLMHandler] = [GeminiHandler(), ollama]
 	elif provider == "openai":
 		handlers = [OpenAIHandler(), ollama]
+	elif provider == "bedrock":
+		handlers = [BedrockHandler(), ollama]
 	elif provider == "ollama":
 		handlers = [ollama]
 	else:

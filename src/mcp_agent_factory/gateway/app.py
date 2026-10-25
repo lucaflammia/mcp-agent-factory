@@ -58,6 +58,7 @@ from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 from mcp_agent_factory.server_http import TOOLS, MCPRequest, MCPResponse
 from mcp_agent_factory.session.manager import RedisSessionManager
 
+from .fleet import fleet_router, set_fleet_redis, start_fleet_workers, stop_fleet_workers
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
@@ -138,8 +139,12 @@ async def _gateway_lifespan(app: FastAPI):
 	# Start Kafka producer if configured
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "start"):
 		await _event_log.start()
+	# Wire fleet worker with the shared Redis client and start background workers
+	set_fleet_redis(_redis_client)
+	await start_fleet_workers()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
+	await stop_fleet_workers()
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "stop"):
 		await _event_log.stop()
 	logger.debug(json.dumps({"event": "shutdown"}))
@@ -287,6 +292,9 @@ gateway_app.mount("/sse/legacy", sse_router)
 # Mount SSE v1 router (/sse/v1/events, /sse/v1/messages)
 sse_v1_router = create_sse_v1_router(bus)
 gateway_app.include_router(sse_v1_router, prefix="/sse/v1")
+
+# Async fleet runtime (/mcp/jobs, /mcp/jobs/batch)
+gateway_app.include_router(fleet_router)
 
 
 # ---------------------------------------------------------------------------

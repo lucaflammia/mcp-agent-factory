@@ -164,6 +164,14 @@ services:
       PYDANTIC_AI_MODEL: ${PYDANTIC_AI_MODEL:-google-gla:gemini-2.5-flash}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: mcp-gateway
+      # Async fleet runtime
+      FLEET_CONCURRENCY: ${FLEET_CONCURRENCY:-4}
+      FLEET_JOB_TIMEOUT_SECS: ${FLEET_JOB_TIMEOUT_SECS:-300}
+      # Bedrock (IAM auth — no key needed when running with an IAM role)
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-anthropic.claude-3-5-sonnet-20241022-v2:0}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     depends_on:
       redis:
         condition: service_healthy
