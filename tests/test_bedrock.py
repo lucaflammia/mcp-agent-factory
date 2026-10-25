@@ -123,3 +123,72 @@ class TestProviderFactory:
         assert any(h.provider_name == "bedrock" for h in router._handlers)
         # Last handler is Ollama fallback
         assert router._handlers[-1].provider_name == "ollama"
+
+    def test_factory_gemini_env(self, monkeypatch):
+        monkeypatch.setenv("LLM_PROVIDER", "gemini")
+        router = provider_factory()
+        assert router._handlers[0].provider_name == "gemini"
+        assert router._handlers[-1].provider_name == "ollama"
+
+    def test_factory_openai_env(self, monkeypatch):
+        monkeypatch.setenv("LLM_PROVIDER", "openai")
+        router = provider_factory()
+        assert router._handlers[0].provider_name == "openai"
+
+    def test_factory_ollama_env(self, monkeypatch):
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        router = provider_factory()
+        assert len(router._handlers) == 1
+        assert router._handlers[0].provider_name == "ollama"
+
+    def test_factory_default_is_anthropic(self, monkeypatch):
+        monkeypatch.delenv("LLM_PROVIDER", raising=False)
+        router = provider_factory()
+        assert router._handlers[0].provider_name == "anthropic"
+
+
+# ---------------------------------------------------------------------------
+# _emit_token_usage with a real EventLog
+# ---------------------------------------------------------------------------
+
+class TestEmitTokenUsage:
+    def test_emit_called_when_event_log_present(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from mcp_agent_factory.gateway.router import UnifiedRouter, LLMHandler, LLMRequest
+
+        class _FakeHandler(LLMHandler):
+            provider_name = "fake"
+
+            async def call(self, request):
+                return {"content": "hi", "model": "fake-model", "input_tokens": 10, "output_tokens": 5}
+
+        event_log = MagicMock()
+        event_log.append = AsyncMock()
+        router = UnifiedRouter(handlers=[_FakeHandler()], event_log=event_log)
+        asyncio.get_event_loop().run_until_complete(
+            router.route(LLMRequest(tool_name="t", args={"text": "x"}))
+        )
+        event_log.append.assert_called_once()
+        args = event_log.append.call_args[0]
+        assert args[0] == "token.usage"
+
+    def test_emit_log_failure_does_not_propagate(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from mcp_agent_factory.gateway.router import UnifiedRouter, LLMHandler, LLMRequest
+
+        class _FakeHandler(LLMHandler):
+            provider_name = "fake"
+
+            async def call(self, request):
+                return {"content": "hi", "model": "fake-model", "input_tokens": 1, "output_tokens": 1}
+
+        event_log = MagicMock()
+        event_log.append = AsyncMock(side_effect=Exception("log failure"))
+        router = UnifiedRouter(handlers=[_FakeHandler()], event_log=event_log)
+        # Must not raise
+        result = asyncio.get_event_loop().run_until_complete(
+            router.route(LLMRequest(tool_name="t", args={"text": "x"}))
+        )
+        assert result["content"] == "hi"

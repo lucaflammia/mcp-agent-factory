@@ -8,6 +8,10 @@ Covers:
   - GET  /mcp/jobs/batch/{id} — reflect partial/full completion
   - job timeout transition to failed
   - single failing task does not block batch siblings
+  - _process_job — done / timeout / exception paths
+  - _execute_job — dispatches to pipeline
+  - start_fleet_workers / stop_fleet_workers lifecycle
+  - FleetWorker edge cases
 """
 from __future__ import annotations
 
@@ -193,3 +197,193 @@ class TestBatchSubmit:
         assert status["failed"] == 1
         done_job = next(r for r in status["results"] if r["status"] == "done")
         assert done_job["result"] == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# FleetWorker edge cases
+# ---------------------------------------------------------------------------
+
+class TestFleetWorker:
+    """Unit tests for FleetWorker that don't go through the HTTP layer."""
+
+    @pytest.mark.asyncio
+    async def test_ensure_group_ignores_busygroup(self, inject_fake_redis):
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+        from redis.exceptions import ResponseError
+
+        fw = FleetWorker(inject_fake_redis, "test:stream", "grp", "c1")
+        await fw.ensure_group()
+        # Second call hits BUSYGROUP — should not raise
+        await fw.ensure_group()
+
+    @pytest.mark.asyncio
+    async def test_ensure_group_reraises_non_busygroup(self, inject_fake_redis):
+        from unittest.mock import AsyncMock, patch
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+        from redis.exceptions import ResponseError
+
+        fw = FleetWorker(inject_fake_redis, "test:stream", "grp2", "c1")
+        with patch.object(inject_fake_redis, "xgroup_create", new=AsyncMock(
+            side_effect=ResponseError("ERR some other error")
+        )):
+            with pytest.raises(ResponseError):
+                await fw.ensure_group()
+
+    @pytest.mark.asyncio
+    async def test_publish_job_returns_msg_id(self, inject_fake_redis):
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        fw = FleetWorker(inject_fake_redis, "test:stream2", "grp", "c1")
+        await fw.ensure_group()
+        msg_id = await fw.publish_job("job-123", "agents/analyze", {"k": "v"})
+        assert msg_id  # non-empty string
+
+    @pytest.mark.asyncio
+    async def test_claim_job_returns_none_when_stream_empty(self, inject_fake_redis):
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        fw = FleetWorker(inject_fake_redis, "test:stream3", "grp", "c1")
+        await fw.ensure_group()
+        result = await fw.claim_job()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_claim_job_returns_msg_id_and_job_id(self, inject_fake_redis):
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        fw = FleetWorker(inject_fake_redis, "test:stream4", "grp", "c1")
+        await fw.ensure_group()
+        await fw.publish_job("job-xyz", "agents/analyze", {})
+        result = await fw.claim_job()
+        assert result is not None
+        msg_id, job_id = result
+        assert job_id == "job-xyz"
+
+    @pytest.mark.asyncio
+    async def test_ack_does_not_raise(self, inject_fake_redis):
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        fw = FleetWorker(inject_fake_redis, "test:stream5", "grp", "c1")
+        await fw.ensure_group()
+        await fw.publish_job("job-ack", "agents/analyze", {})
+        result = await fw.claim_job()
+        assert result is not None
+        msg_id, _ = result
+        await fw.ack(msg_id)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_job — internal worker execution paths
+# ---------------------------------------------------------------------------
+
+class TestProcessJob:
+    """Test the _process_job coroutine directly — no HTTP, no stream."""
+
+    @pytest.mark.asyncio
+    async def test_process_job_done(self, inject_fake_redis):
+        import mcp_agent_factory.gateway.fleet as _fleet
+        from unittest.mock import AsyncMock, patch
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        job_id = str(uuid.uuid4())
+        await _plant_job(inject_fake_redis, job_id, "pending")
+
+        fw = FleetWorker(inject_fake_redis, "s", "g", "w")
+        sem = asyncio.Semaphore(4)
+
+        with patch.object(_fleet, "_execute_job", new=AsyncMock(return_value={"summary": "done"})):
+            await _fleet._process_job(fw, "msg-1", job_id, sem)
+
+        job = await _fleet._read_job(job_id)
+        assert job["status"] == "done"
+        assert job["result"] == {"summary": "done"}
+
+    @pytest.mark.asyncio
+    async def test_process_job_timeout(self, inject_fake_redis):
+        import mcp_agent_factory.gateway.fleet as _fleet
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        job_id = str(uuid.uuid4())
+        await inject_fake_redis.set(f"mcp:job:{job_id}", json.dumps({
+            "job_id": job_id,
+            "method": "agents/analyze",
+            "params": {},
+            "status": "pending",
+            "created_at": time.time(),
+            "timeout_secs": 0.001,  # immediate timeout
+            "result": None,
+            "error": None,
+        }))
+
+        fw = FleetWorker(inject_fake_redis, "s", "g", "w")
+        sem = asyncio.Semaphore(4)
+
+        async def _slow(job):
+            await asyncio.sleep(10)
+            return {}
+
+        import mcp_agent_factory.gateway.fleet as _fleet
+        from unittest.mock import patch
+        with patch.object(_fleet, "_execute_job", new=_slow):
+            await _fleet._process_job(fw, "msg-2", job_id, sem)
+
+        job = await _fleet._read_job(job_id)
+        assert job["status"] == "failed"
+        assert "timed out" in job["error"]
+
+    @pytest.mark.asyncio
+    async def test_process_job_exception(self, inject_fake_redis):
+        import mcp_agent_factory.gateway.fleet as _fleet
+        from unittest.mock import AsyncMock, patch
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        job_id = str(uuid.uuid4())
+        await _plant_job(inject_fake_redis, job_id, "pending")
+
+        fw = FleetWorker(inject_fake_redis, "s", "g", "w")
+        sem = asyncio.Semaphore(4)
+
+        with patch.object(_fleet, "_execute_job", new=AsyncMock(side_effect=RuntimeError("pipeline boom"))):
+            await _fleet._process_job(fw, "msg-3", job_id, sem)
+
+        job = await _fleet._read_job(job_id)
+        assert job["status"] == "failed"
+        assert "pipeline boom" in job["error"]
+
+    @pytest.mark.asyncio
+    async def test_process_job_missing_record(self, inject_fake_redis):
+        """If job record is gone from Redis, _process_job acks and returns."""
+        import mcp_agent_factory.gateway.fleet as _fleet
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
+        fw = FleetWorker(inject_fake_redis, "s", "g", "w")
+        sem = asyncio.Semaphore(4)
+        # job_id has no Redis key — should not raise
+        await _fleet._process_job(fw, "msg-0", "nonexistent-job-id", sem)
+
+
+# ---------------------------------------------------------------------------
+# start_fleet_workers / stop_fleet_workers lifecycle
+# ---------------------------------------------------------------------------
+
+class TestFleetWorkerLifecycle:
+    @pytest.mark.asyncio
+    async def test_start_and_stop(self, inject_fake_redis):
+        import mcp_agent_factory.gateway.fleet as _fleet
+
+        await _fleet.start_fleet_workers()
+        assert _fleet._worker_task is not None
+        await _fleet.stop_fleet_workers()
+        assert _fleet._worker_task is None
+
+    @pytest.mark.asyncio
+    async def test_start_skipped_when_no_redis(self):
+        import mcp_agent_factory.gateway.fleet as _fleet
+
+        original = _fleet._redis
+        _fleet._redis = None
+        try:
+            await _fleet.start_fleet_workers()
+            assert _fleet._worker_task is None
+        finally:
+            _fleet._redis = original
