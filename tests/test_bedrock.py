@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+boto3 = pytest.importorskip("boto3", reason="boto3 not installed")
+
 from mcp_agent_factory.gateway.router import (
     BedrockHandler,
     LLMRequest,
