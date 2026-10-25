@@ -27,7 +27,6 @@ from fastapi.testclient import TestClient
 import mcp_agent_factory.gateway.fleet as _fleet
 from mcp_agent_factory.gateway.app import gateway_app
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -208,8 +207,9 @@ class TestFleetWorker:
 
     @pytest.mark.asyncio
     async def test_ensure_group_ignores_busygroup(self, inject_fake_redis):
-        from mcp_agent_factory.streams.fleet_worker import FleetWorker
         from redis.exceptions import ResponseError
+
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
 
         fw = FleetWorker(inject_fake_redis, "test:stream", "grp", "c1")
         await fw.ensure_group()
@@ -219,8 +219,10 @@ class TestFleetWorker:
     @pytest.mark.asyncio
     async def test_ensure_group_reraises_non_busygroup(self, inject_fake_redis):
         from unittest.mock import AsyncMock, patch
-        from mcp_agent_factory.streams.fleet_worker import FleetWorker
+
         from redis.exceptions import ResponseError
+
+        from mcp_agent_factory.streams.fleet_worker import FleetWorker
 
         fw = FleetWorker(inject_fake_redis, "test:stream", "grp2", "c1")
         with patch.object(inject_fake_redis, "xgroup_create", new=AsyncMock(
@@ -281,8 +283,9 @@ class TestProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_done(self, inject_fake_redis):
-        import mcp_agent_factory.gateway.fleet as _fleet
         from unittest.mock import AsyncMock, patch
+
+        import mcp_agent_factory.gateway.fleet as _fleet
         from mcp_agent_factory.streams.fleet_worker import FleetWorker
 
         job_id = str(uuid.uuid4())
@@ -322,8 +325,9 @@ class TestProcessJob:
             await asyncio.sleep(10)
             return {}
 
-        import mcp_agent_factory.gateway.fleet as _fleet
         from unittest.mock import patch
+
+        import mcp_agent_factory.gateway.fleet as _fleet
         with patch.object(_fleet, "_execute_job", new=_slow):
             await _fleet._process_job(fw, "msg-2", job_id, sem)
 
@@ -333,8 +337,9 @@ class TestProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_exception(self, inject_fake_redis):
-        import mcp_agent_factory.gateway.fleet as _fleet
         from unittest.mock import AsyncMock, patch
+
+        import mcp_agent_factory.gateway.fleet as _fleet
         from mcp_agent_factory.streams.fleet_worker import FleetWorker
 
         job_id = str(uuid.uuid4())

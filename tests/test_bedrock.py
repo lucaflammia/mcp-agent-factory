@@ -16,9 +16,9 @@ boto3 = pytest.importorskip("boto3", reason="boto3 not installed")
 from mcp_agent_factory.gateway.router import (
     BedrockHandler,
     LLMRequest,
+    OllamaHandler,
     ProviderError,
     UnifiedRouter,
-    OllamaHandler,
     provider_factory,
 )
 
@@ -63,8 +63,8 @@ class TestBedrockHandler:
             assert exc_info.value.provider == "bedrock"
 
     def test_bedrock_missing_boto3_raises_provider_error(self):
-        import sys
         import asyncio
+        import sys
 
         # Temporarily hide boto3
         original = sys.modules.get("boto3")
@@ -157,7 +157,8 @@ class TestEmitTokenUsage:
     def test_emit_called_when_event_log_present(self):
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
-        from mcp_agent_factory.gateway.router import UnifiedRouter, LLMHandler, LLMRequest
+
+        from mcp_agent_factory.gateway.router import LLMHandler, LLMRequest, UnifiedRouter
 
         class _FakeHandler(LLMHandler):
             provider_name = "fake"
@@ -178,7 +179,8 @@ class TestEmitTokenUsage:
     def test_emit_log_failure_does_not_propagate(self):
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
-        from mcp_agent_factory.gateway.router import UnifiedRouter, LLMHandler, LLMRequest
+
+        from mcp_agent_factory.gateway.router import LLMHandler, LLMRequest, UnifiedRouter
 
         class _FakeHandler(LLMHandler):
             provider_name = "fake"
