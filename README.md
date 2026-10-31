@@ -265,6 +265,22 @@ curl -s -X POST http://localhost:8000/mcp \
 
 Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 
+## Async Fleet — Cost Estimate (1,000 jobs/day)
+
+Costs below assume Claude 3.5 Sonnet on Bedrock with a typical 2,000 input / 500 output token job, and a single `cache.t4g.micro` Redis node on ElastiCache.
+
+| Component | Unit cost | Daily (1k jobs) | Monthly |
+|-----------|-----------|-----------------|---------|
+| Bedrock — Claude 3.5 Sonnet input | $0.003 / 1k tokens | $6.00 | ~$180 |
+| Bedrock — Claude 3.5 Sonnet output | $0.015 / 1k tokens | $7.50 | ~$225 |
+| ElastiCache Redis (`cache.t4g.micro`) | $0.016 / hr | $0.38 | ~$12 |
+| Data transfer (Redis ↔ gateway, same AZ) | $0.00 | $0.00 | $0 |
+| **Total** | | **~$13.88** | **~$417** |
+
+Throughput: with `FLEET_CONCURRENCY=4` and ~5 s average job duration, 1k jobs/day is comfortably within a single worker process. Scale `FLEET_CONCURRENCY` or add worker replicas for higher throughput.
+
+> **Fallback**: if Bedrock is unreachable, `UnifiedRouter` falls back to Ollama automatically — no additional cost if running locally.
+
 ## Tests
 
 ```bash
