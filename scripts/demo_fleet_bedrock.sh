@@ -136,9 +136,9 @@ fi
 
 # ── submit batch ──────────────────────────────────────────────────────────────
 
-hdr "Step 2 — Submit batch to POST /fleet/batch"
+hdr "Step 2 — Submit batch to POST /mcp/jobs/batch"
 
-BATCH_RESP=$(curl -sf -X POST "$GATEWAY_URL/fleet/batch" \
+BATCH_RESP=$(curl -sf -X POST "$GATEWAY_URL/mcp/jobs/batch" \
   -H "Content-Type: application/json" \
   -d "$BATCH_PAYLOAD") \
   || die "Batch submission failed"
@@ -150,7 +150,7 @@ echo "$BATCH_RESP" | jq .
 
 # ── poll for completion ────────────────────────────────────────────────────────
 
-hdr "Step 3 — Poll GET /fleet/batch/$BATCH_ID until done"
+hdr "Step 3 — Poll GET /mcp/jobs/batch/$BATCH_ID until done"
 
 START_TIME=$(date +%s)
 LAST_DONE=-1
@@ -163,7 +163,7 @@ while true; do
     die "Timed out after ${POLL_TIMEOUT}s waiting for batch $BATCH_ID"
   fi
 
-  STATUS_RESP=$(curl -sf "$GATEWAY_URL/fleet/batch/$BATCH_ID") \
+  STATUS_RESP=$(curl -sf "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID") \
     || die "Poll request failed"
 
   TOTAL=$(echo "$STATUS_RESP" | jq -r '.total')
@@ -187,7 +187,7 @@ done
 
 hdr "Step 4 — Results"
 
-FINAL_RESP=$(curl -sf "$GATEWAY_URL/fleet/batch/$BATCH_ID")
+FINAL_RESP=$(curl -sf "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID")
 echo "$FINAL_RESP" | jq '.results[] | {job_id, status, result}'
 
 FAILED_FINAL=$(echo "$FINAL_RESP" | jq -r '.failed')
