@@ -199,40 +199,26 @@ async def _process_job(
 
 
 async def _execute_job(job: dict[str, Any]) -> dict[str, Any]:
-    """Run the existing 4-layer pipeline for a job in a thread pool.
+    """Run the existing 4-layer pipeline for a job.
 
-    PDF extraction and embedding are synchronous and blocking. Running them
-    in asyncio.to_thread keeps the event loop free so the worker can claim
-    and update other jobs concurrently.
+    Blocking work (PDF extraction, boto3 Bedrock calls) is already offloaded
+    to threads inside AnalystAgent and BedrockHandler, so awaiting here on the
+    main event loop gives true concurrency across all fleet jobs.
     """
-    import concurrent.futures
+    from mcp_agent_factory.gateway.app import _agents_dispatch
+    from mcp_agent_factory.server_http import MCPRequest
 
-    def _run_sync() -> dict[str, Any]:
-        """Blocking wrapper that runs the async pipeline in a fresh event loop."""
-        import asyncio as _asyncio
-        from mcp_agent_factory.gateway.app import _agents_dispatch
-        from mcp_agent_factory.server_http import MCPRequest
-
-        req = MCPRequest(
-            jsonrpc="2.0",
-            id=job["job_id"],
-            method=job["method"],
-            params=job.get("params", {}),
-        )
-        loop = _asyncio.new_event_loop()
-        try:
-            resp = loop.run_until_complete(_agents_dispatch(req, None))
-        finally:
-            loop.close()
-
-        resp_dict = resp.model_dump(exclude_none=True)
-        if "error" in resp_dict:
-            raise RuntimeError(resp_dict["error"].get("message", "dispatch error"))
-        return resp_dict.get("result", {})
-
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        return await loop.run_in_executor(executor, _run_sync)
+    req = MCPRequest(
+        jsonrpc="2.0",
+        id=job["job_id"],
+        method=job["method"],
+        params=job.get("params", {}),
+    )
+    resp = await _agents_dispatch(req, None)
+    resp_dict = resp.model_dump(exclude_none=True)
+    if "error" in resp_dict:
+        raise RuntimeError(resp_dict["error"].get("message", "dispatch error"))
+    return resp_dict.get("result", {})
 
 
 async def start_fleet_workers() -> None:
