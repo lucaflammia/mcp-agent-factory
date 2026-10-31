@@ -19,6 +19,7 @@ Per-job timeout is ``FLEET_JOB_TIMEOUT_SECS`` (default: 300 s).
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -132,6 +133,7 @@ async def _submit_one(method: str, params: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 _worker_task: asyncio.Task | None = None
+_thread_pool: concurrent.futures.ThreadPoolExecutor | None = None
 
 
 async def _run_workers() -> None:
@@ -177,8 +179,12 @@ async def _process_job(
             span.set_attribute("fleet.method", job.get("method", ""))
 
             try:
+                loop = asyncio.get_running_loop()
                 result = await asyncio.wait_for(
-                    _execute_job(job),
+                    loop.run_in_executor(
+                        _thread_pool,
+                        lambda j=job: asyncio.run(_execute_job(j)),
+                    ),
                     timeout=float(job.get("timeout_secs", FLEET_JOB_TIMEOUT_SECS)),
                 )
                 job["status"] = "done"
@@ -218,17 +224,21 @@ async def _execute_job(job: dict[str, Any]) -> dict[str, Any]:
 
 async def start_fleet_workers() -> None:
     """Start the background worker loop. Called from the gateway lifespan."""
-    global _worker_task
+    global _worker_task, _thread_pool
     if _redis is not None:
+        _thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=FLEET_CONCURRENCY)
         _worker_task = asyncio.create_task(_run_workers())
         logger.debug('{"event":"fleet_workers_started","concurrency":%d}', FLEET_CONCURRENCY)
 
 
 async def stop_fleet_workers() -> None:
-    global _worker_task
+    global _worker_task, _thread_pool
     if _worker_task is not None:
         _worker_task.cancel()
         _worker_task = None
+    if _thread_pool is not None:
+        _thread_pool.shutdown(wait=False)
+        _thread_pool = None
 
 
 # ---------------------------------------------------------------------------
