@@ -312,7 +312,7 @@ class BedrockHandler(LLMHandler):
 	def __init__(self, region: str | None = None) -> None:
 		self._region = region or os.getenv("AWS_REGION", "us-east-1")
 		self._model_id = os.getenv(
-			"BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+			"BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v1:0"
 		)
 
 	async def call(self, request: LLMRequest) -> dict[str, Any]:
@@ -370,7 +370,7 @@ def provider_factory(event_log: EventLog | None = None, provider: str | None = N
 	"""Build a UnifiedRouter with handler order driven by LLM_PROVIDER env var.
 
 	LLM_PROVIDER=anthropic → [AnthropicHandler, OllamaHandler]
-	LLM_PROVIDER=bedrock   → [BedrockHandler, OllamaHandler]
+	LLM_PROVIDER=bedrock   → [BedrockHandler]  (no Ollama fallback — fail fast)
 	LLM_PROVIDER=gemini    → [GeminiHandler, OllamaHandler]
 	LLM_PROVIDER=ollama    → [OllamaHandler]
 	LLM_PROVIDER=openai    → [OpenAIHandler, OllamaHandler]
@@ -386,7 +386,9 @@ def provider_factory(event_log: EventLog | None = None, provider: str | None = N
 	elif provider == "openai":
 		handlers = [OpenAIHandler(), ollama]
 	elif provider == "bedrock":
-		handlers = [BedrockHandler(), ollama]
+		# No Ollama fallback — if Bedrock fails the error should surface immediately,
+		# not silently time out against a localhost Ollama that may not be running.
+		handlers = [BedrockHandler()]
 	elif provider == "ollama":
 		handlers = [ollama]
 	else:
