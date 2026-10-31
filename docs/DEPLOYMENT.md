@@ -120,13 +120,39 @@ instance can hold up to 5 connections — that is fine at demo scale.
 For production scale, use `pgbouncer` in front of Neon, or use Neon's connection pooling
 endpoint (`:5432` vs `:5433`).
 
-### 6. Platform-level TLS (Caddy removed)
+### 6. Bedrock model IDs — cross-region inference profile prefix required
+
+Claude 3.5 and Claude 4.x models on Bedrock cannot be invoked with bare model IDs
+(`anthropic.claude-*`) using on-demand throughput. The `ValidationException` returned is:
+> *"Invocation of model ID … with on-demand throughput isn't supported. Retry your request
+> with the ID or ARN of an inference profile that contains this model."*
+
+Use the `us.` cross-region inference profile prefix instead:
+```
+# Wrong (EOL or no on-demand support):
+anthropic.claude-3-5-sonnet-20241022-v2:0
+anthropic.claude-haiku-4-5-20251001-v1:0
+
+# Correct:
+us.anthropic.claude-haiku-4-5-20251001-v1:0
+us.anthropic.claude-sonnet-4-5-20251115-v1:0
+```
+
+The `BEDROCK_MODEL_ID` environment variable defaults to `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+in both `docker-compose.yml` and `router.py`.
+
+AWS credentials must be passed into the container explicitly — Docker does not inherit
+shell credentials. The `docker-compose.yml` passes through `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_DEFAULT_REGION` from the host
+shell. For production, use an IAM instance profile or task role instead.
+
+### 7. Platform-level TLS (Caddy removed)
 
 The repo ships a `Caddyfile` for local TLS termination. App Runner provides TLS
 termination natively — the Caddy container is not deployed. The gateway listens on HTTP
 port 8000; App Runner handles HTTPS externally.
 
-### 7. OTel endpoint changed
+### 8. OTel endpoint changed
 
 In compose, the OTel collector runs as a sidecar container (`otel-collector`). In App Runner,
 the gateway exports traces directly to Grafana Cloud's OTLP endpoint over HTTPS. The

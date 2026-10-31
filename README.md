@@ -178,6 +178,29 @@ ollama pull qwen3:0.6b-q4_K_M
 > **Linux:** Ollama must listen on all interfaces for the Docker gateway to reach
 > it. Start with `OLLAMA_HOST=0.0.0.0 ollama serve`.
 
+### Async Fleet Demo (AWS Bedrock)
+
+Runs 5 parallel analysis jobs via the fleet runtime against AWS Bedrock — submit once, poll until all jobs complete, results stream back as they finish.
+
+```bash
+# Export AWS credentials (IAM user or SSO)
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...  # if using SSO / assumed role
+
+# Run the fleet demo
+PDF_PATH=/app/data/samples/finance_q3_2024.pdf \
+  LLM_PROVIDER=bedrock \
+  MCP_DEV_MODE=0 \
+  AWS_DEFAULT_REGION=us-east-1 \
+  ./scripts/demo_fleet_bedrock.sh
+```
+
+**Bedrock model notes:**
+- Claude 3.5+ and Claude 4.x require the `us.` cross-region inference profile prefix (e.g. `us.anthropic.claude-haiku-4-5-20251001-v1:0`). Bare model IDs only work with provisioned throughput.
+- Models are automatically enabled on first invocation — no manual console activation needed.
+- Your IAM user needs `bedrock:InvokeModel` on `arn:aws:bedrock:*::foundation-model/anthropic.*`.
+
 ## Configuration
 
 Copy `.env.example` to `.env` — both servers load it automatically via `python-dotenv`:
@@ -198,6 +221,8 @@ Key environment variables:
 | `KAFKA_BOOTSTRAP_SERVERS` | *(unset → InProcessEventLog)* | Real Kafka for telemetry stream |
 | `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, `ollama`, or `bedrock` |
 | `AWS_REGION` | `us-east-1` | AWS region for Bedrock (requires `boto3`) |
+| `AWS_DEFAULT_REGION` | `us-east-1` | boto3 region override (takes precedence over `AWS_REGION`) |
+| `BEDROCK_MODEL_ID` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Bedrock model — must use `us.` cross-region inference profile prefix for Claude 3.5+ and Claude 4.x |
 | `OLLAMA_MODEL` | `qwen3:0.6b-q4_K_M` | Default Ollama model |
 
 ## External Client Integration
