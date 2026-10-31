@@ -43,6 +43,8 @@ def inject_fake_redis(monkeypatch):
     import mcp_agent_factory.gateway.app as _app
     monkeypatch.setattr(_app, "_redis_client", fake)
     yield fake
+    # Reset so the next test's lifespan does not start fleet workers
+    _fleet.set_fleet_redis(None)
 
 
 @pytest.fixture
