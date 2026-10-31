@@ -46,14 +46,17 @@ class FleetWorker:
         )
         return msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)
 
-    async def claim_job(self) -> tuple[Any, str] | None:
+    async def claim_job(self, block_ms: int | None = None) -> tuple[Any, str] | None:
         """Claim the next pending job. Returns (msg_id, job_id) or None."""
-        result = await self._client.xreadgroup(
-            self._group,
-            self._consumer,
-            streams={self._stream: ">"},
-            count=1,
-        )
+        kwargs: dict[str, Any] = {
+            "groupname": self._group,
+            "consumername": self._consumer,
+            "streams": {self._stream: ">"},
+            "count": 1,
+        }
+        if block_ms is not None:
+            kwargs["block"] = block_ms
+        result = await self._client.xreadgroup(**kwargs)
         if not result:
             return None
         messages = result[0][1]

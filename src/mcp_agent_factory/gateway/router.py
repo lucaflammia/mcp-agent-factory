@@ -312,7 +312,7 @@ class BedrockHandler(LLMHandler):
 	def __init__(self, region: str | None = None) -> None:
 		self._region = region or os.getenv("AWS_REGION", "us-east-1")
 		self._model_id = os.getenv(
-			"BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v1:0"
+			"BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 		)
 
 	async def call(self, request: LLMRequest) -> dict[str, Any]:

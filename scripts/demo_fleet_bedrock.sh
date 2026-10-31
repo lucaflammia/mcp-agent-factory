@@ -210,14 +210,23 @@ echo "$BATCH_RESP" | jq .
 hdr "Step 3 — Poll GET /mcp/jobs/batch/$BATCH_ID until done"
 
 START_TIME=$(date +%s)
-LAST_DONE=-1
 
 while true; do
   NOW=$(date +%s)
   ELAPSED=$(( NOW - START_TIME ))
 
   if [ "$ELAPSED" -ge "$POLL_TIMEOUT" ]; then
+    log "Fleet debug info:"
+    curl -s "$GATEWAY_URL/mcp/jobs/debug" 2>/dev/null | jq . || true
+    log "Gateway logs (last 40 lines):"
+    docker compose logs gateway --tail 40 2>/dev/null || true
     die "Timed out after ${POLL_TIMEOUT}s waiting for batch $BATCH_ID"
+  fi
+
+  # Print debug info at 15s and 60s to help diagnose stuck batches
+  if [ "$ELAPSED" = "15" ] || [ "$ELAPSED" = "60" ]; then
+    log "Fleet debug:"
+    curl -s "$GATEWAY_URL/mcp/jobs/debug" 2>/dev/null | jq -c . || true
   fi
 
   STATUS_RESP=$(api_call "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID") \
@@ -227,13 +236,23 @@ while true; do
   DONE=$(echo "$STATUS_RESP" | jq -r '.done')
   FAILED=$(echo "$STATUS_RESP" | jq -r '.failed')
 
-  if [ "$DONE" != "$LAST_DONE" ]; then
-    log "Progress: $DONE/$TOTAL done, $FAILED failed (${ELAPSED}s elapsed)"
-    LAST_DONE="$DONE"
+  # Always show progress so user sees something is happening
+  log "Progress: $DONE/$TOTAL done, $FAILED failed (${ELAPSED}s elapsed)"
+
+  # Print error details for any newly-failed jobs
+  if [ "$FAILED" -gt 0 ]; then
+    echo "$STATUS_RESP" | jq -r '.results[] | select(.status == "failed") | "  JOB \(.job_id) ERROR: \(.error)"' 2>/dev/null || true
   fi
 
   if [ "$DONE" -eq "$TOTAL" ]; then
     log "All $TOTAL jobs complete!"
+    break
+  fi
+
+  # Abort early if all jobs have terminal status (done or failed)
+  TERMINAL=$(echo "$STATUS_RESP" | jq '.results | map(select(.status == "done" or .status == "failed")) | length')
+  if [ "$TERMINAL" -eq "$TOTAL" ]; then
+    log "All $TOTAL jobs finished ($DONE done, $FAILED failed). Exiting poll loop."
     break
   fi
 

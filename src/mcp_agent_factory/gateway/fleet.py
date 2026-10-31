@@ -121,7 +121,8 @@ async def _submit_one(method: str, params: dict[str, Any]) -> str:
         try:
             fw = FleetWorker(_redis, _STREAM, _GROUP, "gateway")
             await fw.ensure_group()
-            await fw.publish_job(job_id, method, params)
+            msg_id = await fw.publish_job(job_id, method, params)
+            logger.info('{"event":"fleet_job_published","job_id":"%s","stream_msg_id":"%s"}', job_id, msg_id)
         except Exception as exc:
             logger.warning('{"event":"fleet_publish_error","job_id":"%s","detail":"%s"}', job_id, exc)
     return job_id
@@ -139,14 +140,16 @@ async def _run_workers() -> None:
     fw = FleetWorker(_redis, _STREAM, _GROUP, "worker-0")
     await fw.ensure_group()
     semaphore = asyncio.Semaphore(FLEET_CONCURRENCY)
+    logger.info('{"event":"fleet_worker_loop_started","stream":"%s","group":"%s","concurrency":%d}', _STREAM, _GROUP, FLEET_CONCURRENCY)
 
     while True:
         try:
-            job_msg = await fw.claim_job()
+            job_msg = await fw.claim_job(block_ms=2000)
             if job_msg is None:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 continue
             msg_id, job_id = job_msg
+            logger.info('{"event":"fleet_job_claimed","job_id":"%s"}', job_id)
             asyncio.create_task(_process_job(fw, msg_id, job_id, semaphore))
         except Exception as exc:
             logger.warning('{"event":"fleet_worker_loop_error","detail":"%s"}', exc)
@@ -168,12 +171,14 @@ async def _process_job(
 
             job = await _read_job(job_id)
             if job is None:
+                logger.warning('{"event":"fleet_job_missing","job_id":"%s"}', job_id)
                 await fw.ack(msg_id)
                 return
 
             # Mark running
             job["status"] = "running"
             await _write_job(job_id, job)
+            logger.info('{"event":"fleet_job_running","job_id":"%s","method":"%s"}', job_id, job.get("method", ""))
             span.set_attribute("fleet.method", job.get("method", ""))
 
             try:
@@ -196,6 +201,7 @@ async def _process_job(
 
             await _write_job(job_id, job)
             await fw.ack(msg_id)
+            logger.info('{"event":"fleet_job_finished","job_id":"%s","status":"%s"}', job_id, job["status"])
 
 
 async def _execute_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -224,9 +230,11 @@ async def _execute_job(job: dict[str, Any]) -> dict[str, Any]:
 async def start_fleet_workers() -> None:
     """Start the background worker loop. Called from the gateway lifespan."""
     global _worker_task
-    if _redis is not None:
-        _worker_task = asyncio.create_task(_run_workers())
-        logger.debug('{"event":"fleet_workers_started","concurrency":%d}', FLEET_CONCURRENCY)
+    if _redis is None:
+        logger.error('{"event":"fleet_workers_skipped","reason":"redis_is_none"}')
+        return
+    _worker_task = asyncio.create_task(_run_workers())
+    logger.info('{"event":"fleet_workers_started","concurrency":%d}', FLEET_CONCURRENCY)
 
 
 async def stop_fleet_workers() -> None:
@@ -295,6 +303,37 @@ async def submit_batch(req: BatchRequest) -> dict:
         job_ids.append(job_id)
     await _redis.set(f"mcp:batch:{batch_id}", json.dumps(job_ids))
     return {"batch_id": batch_id, "job_ids": job_ids}
+
+
+@fleet_router.get("/debug", response_model=dict)
+async def fleet_debug() -> dict:
+    """Diagnostic endpoint: stream length, consumer group info, worker task state."""
+    info: dict[str, Any] = {"worker_task_alive": _worker_task is not None and not _worker_task.done()}
+    if _worker_task is not None and _worker_task.done():
+        exc = _worker_task.exception() if not _worker_task.cancelled() else "cancelled"
+        info["worker_task_error"] = str(exc)
+    try:
+        slen = await _redis.xlen(_STREAM)
+        info["stream_length"] = slen
+    except Exception as e:
+        info["stream_length_error"] = str(e)
+    try:
+        groups = await _redis.xinfo_groups(_STREAM)
+        info["consumer_groups"] = [
+            {
+                "name": (g[b"name"].decode() if isinstance(g.get(b"name"), bytes) else g.get("name", "")),
+                "consumers": g.get(b"consumers", g.get("consumers", 0)),
+                "pending": g.get(b"pending", g.get("pending", 0)),
+                "last_delivered_id": (
+                    g[b"last-delivered-id"].decode() if isinstance(g.get(b"last-delivered-id"), bytes)
+                    else g.get("last-delivered-id", "")
+                ),
+            }
+            for g in groups
+        ]
+    except Exception as e:
+        info["consumer_groups_error"] = str(e)
+    return info
 
 
 @fleet_router.get("/{job_id}", response_model=JobStatus)
