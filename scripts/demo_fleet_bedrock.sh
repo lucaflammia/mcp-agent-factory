@@ -29,6 +29,8 @@ set -euo pipefail
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 QUERY="${QUERY:-Identify key KPIs and risk factors}"
 NUM_TASKS="${NUM_TASKS:-5}"
+# Path to sample PDF inside the container (mounted at /app in docker-compose)
+PDF_PATH="${PDF_PATH:-/app/data/samples/finance_q3_2024.pdf}"
 MAX_TOKENS_PER_JOB="${MAX_TOKENS_PER_JOB:-1000}"   # hard cap per job
 POLL_INTERVAL=3   # seconds between status polls
 POLL_TIMEOUT=300  # seconds before giving up on the batch
@@ -152,8 +154,9 @@ build_tasks_json() {
     tasks+=$(jq -n \
       --arg method "agents/analyze" \
       --arg query "$QUERY (section $i of $n)" \
+      --arg pdf_path "$PDF_PATH" \
       --argjson max_tokens "$MAX_TOKENS_PER_JOB" \
-      '{method: $method, params: {query: $query, max_tokens: $max_tokens}}')
+      '{method: $method, params: {query: $query, pdf_path: $pdf_path, max_tokens: $max_tokens}}')
     [ "$i" -lt "$n" ] && tasks+=","
   done
   tasks+="]"
