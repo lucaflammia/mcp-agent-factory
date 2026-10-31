@@ -58,6 +58,7 @@ from mcp_agent_factory.messaging.sse_v1_router import create_sse_v1_router
 from mcp_agent_factory.server_http import TOOLS, MCPRequest, MCPResponse
 from mcp_agent_factory.session.manager import RedisSessionManager
 
+from .fleet import fleet_router, set_fleet_redis, start_fleet_workers, stop_fleet_workers
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
@@ -138,8 +139,12 @@ async def _gateway_lifespan(app: FastAPI):
 	# Start Kafka producer if configured
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "start"):
 		await _event_log.start()
+	# Wire fleet worker with the shared Redis client and start background workers
+	set_fleet_redis(_redis_client)
+	await start_fleet_workers()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
+	await stop_fleet_workers()
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "stop"):
 		await _event_log.stop()
 	logger.debug(json.dumps({"event": "shutdown"}))
@@ -288,6 +293,9 @@ gateway_app.mount("/sse/legacy", sse_router)
 sse_v1_router = create_sse_v1_router(bus)
 gateway_app.include_router(sse_v1_router, prefix="/sse/v1")
 
+# Async fleet runtime (/mcp/jobs, /mcp/jobs/batch)
+gateway_app.include_router(fleet_router)
+
 
 # ---------------------------------------------------------------------------
 # Request/response helpers
@@ -330,10 +338,22 @@ async def _agents_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse
         if not pdf_path:
             return _err(req_id, -32602, "Invalid params: pdf_path is required")
 
+        # In DEV_MODE, skip the full pipeline and return a stub result so the
+        # fleet demo works without any cloud API keys.
+        if DEV_MODE:
+            return _ok(req_id, {
+                "summary": f"[DEV_MODE stub] {query}",
+                "provider": "stub",
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cost_usd": 0.0,
+                "pages_read": 1,
+                "total_pages": 1,
+                "chunks_before_pruning": 4,
+                "chunks_after_pruning": 3,
+            })
+
         # Validate provider key when auth is enforced (DEV_MODE off).
-        # In DEV_MODE, missing provider keys are allowed — the router falls back
-        # to Ollama and still labels metrics with the requested provider so
-        # Grafana panels show activity without requiring cloud API keys.
         if not DEV_MODE:
             try:
                 _validate_provider(provider)

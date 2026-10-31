@@ -40,6 +40,12 @@ Grafana dashboards included.
 **Multi-tenant isolation** — `InMemoryVectorStore` namespaced by JWT `sub` claim.
 Cross-tenant queries return empty results by design.
 
+**Async fleet runtime** — `POST /fleet/submit` enqueues a job and returns a
+`job_id` immediately; `GET /fleet/poll/{job_id}` returns current status/result;
+`POST /fleet/batch` submits multiple jobs and polls them in one round-trip.
+`FleetWorker` processes jobs off a Redis stream with at-least-once delivery,
+circuit-breaker protection, and idempotency guards.
+
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 
@@ -172,6 +178,29 @@ ollama pull qwen3:0.6b-q4_K_M
 > **Linux:** Ollama must listen on all interfaces for the Docker gateway to reach
 > it. Start with `OLLAMA_HOST=0.0.0.0 ollama serve`.
 
+### Async Fleet Demo (AWS Bedrock)
+
+Runs 5 parallel analysis jobs via the fleet runtime against AWS Bedrock — submit once, poll until all jobs complete, results stream back as they finish.
+
+```bash
+# Export AWS credentials (IAM user or SSO)
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...  # if using SSO / assumed role
+
+# Run the fleet demo
+PDF_PATH=/app/data/samples/finance_q3_2024.pdf \
+  LLM_PROVIDER=bedrock \
+  MCP_DEV_MODE=0 \
+  AWS_DEFAULT_REGION=us-east-1 \
+  ./scripts/demo_fleet_bedrock.sh
+```
+
+**Bedrock model notes:**
+- Claude 3.5+ and Claude 4.x require the `us.` cross-region inference profile prefix (e.g. `us.anthropic.claude-haiku-4-5-20251001-v1:0`). Bare model IDs only work with provisioned throughput.
+- Models are automatically enabled on first invocation — no manual console activation needed.
+- Your IAM user needs `bedrock:InvokeModel` on `arn:aws:bedrock:*::foundation-model/anthropic.*`.
+
 ## Configuration
 
 Copy `.env.example` to `.env` — both servers load it automatically via `python-dotenv`:
@@ -190,7 +219,10 @@ Key environment variables:
 | `ORCHESTRATOR_MODE` | `legacy` | `legacy`, `pydantic_ai`, or `langgraph` |
 | `REDIS_URL` | *(unset → FakeRedis)* | Real Redis for sessions, KV, checkpoints |
 | `KAFKA_BOOTSTRAP_SERVERS` | *(unset → InProcessEventLog)* | Real Kafka for telemetry stream |
-| `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, or `ollama` |
+| `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, `ollama`, or `bedrock` |
+| `AWS_REGION` | `us-east-1` | AWS region for Bedrock (requires `boto3`) |
+| `AWS_DEFAULT_REGION` | `us-east-1` | boto3 region override (takes precedence over `AWS_REGION`) |
+| `BEDROCK_MODEL_ID` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Bedrock model — must use `us.` cross-region inference profile prefix for Claude 3.5+ and Claude 4.x |
 | `OLLAMA_MODEL` | `qwen3:0.6b-q4_K_M` | Default Ollama model |
 
 ## External Client Integration
@@ -252,8 +284,27 @@ curl -s -X POST http://localhost:8000/mcp \
 | `POST` | `/sampling` | JWT | `sampling/createMessage` |
 | `GET` | `/sse/v1/events` | No | SSE event stream |
 | `POST` | `/sse/v1/messages` | JWT | Publish to SSE bus |
+| `POST` | `/fleet/submit` | JWT | Submit async job, returns `job_id` |
+| `GET` | `/fleet/poll/{job_id}` | JWT | Poll job status / result |
+| `POST` | `/fleet/batch` | JWT | Submit + poll multiple jobs in one call |
 
 Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
+
+## Async Fleet — Cost Estimate (1,000 jobs/day)
+
+Costs below assume Claude 3.5 Sonnet on Bedrock with a typical 2,000 input / 500 output token job, and a single `cache.t4g.micro` Redis node on ElastiCache.
+
+| Component | Unit cost | Daily (1k jobs) | Monthly |
+|-----------|-----------|-----------------|---------|
+| Bedrock — Claude 3.5 Sonnet input | $0.003 / 1k tokens | $6.00 | ~$180 |
+| Bedrock — Claude 3.5 Sonnet output | $0.015 / 1k tokens | $7.50 | ~$225 |
+| ElastiCache Redis (`cache.t4g.micro`) | $0.016 / hr | $0.38 | ~$12 |
+| Data transfer (Redis ↔ gateway, same AZ) | $0.00 | $0.00 | $0 |
+| **Total** | | **~$13.88** | **~$417** |
+
+Throughput: with `FLEET_CONCURRENCY=4` and ~5 s average job duration, 1k jobs/day is comfortably within a single worker process. Scale `FLEET_CONCURRENCY` or add worker replicas for higher throughput.
+
+> **Fallback**: if Bedrock is unreachable, `UnifiedRouter` falls back to Ollama automatically — no additional cost if running locally.
 
 ## Tests
 
@@ -310,7 +361,7 @@ src/mcp_agent_factory/
 ├── bridge/                      # MCPGatewayClient + OAuth middleware
 ├── gateway/                     # API gateway, router, PII gate, pruner
 ├── knowledge/                   # RAG: vector store, embedder, ingestion
-├── streams/                     # StreamWorker, CircuitBreaker, Redlock, EventLog
+├── streams/                     # StreamWorker, FleetWorker, CircuitBreaker, Redlock, EventLog
 ├── session/                     # Redis session manager
 ├── kv/                          # Topic-namespaced KV store
 ├── economics/                   # Utility scoring + sealed-bid auction
