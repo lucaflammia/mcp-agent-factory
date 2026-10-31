@@ -107,22 +107,36 @@ if [ "$DRY_RUN" = "true" ]; then
   log "DRY RUN — no API calls will be made"
 fi
 
-# Verify the gateway is up
+# Start (or rebuild) the Docker stack
 if [ "$DRY_RUN" = "false" ]; then
-  log "Checking gateway health..."
-  api_call "$GATEWAY_URL/health" >/dev/null \
-    || die "Gateway not reachable at $GATEWAY_URL. Is the stack running?"
+  hdr "Preflight — starting stack"
+  log "Running: docker compose --profile full up -d --build"
+  PROVIDER="${PROVIDER:-bedrock}" MCP_DEV_MODE="${MCP_DEV_MODE:-1}" \
+    docker compose --profile full up -d --build
+
+  # Wait up to 30s for the gateway to become healthy
+  log "Waiting for gateway at $GATEWAY_URL ..."
+  for i in $(seq 1 30); do
+    if curl -sf "$GATEWAY_URL/health" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    if [ "$i" = "30" ]; then
+      die "Gateway did not become healthy in 30s. Check: docker compose logs gateway"
+    fi
+  done
   log "Gateway OK"
 
-  # Verify Redis is available (fleet endpoints need it)
-  log "Checking Redis connectivity via fleet endpoint..."
-  PROBE=$(api_call -X POST "$GATEWAY_URL/mcp/jobs" \
+  # Verify fleet endpoint is registered (catches stale image with no fleet routes)
+  log "Checking fleet routes registered..."
+  PROBE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+    "$GATEWAY_URL/mcp/jobs/batch" \
     -H "Content-Type: application/json" \
-    -d '{"method":"probe","params":{}}' 2>&1) || true
-  if echo "$PROBE" | grep -qi "redis\|connection\|NoneType\|Internal Server Error"; then
-    die "Fleet endpoint returned an error — is Redis running?\n  Hint: docker compose up -d redis\n  Response: $PROBE"
+    -d '{"tasks":[]}' 2>&1)
+  if [ "$PROBE_CODE" = "000" ] || [ "$PROBE_CODE" = "404" ]; then
+    die "Fleet routes not found (HTTP $PROBE_CODE). The gateway image may be stale — re-run the script to trigger a rebuild."
   fi
-  log "Fleet endpoint reachable"
+  log "Fleet endpoint reachable (HTTP $PROBE_CODE)"
 fi
 
 # ── build batch payload ────────────────────────────────────────────────────────
