@@ -85,6 +85,19 @@ require_cmd curl
 require_cmd jq
 require_cmd docker
 
+# Helper: curl with visible errors (writes body to stdout, fails on HTTP errors)
+api_call() {
+  local RESP HTTP_CODE
+  RESP=$(curl -s -w "\n%{http_code}" "$@")
+  HTTP_CODE=$(echo "$RESP" | tail -1)
+  BODY=$(echo "$RESP" | sed '$d')
+  if [ "$HTTP_CODE" -ge 400 ] || [ "$HTTP_CODE" = "000" ]; then
+    echo "HTTP $HTTP_CODE — $BODY" >&2
+    return 1
+  fi
+  echo "$BODY"
+}
+
 hdr "Async Fleet + Bedrock Demo"
 log "Gateway: $GATEWAY_URL"
 log "Tasks:   $NUM_TASKS"
@@ -97,9 +110,19 @@ fi
 # Verify the gateway is up
 if [ "$DRY_RUN" = "false" ]; then
   log "Checking gateway health..."
-  curl -sf "$GATEWAY_URL/health" >/dev/null \
+  api_call "$GATEWAY_URL/health" >/dev/null \
     || die "Gateway not reachable at $GATEWAY_URL. Is the stack running?"
   log "Gateway OK"
+
+  # Verify Redis is available (fleet endpoints need it)
+  log "Checking Redis connectivity via fleet endpoint..."
+  PROBE=$(api_call -X POST "$GATEWAY_URL/mcp/jobs" \
+    -H "Content-Type: application/json" \
+    -d '{"method":"probe","params":{}}' 2>&1) || true
+  if echo "$PROBE" | grep -qi "redis\|connection\|NoneType\|Internal Server Error"; then
+    die "Fleet endpoint returned an error — is Redis running?\n  Hint: docker compose up -d redis\n  Response: $PROBE"
+  fi
+  log "Fleet endpoint reachable"
 fi
 
 # ── build batch payload ────────────────────────────────────────────────────────
@@ -138,7 +161,7 @@ fi
 
 hdr "Step 2 — Submit batch to POST /mcp/jobs/batch"
 
-BATCH_RESP=$(curl -sf -X POST "$GATEWAY_URL/mcp/jobs/batch" \
+BATCH_RESP=$(api_call -X POST "$GATEWAY_URL/mcp/jobs/batch" \
   -H "Content-Type: application/json" \
   -d "$BATCH_PAYLOAD") \
   || die "Batch submission failed"
@@ -163,7 +186,7 @@ while true; do
     die "Timed out after ${POLL_TIMEOUT}s waiting for batch $BATCH_ID"
   fi
 
-  STATUS_RESP=$(curl -sf "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID") \
+  STATUS_RESP=$(api_call "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID") \
     || die "Poll request failed"
 
   TOTAL=$(echo "$STATUS_RESP" | jq -r '.total')
@@ -187,7 +210,7 @@ done
 
 hdr "Step 4 — Results"
 
-FINAL_RESP=$(curl -sf "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID")
+FINAL_RESP=$(api_call "$GATEWAY_URL/mcp/jobs/batch/$BATCH_ID")
 echo "$FINAL_RESP" | jq '.results[] | {job_id, status, result}'
 
 FAILED_FINAL=$(echo "$FINAL_RESP" | jq -r '.failed')
