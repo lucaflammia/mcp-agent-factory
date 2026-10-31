@@ -112,8 +112,25 @@ fi
 # Start (or rebuild) the Docker stack
 if [ "$DRY_RUN" = "false" ]; then
   hdr "Preflight — starting stack"
+  # Auto-detect provider: prefer openai (key usually set), then bedrock, then ollama.
+  # Use LLM_PROVIDER (the actual env var name docker-compose reads).
+  if [ -n "${LLM_PROVIDER:-}" ]; then
+    DEMO_PROVIDER="$LLM_PROVIDER"
+  elif [ -n "${OPENAI_API_KEY:-}" ]; then
+    DEMO_PROVIDER="openai"
+  elif [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+    DEMO_PROVIDER="bedrock"
+  elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    DEMO_PROVIDER="anthropic"
+  else
+    DEMO_PROVIDER="ollama"
+  fi
+  log "LLM provider: $DEMO_PROVIDER"
   log "Running: docker compose --profile full up -d --build"
-  PROVIDER="${PROVIDER:-bedrock}" MCP_DEV_MODE="${MCP_DEV_MODE:-1}" \
+  # MCP_DEV_MODE=1: enables stub responses when no live API key is available,
+  # so the demo shows fleet mechanics (submit/poll/batch) without requiring
+  # a working cloud provider. Set MCP_DEV_MODE=0 to use real LLM calls.
+  LLM_PROVIDER="$DEMO_PROVIDER" MCP_DEV_MODE="${MCP_DEV_MODE:-1}" OLLAMA_TIMEOUT="${OLLAMA_TIMEOUT:-10}" \
     docker compose --profile full up -d --build
 
   # Wait up to 30s for the gateway to become healthy

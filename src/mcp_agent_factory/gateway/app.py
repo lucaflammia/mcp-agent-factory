@@ -338,10 +338,22 @@ async def _agents_dispatch(req: MCPRequest, _claims: dict | None) -> MCPResponse
         if not pdf_path:
             return _err(req_id, -32602, "Invalid params: pdf_path is required")
 
+        # In DEV_MODE, skip the full pipeline and return a stub result so the
+        # fleet demo works without any cloud API keys.
+        if DEV_MODE:
+            return _ok(req_id, {
+                "summary": f"[DEV_MODE stub] {query}",
+                "provider": "stub",
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cost_usd": 0.0,
+                "pages_read": 1,
+                "total_pages": 1,
+                "chunks_before_pruning": 4,
+                "chunks_after_pruning": 3,
+            })
+
         # Validate provider key when auth is enforced (DEV_MODE off).
-        # In DEV_MODE, missing provider keys are allowed — the router falls back
-        # to Ollama and still labels metrics with the requested provider so
-        # Grafana panels show activity without requiring cloud API keys.
         if not DEV_MODE:
             try:
                 _validate_provider(provider)
