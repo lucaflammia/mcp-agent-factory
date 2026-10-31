@@ -40,6 +40,12 @@ Grafana dashboards included.
 **Multi-tenant isolation** — `InMemoryVectorStore` namespaced by JWT `sub` claim.
 Cross-tenant queries return empty results by design.
 
+**Async fleet runtime** — `POST /fleet/submit` enqueues a job and returns a
+`job_id` immediately; `GET /fleet/poll/{job_id}` returns current status/result;
+`POST /fleet/batch` submits multiple jobs and polls them in one round-trip.
+`FleetWorker` processes jobs off a Redis stream with at-least-once delivery,
+circuit-breaker protection, and idempotency guards.
+
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 
@@ -190,7 +196,8 @@ Key environment variables:
 | `ORCHESTRATOR_MODE` | `legacy` | `legacy`, `pydantic_ai`, or `langgraph` |
 | `REDIS_URL` | *(unset → FakeRedis)* | Real Redis for sessions, KV, checkpoints |
 | `KAFKA_BOOTSTRAP_SERVERS` | *(unset → InProcessEventLog)* | Real Kafka for telemetry stream |
-| `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, or `ollama` |
+| `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, `ollama`, or `bedrock` |
+| `AWS_REGION` | `us-east-1` | AWS region for Bedrock (requires `boto3`) |
 | `OLLAMA_MODEL` | `qwen3:0.6b-q4_K_M` | Default Ollama model |
 
 ## External Client Integration
@@ -252,6 +259,9 @@ curl -s -X POST http://localhost:8000/mcp \
 | `POST` | `/sampling` | JWT | `sampling/createMessage` |
 | `GET` | `/sse/v1/events` | No | SSE event stream |
 | `POST` | `/sse/v1/messages` | JWT | Publish to SSE bus |
+| `POST` | `/fleet/submit` | JWT | Submit async job, returns `job_id` |
+| `GET` | `/fleet/poll/{job_id}` | JWT | Poll job status / result |
+| `POST` | `/fleet/batch` | JWT | Submit + poll multiple jobs in one call |
 
 Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 
@@ -310,7 +320,7 @@ src/mcp_agent_factory/
 ├── bridge/                      # MCPGatewayClient + OAuth middleware
 ├── gateway/                     # API gateway, router, PII gate, pruner
 ├── knowledge/                   # RAG: vector store, embedder, ingestion
-├── streams/                     # StreamWorker, CircuitBreaker, Redlock, EventLog
+├── streams/                     # StreamWorker, FleetWorker, CircuitBreaker, Redlock, EventLog
 ├── session/                     # Redis session manager
 ├── kv/                          # Topic-namespaced KV store
 ├── economics/                   # Utility scoring + sealed-bid auction
