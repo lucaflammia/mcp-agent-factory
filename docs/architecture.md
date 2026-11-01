@@ -234,9 +234,10 @@ Client
   │
   ├── POST /mcp/tools/call    → synchronous pipeline (unchanged)
   │
-  └── POST /fleet/submit      → FleetWorker (Redis Stream: mcp-fleet-jobs)
-      POST /fleet/batch              │
-      GET  /fleet/poll/{job_id}      ▼
+  └── POST /mcp/jobs          → FleetWorker (Redis Stream: mcp-fleet-jobs)
+      POST /mcp/jobs/batch           │
+      GET  /mcp/jobs/{job_id}        ▼
+      GET  /mcp/jobs/batch/{id}
                                Worker Pool (FLEET_CONCURRENCY workers, default 4)
                                      │
                                      ▼
@@ -253,19 +254,19 @@ Client
 **Job lifecycle:**
 
 ```
-POST /fleet/submit  →  job stored in Redis (status: pending)
-                    →  task_id pushed to Stream mcp-fleet-jobs
-                          │
-                    FleetWorker.claim_job() via XREADGROUP
-                          │
-                    status: running  →  _execute_job()  →  status: done | failed
-                          │
-GET /fleet/poll/{id}  ←  result read from Redis key fleet:job:{id}
+POST /mcp/jobs  →  job stored in Redis (status: pending)
+                →  task_id pushed to Stream mcp-fleet-jobs
+                      │
+                FleetWorker.claim_job() via XREADGROUP
+                      │
+                status: running  →  _execute_job()  →  status: done | failed
+                      │
+GET /mcp/jobs/{id}  ←  result read from Redis key fleet:job:{id}
 ```
 
 **Batch endpoint:**
 
-`POST /fleet/batch` accepts up to N tasks, submits each as an independent job, and returns a `batch_id` plus all `job_ids`. `GET /fleet/batch/{batch_id}` aggregates statuses in one round-trip. A single failing job does not affect others.
+`POST /mcp/jobs/batch` accepts up to N tasks, submits each as an independent job, and returns a `batch_id` plus all `job_ids`. `GET /mcp/jobs/batch/{batch_id}` aggregates statuses in one round-trip. A single failing job does not affect others.
 
 **Jaeger spans:** each job emits a `fleet.job` parent span with `fleet.job_id`, `fleet.method`, and `fleet.status` attributes. Sub-spans are inherited from the pipeline layers.
 

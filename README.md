@@ -40,11 +40,11 @@ Grafana dashboards included.
 **Multi-tenant isolation** — `InMemoryVectorStore` namespaced by JWT `sub` claim.
 Cross-tenant queries return empty results by design.
 
-**Async fleet runtime** — `POST /fleet/submit` enqueues a job and returns a
-`job_id` immediately; `GET /fleet/poll/{job_id}` returns current status/result;
-`POST /fleet/batch` submits multiple jobs and polls them in one round-trip.
-`FleetWorker` processes jobs off a Redis stream with at-least-once delivery,
-circuit-breaker protection, and idempotency guards.
+**Async fleet runtime** — `POST /mcp/jobs` enqueues a job and returns a
+`job_id` immediately; `GET /mcp/jobs/{job_id}` returns current status/result;
+`POST /mcp/jobs/batch` submits multiple jobs; `GET /mcp/jobs/batch/{batch_id}`
+polls aggregate completion. `FleetWorker` processes jobs off a Redis stream
+with at-least-once delivery, circuit-breaker protection, and idempotency guards.
 
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
@@ -284,9 +284,10 @@ curl -s -X POST http://localhost:8000/mcp \
 | `POST` | `/sampling` | JWT | `sampling/createMessage` |
 | `GET` | `/sse/v1/events` | No | SSE event stream |
 | `POST` | `/sse/v1/messages` | JWT | Publish to SSE bus |
-| `POST` | `/fleet/submit` | JWT | Submit async job, returns `job_id` |
-| `GET` | `/fleet/poll/{job_id}` | JWT | Poll job status / result |
-| `POST` | `/fleet/batch` | JWT | Submit + poll multiple jobs in one call |
+| `POST` | `/mcp/jobs` | JWT | Submit async job, returns `job_id` |
+| `GET` | `/mcp/jobs/{job_id}` | JWT | Poll job status / result |
+| `POST` | `/mcp/jobs/batch` | JWT | Submit N jobs as a batch, returns `batch_id` + `job_ids` |
+| `GET` | `/mcp/jobs/batch/{batch_id}` | JWT | Aggregate batch status / results |
 
 Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 
