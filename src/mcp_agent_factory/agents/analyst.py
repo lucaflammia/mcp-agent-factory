@@ -139,7 +139,11 @@ class AnalystAgent:
 		tracer = get_tracer("mcp_gateway.analyst")
 
 		with tracer.start_as_current_span("agent.pdf_extract") as pdf_span:
-			extraction = file_context_extractor(task.pdf_path, query=task.query, max_pages=task.max_pages)
+			import asyncio as _asyncio
+			import functools as _functools
+			extraction = await _asyncio.to_thread(
+				_functools.partial(file_context_extractor, task.pdf_path, query=task.query, max_pages=task.max_pages)
+			)
 			raw_chunks = [s["text"] for s in extraction["snippets"]]
 			chunks_before = len(raw_chunks)
 			pdf_span.set_attribute("agent.pages_read", extraction["pages_read"])

@@ -279,3 +279,183 @@ class TestFileContextExtractor:
 		assert "source" in result
 		assert result["total_pages"] == 1
 		assert result["pages_read"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Shared fake client helper
+# ---------------------------------------------------------------------------
+
+def _fake_client(response: httpx.Response):
+	"""Return an async context-manager fake that returns *response* from post()."""
+	class _FC:
+		async def __aenter__(self): return self
+		async def __aexit__(self, *a): pass
+		async def post(self, *a, **kw): return response
+	return _FC()
+
+
+def _fake_client_raise(exc):
+	"""Return a fake that raises *exc* on post()."""
+	class _FC:
+		async def __aenter__(self): return self
+		async def __aexit__(self, *a): pass
+		async def post(self, *a, **kw): raise exc
+	return _FC()
+
+
+# ---------------------------------------------------------------------------
+# OpenAIHandler
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestOpenAIHandler:
+	_openai_resp = {
+		"choices": [{"message": {"content": "openai reply"}}],
+		"model": "gpt-4o-mini",
+		"usage": {"prompt_tokens": 8, "completion_tokens": 4},
+	}
+
+	async def test_successful_call(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+		handler = OpenAIHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(200, json=self._openai_resp))):
+			result = await handler.call(_make_request("hello"))
+		assert result["content"] == "openai reply"
+		assert result["input_tokens"] == 8
+		assert result["output_tokens"] == 4
+
+	async def test_rate_limit_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+		handler = OpenAIHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(429, text="rate limited"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.status == 429
+		assert exc_info.value.provider == "openai"
+
+	async def test_non_200_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+		handler = OpenAIHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(500, text="Internal Error"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.status == 500
+
+	async def test_connect_error_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+		handler = OpenAIHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client_raise(httpx.ConnectError("refused"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.provider == "openai"
+
+
+# ---------------------------------------------------------------------------
+# AnthropicHandler
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestAnthropicHandler:
+	_anthropic_resp = {
+		"content": [{"type": "text", "text": "anthropic reply"}],
+		"model": "claude-3-haiku-20240307",
+		"usage": {"input_tokens": 6, "output_tokens": 3},
+	}
+
+	async def test_successful_call(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-test")
+		handler = AnthropicHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(200, json=self._anthropic_resp))):
+			result = await handler.call(_make_request("hello"))
+		assert result["content"] == "anthropic reply"
+		assert result["input_tokens"] == 6
+		assert result["output_tokens"] == 3
+
+	async def test_rate_limit_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-test")
+		handler = AnthropicHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(429, text="rate limited"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.status == 429
+		assert exc_info.value.provider == "anthropic"
+
+	async def test_non_200_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-test")
+		handler = AnthropicHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(401, text="Unauthorized"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.status == 401
+
+	async def test_connect_error_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-test")
+		handler = AnthropicHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client_raise(httpx.ConnectError("refused"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.provider == "anthropic"
+
+
+# ---------------------------------------------------------------------------
+# OllamaHandler — error paths (success path covered in test_m009_s01.py)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestOllamaHandlerErrors:
+	async def test_rate_limit_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		handler = OllamaHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(429, text="rate limited"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.status == 429
+		assert exc_info.value.provider == "ollama"
+
+	async def test_non_200_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		handler = OllamaHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(503, text="Service Unavailable"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.status == 503
+
+	async def test_connect_error_raises_provider_error(self, monkeypatch):
+		import unittest.mock as _mock
+		handler = OllamaHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client_raise(httpx.ConnectError("refused"))):
+			with pytest.raises(ProviderError) as exc_info:
+				await handler.call(_make_request())
+		assert exc_info.value.provider == "ollama"
+
+
+# ---------------------------------------------------------------------------
+# GeminiHandler — dev mode fallback (MCP_DEV_MODE=1, no API key)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestGeminiDevMode:
+	async def test_dev_mode_delegates_to_ollama(self, monkeypatch):
+		"""With MCP_DEV_MODE=1 and no GEMINI_API_KEY, GeminiHandler falls back to OllamaHandler."""
+		import unittest.mock as _mock
+		monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+		monkeypatch.setenv("MCP_DEV_MODE", "1")
+		_ollama_resp = {
+			"message": {"content": "dev reply"},
+			"model": "qwen3:0.6b-q4_K_M",
+			"prompt_eval_count": 4,
+			"eval_count": 2,
+		}
+		handler = GeminiHandler()
+		with _mock.patch("httpx.AsyncClient", return_value=_fake_client(httpx.Response(200, json=_ollama_resp))):
+			result = await handler.call(_make_request("hello"))
+		assert result["content"] == "dev reply"
+		assert result["model"] == handler._model  # relabelled as gemini model

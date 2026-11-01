@@ -20,6 +20,31 @@ from mcp_agent_factory.streams.eventlog import EventLog
 
 logger = logging.getLogger(__name__)
 
+try:
+	from prometheus_client import Counter
+	_mcp_agent_cost_usd_total = Counter(
+		"mcp_agent_cost_usd_total",
+		"Total cost in USD for LLM calls",
+		["provider", "model"]
+	)
+	_mcp_agent_input_tokens_total = Counter(
+		"mcp_agent_input_tokens_total",
+		"Total input tokens used in LLM calls",
+		["provider"]
+	)
+	_mcp_agent_output_tokens_total = Counter(
+		"mcp_agent_output_tokens_total",
+		"Total output tokens used in LLM calls",
+		["provider"]
+	)
+except ImportError:
+	class _NoOp:
+		def labels(self, **kw): return self
+		def inc(self, v=1): pass
+	_mcp_agent_cost_usd_total = _NoOp()
+	_mcp_agent_input_tokens_total = _NoOp()
+	_mcp_agent_output_tokens_total = _NoOp()
+
 
 # ---------------------------------------------------------------------------
 # Domain types
@@ -81,11 +106,32 @@ _COST_PER_M: dict[str, tuple[float, float]] = {
 	"gemini-2.5-pro": (1.25, 10.0),
 	"gemini-1.5-flash": (0.075, 0.30),
 	"gemini-1.5-pro": (1.25, 5.0),
+	# Bedrock pricing (USD per 1M tokens, as of 2025-11)
+	"claude-haiku-4-5": (0.80, 4.00),
+	"claude-sonnet-3-5": (3.0, 15.0),
+	"claude-opus-4-1": (15.0, 75.0),
 }
 
 
+def _normalize_bedrock_model(model: str) -> str:
+	"""Extract base model name from Bedrock model ID.
+
+	Examples:
+	  us.anthropic.claude-haiku-4-5-20251001-v1:0 → claude-haiku-4-5
+	  us.anthropic.claude-3-5-sonnet-20241022-v2:0 → claude-3-5-sonnet
+	  us.anthropic.claude-opus-4-1-20250805-v1:0 → claude-opus-4-1
+	"""
+	if not model.startswith("us.anthropic."):
+		return model
+	# Extract the part after us.anthropic. and remove version suffix
+	base = model.replace("us.anthropic.", "").split("-20")[0]
+	return base
+
+
 def _cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-	in_rate, out_rate = _COST_PER_M.get(model, (0.0, 0.0))
+	# Normalize Bedrock model IDs to base model names
+	lookup_model = _normalize_bedrock_model(model)
+	in_rate, out_rate = _COST_PER_M.get(lookup_model, (0.0, 0.0))
 	return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
 
 
@@ -294,6 +340,85 @@ class GeminiHandler(LLMHandler):
 
 
 # ---------------------------------------------------------------------------
+# Bedrock handler
+# ---------------------------------------------------------------------------
+
+class BedrockHandler(LLMHandler):
+	"""AWS Bedrock provider using IAM role credentials via boto3.
+
+	Requires boto3 installed and AWS credentials available (IAM role, env vars,
+	or ~/.aws/credentials). No API key is used — authentication is IAM-only.
+
+	Falls through to ProviderError on any connectivity failure, which causes
+	UnifiedRouter to try the next handler (Ollama fallback).
+	"""
+
+	provider_name = "bedrock"
+
+	# Models that require a cross-region inference profile prefix (cannot be called on-demand).
+	_PROFILE_REQUIRED = _re.compile(
+		r"^anthropic\.(claude-(3-5|3-7|4|haiku-4|sonnet-4|opus-4))",
+	)
+
+	def __init__(self, region: str | None = None) -> None:
+		self._region = region or os.getenv("AWS_REGION", "us-east-1")
+		raw = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+		self._model_id = self._normalize_model_id(raw)
+
+	def _normalize_model_id(self, model_id: str) -> str:
+		"""Prepend cross-region inference profile prefix when required."""
+		if self._PROFILE_REQUIRED.match(model_id):
+			return f"us.{model_id}"
+		return model_id
+
+	async def call(self, request: LLMRequest) -> dict[str, Any]:
+		import asyncio
+		import json as _json
+
+		try:
+			import boto3  # type: ignore[import]
+		except ImportError as exc:
+			raise ProviderError("bedrock", detail="boto3 not installed") from exc
+
+		prompt = _prompt_from(request)
+		max_tokens = request.args.get("max_tokens", 1000)
+
+		body = _json.dumps({
+			"anthropic_version": "bedrock-2023-05-31",
+			"messages": [{"role": "user", "content": prompt}],
+			"max_tokens": max_tokens,
+		})
+
+		def _invoke() -> dict[str, Any]:
+			client = boto3.client("bedrock-runtime", region_name=self._region)
+			return client.invoke_model(
+				modelId=self._model_id,
+				contentType="application/json",
+				accept="application/json",
+				body=body,
+			)
+
+		try:
+			response = await asyncio.get_event_loop().run_in_executor(None, _invoke)
+		except Exception as exc:
+			raise ProviderError("bedrock", detail=str(exc)) from exc
+
+		import json as _json2
+		data = _json2.loads(response["body"].read())
+		content_blocks = data.get("content", [])
+		content_text = " ".join(
+			b.get("text", "") for b in content_blocks if b.get("type") == "text"
+		)
+		usage = data.get("usage", {})
+		return {
+			"content": content_text,
+			"model": self._model_id,
+			"input_tokens": usage.get("input_tokens", 0),
+			"output_tokens": usage.get("output_tokens", 0),
+		}
+
+
+# ---------------------------------------------------------------------------
 # Provider factory — re-read LLM_PROVIDER on every call for live switching
 # ---------------------------------------------------------------------------
 
@@ -301,6 +426,7 @@ def provider_factory(event_log: EventLog | None = None, provider: str | None = N
 	"""Build a UnifiedRouter with handler order driven by LLM_PROVIDER env var.
 
 	LLM_PROVIDER=anthropic → [AnthropicHandler, OllamaHandler]
+	LLM_PROVIDER=bedrock   → [BedrockHandler]  (no Ollama fallback — fail fast)
 	LLM_PROVIDER=gemini    → [GeminiHandler, OllamaHandler]
 	LLM_PROVIDER=ollama    → [OllamaHandler]
 	LLM_PROVIDER=openai    → [OpenAIHandler, OllamaHandler]
@@ -315,6 +441,10 @@ def provider_factory(event_log: EventLog | None = None, provider: str | None = N
 		handlers: list[LLMHandler] = [GeminiHandler(), ollama]
 	elif provider == "openai":
 		handlers = [OpenAIHandler(), ollama]
+	elif provider == "bedrock":
+		# No Ollama fallback — if Bedrock fails the error should surface immediately,
+		# not silently time out against a localhost Ollama that may not be running.
+		handlers = [BedrockHandler()]
 	elif provider == "ollama":
 		handlers = [ollama]
 	else:
@@ -356,6 +486,12 @@ class UnifiedRouter:
 					result.get("input_tokens", 0),
 					result.get("output_tokens", 0),
 				)
+				# Emit Prometheus metrics
+				provider = handler.provider_name
+				model = result.get("model", "unknown")
+				_mcp_agent_cost_usd_total.labels(provider=provider, model=model).inc(result["cost_usd"])
+				_mcp_agent_input_tokens_total.labels(provider=provider).inc(result.get("input_tokens", 0))
+				_mcp_agent_output_tokens_total.labels(provider=provider).inc(result.get("output_tokens", 0))
 				await self._emit_token_usage(result, request)
 				return result
 			except ProviderError as exc:
