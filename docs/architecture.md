@@ -225,6 +225,50 @@ SkillAsset → SkillCompiler.compile_all()
 The offline boundary is enforced: DSPy compilation and GEPA evolution never run
 in the request path. Results are written as hot-reloadable JSON skill assets.
 
+## Async Fleet Runtime
+
+The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes.
+
+```
+Client
+  │
+  ├── POST /mcp/tools/call    → synchronous pipeline (unchanged)
+  │
+  └── POST /fleet/submit      → FleetWorker (Redis Stream: mcp-fleet-jobs)
+      POST /fleet/batch              │
+      GET  /fleet/poll/{job_id}      ▼
+                               Worker Pool (FLEET_CONCURRENCY workers, default 4)
+                                     │
+                                     ▼
+                               4-layer pipeline (unchanged)
+                               Foundations → Production → Orchestration → Optimization
+                                     │
+                               Provider registry (adapters.py)
+                               ├── Anthropic
+                               ├── OpenAI
+                               ├── Ollama
+                               └── Bedrock  ← new (boto3, IAM auth)
+```
+
+**Job lifecycle:**
+
+```
+POST /fleet/submit  →  job stored in Redis (status: pending)
+                    →  task_id pushed to Stream mcp-fleet-jobs
+                          │
+                    FleetWorker.claim_job() via XREADGROUP
+                          │
+                    status: running  →  _execute_job()  →  status: done | failed
+                          │
+GET /fleet/poll/{id}  ←  result read from Redis key fleet:job:{id}
+```
+
+**Batch endpoint:**
+
+`POST /fleet/batch` accepts up to N tasks, submits each as an independent job, and returns a `batch_id` plus all `job_ids`. `GET /fleet/batch/{batch_id}` aggregates statuses in one round-trip. A single failing job does not affect others.
+
+**Jaeger spans:** each job emits a `fleet.job` parent span with `fleet.job_id`, `fleet.method`, and `fleet.status` attributes. Sub-spans are inherited from the pipeline layers.
+
 ## Infrastructure Stack
 
 `docker compose --profile full up --build` starts 12 services:

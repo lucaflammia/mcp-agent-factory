@@ -28,8 +28,13 @@ def _make_token(key: OctKey) -> str:
 @pytest.fixture
 def client(monkeypatch):
     import mcp_agent_factory.gateway.app as _app
-    monkeypatch.setattr(_app, "DEV_MODE", True)
-    return TestClient(gateway_app)
+    monkeypatch.setattr(_app, "DEV_MODE", False)
+    # ollama requires no API key, so _validate_provider won't raise
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    key = OctKey.generate_key(256, is_private=True)
+    resource_set_key(key)
+    token = _make_token(key)
+    return TestClient(gateway_app, headers={"Authorization": f"Bearer {token}"})
 
 
 def _post(client: TestClient, method: str, params: dict) -> dict:
