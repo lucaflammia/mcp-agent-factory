@@ -1,0 +1,69 @@
+{
+  "_comment": "Hermes Agent MCP server configuration for mcp-agent-factory gateway (INT-01).",
+  "_versions_tested": {
+    "hermes": "see https://github.com/NousResearch/hermes-agent — record your version here",
+    "gateway": "mcp-agent-factory commit on branch you tested against"
+  },
+
+  "mcpServers": {
+    "mcp-agent-factory-dev": {
+      "_comment_auth": "Mode 1 — dev mode (MCP_DEV_MODE=1 on the gateway). No auth. Local experiments only.",
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": {}
+    },
+
+    "mcp-agent-factory-token": {
+      "_comment_auth": "Mode 2 — static Bearer token (client_credentials flow).",
+      "_how_to_obtain": [
+        "1. Register a client: POST http://localhost:8001/register",
+        "   Body: {\"client_name\": \"hermes\", \"grant_types\": [\"client_credentials\"]}",
+        "   Save the returned client_id and client_secret.",
+        "2. Obtain a token: POST http://localhost:8001/token",
+        "   Body (form): grant_type=client_credentials&client_id=<id>&client_secret=<secret>&scope=tools:call",
+        "3. Paste the access_token value below (replace PASTE_TOKEN_HERE).",
+        "4. Token lifetime is set by the auth server (default 3600 s). Rotate before expiry.",
+        "   Automation: re-run step 2 and update the config — there is no silent renewal for static tokens."
+      ],
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer PASTE_TOKEN_HERE"
+      }
+    },
+
+    "mcp-agent-factory-pkce": {
+      "_comment_auth": "Mode 3 — OAuth 2.1 with PKCE. Hermes must support RFC 8414 discovery.",
+      "_discovery_url": "http://localhost:8000/.well-known/oauth-authorization-server",
+      "_known_limitation": "Verify whether Hermes' OAuth client matches the gateway's RFC 8414 discovery and RFC 7591 dynamic registration. Record the outcome in docs/integrations/hermes-herdr.md.",
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "auth": {
+        "type": "oauth2",
+        "discovery_url": "http://localhost:8000/.well-known/oauth-authorization-server",
+        "client_id": "REPLACE_WITH_DYNAMIC_CLIENT_ID",
+        "scope": "tools:call"
+      }
+    }
+  },
+
+  "_tool_scopes": {
+    "_note": "The gateway enforces these scopes server-side. Hermes-side filtering is defense-in-depth only.",
+    "tools:read":        ["echo", "add"],
+    "tools:call":        ["echo", "add", "query_knowledge_base", "sampling_demo", "kv/add_phrase", "kv/check_affinity", "analyse_and_report"],
+    "tools:orchestrate": ["orchestrate"]
+  },
+
+  "_destructive_tools": {
+    "_note": "orchestrate is blocked from direct tools/call outside DEV_MODE. It requires the graph execution path (agents/analyze or POST /mcp/jobs). Follow-up issue to route it through human-in-the-loop approval.",
+    "blocked": ["orchestrate"]
+  },
+
+  "_security_reminders": [
+    "Never commit a file with a real token or client_secret — use placeholders only.",
+    "MCP_DEV_MODE=1 bypasses all auth; never use it outside local experiments.",
+    "The auth server (:8001) must not be reachable from the public internet.",
+    "Hermes keeps persistent memory and creates skills from experience. Use a test tenant during validation.",
+    "Tool results returned to Hermes reach Hermes' own model provider — the gateway's PII scrubbing covers only its own LLM calls."
+  ]
+}

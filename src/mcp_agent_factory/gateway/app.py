@@ -65,6 +65,34 @@ from .service_layer import InternalServiceLayer
 from .telemetry import configure_telemetry, get_tracer
 
 # ---------------------------------------------------------------------------
+# Tool scoping — INT-01-C
+# Maps tool name → minimum scope required to see/call it via tools/list or tools/call.
+# Tools absent from this map are visible to any authenticated caller (tools:call).
+# Unauthenticated callers (DEV_MODE or optional auth returning None) only see
+# tools whose required scope is "tools:read" or that have no entry here.
+# ---------------------------------------------------------------------------
+_PUBLIC_TOOLS: frozenset[str] = frozenset({"echo", "add"})
+
+_TOOL_REQUIRED_SCOPE: dict[str, str] = {
+    "echo": "tools:read",
+    "add": "tools:read",
+    "query_knowledge_base": "tools:call",
+    "sampling_demo": "tools:call",
+    "kv/add_phrase": "tools:call",
+    "kv/check_affinity": "tools:call",
+    "analyse_and_report": "tools:call",
+    "orchestrate": "tools:orchestrate",  # requires explicit higher scope
+}
+
+# ---------------------------------------------------------------------------
+# Destructive tools — INT-01-D
+# Direct tools/call is blocked for tools in this set; callers must route through
+# the graph orchestrator (POST /mcp with method=orchestrate or the async fleet
+# endpoints) so the human-in-the-loop approval path is exercised.
+# ---------------------------------------------------------------------------
+_DESTRUCTIVE_TOOLS: frozenset[str] = frozenset({"orchestrate"})
+
+# ---------------------------------------------------------------------------
 # Provider key validation for agents/* dispatch
 # ---------------------------------------------------------------------------
 
@@ -307,6 +335,20 @@ def _ok(req_id: Any, result: Any) -> MCPResponse:
 
 def _err(req_id: Any, code: int, message: str) -> MCPResponse:
 	return MCPResponse(id=req_id, error={"code": code, "message": message})
+
+
+def _tool_visible(tool_name: str, granted_scopes: set[str]) -> bool:
+	"""Return True if the tool should appear in tools/list for the given granted scopes."""
+	required = _TOOL_REQUIRED_SCOPE.get(tool_name, "tools:call")
+	# Scope hierarchy: tools:orchestrate > tools:call > tools:read
+	# A higher scope implicitly grants lower ones.
+	if "tools:orchestrate" in granted_scopes:
+		return True
+	if "tools:call" in granted_scopes and required in ("tools:call", "tools:read"):
+		return True
+	if "tools:read" in granted_scopes and required == "tools:read":
+		return True
+	return False
 
 
 def _validate_provider(provider: str | None = None) -> None:
@@ -559,9 +601,19 @@ async def _mcp_dispatch_inner(req: MCPRequest, _claims: dict | None, _span) -> M
 	if method == "notifications/initialized":
 		return _ok(req_id, {})
 
-	# tools/list — public (read-only discovery)
+	# tools/list — filtered by caller's granted scopes (INT-01-C)
 	if method == "tools/list":
-		return _ok(req_id, {"tools": TOOLS})
+		granted: set[str] = set()
+		if _claims is not None:
+			granted = set((_claims.get("scope") or "").split())
+		elif DEV_MODE:
+			# DEV_MODE grants all scopes so local testing sees every tool
+			granted = {"tools:read", "tools:call", "tools:orchestrate"}
+		visible_tools = [
+			t for t in TOOLS
+			if _tool_visible(t["name"], granted)
+		]
+		return _ok(req_id, {"tools": visible_tools})
 
 	# agents/* — requires valid Bearer token (bypassed in DEV_MODE)
 	if method.startswith("agents/"):
@@ -569,12 +621,35 @@ async def _mcp_dispatch_inner(req: MCPRequest, _claims: dict | None, _span) -> M
 			return _err(req_id, -32001, "Authentication required for agents/*")
 		return await _agents_dispatch(req, _claims)
 
-	# tools/call — requires valid Bearer token (bypassed in DEV_MODE)
+	# tools/call — requires valid Bearer token (bypassed in DEV_MODE) + scope + not destructive (INT-01-C, INT-01-D)
 	if method == "tools/call":
 		if _claims is None and not DEV_MODE:
 			return _err(req_id, -32001, "Authentication required for tools/call")
 		tool_name: str = params.get("name", "")
 		args: dict = params.get("arguments", {})
+
+		# Destructive-tool guard: block direct tools/call for tools that require
+		# graph-level approval (INT-01-D). DEV_MODE bypasses this so local testing works.
+		if tool_name in _DESTRUCTIVE_TOOLS and not DEV_MODE:
+			return _err(
+				req_id,
+				-32003,
+				f"Tool '{tool_name}' requires graph-level execution. "
+				"Submit via POST /mcp with agents/analyze or use the async fleet "
+				"endpoints (POST /mcp/jobs) to allow human-in-the-loop approval.",
+			)
+
+		# Scope check for the specific tool (INT-01-C)
+		if _claims is not None and not DEV_MODE:
+			granted_scopes: set[str] = set((_claims.get("scope") or "").split())
+			if not _tool_visible(tool_name, granted_scopes):
+				required_scope = _TOOL_REQUIRED_SCOPE.get(tool_name, "tools:call")
+				return _err(
+					req_id,
+					-32003,
+					f"Insufficient scope for tool '{tool_name}': "
+					f"'{required_scope}' required, granted: {sorted(granted_scopes)}",
+				)
 
 		# Publish observability event for every tools/call
 		bus.publish("gateway.tool_calls", AgentMessage(
