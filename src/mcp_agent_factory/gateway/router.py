@@ -21,18 +21,24 @@ from mcp_agent_factory.streams.eventlog import EventLog
 logger = logging.getLogger(__name__)
 
 try:
-	from prometheus_client import Counter
-	_mcp_agent_cost_usd_total = Counter(
+	from prometheus_client import REGISTRY, Counter
+
+	def _get_or_create_counter(name, doc, labelnames):
+		if name in REGISTRY._names_to_collectors:
+			return REGISTRY._names_to_collectors[name]
+		return Counter(name, doc, labelnames)
+
+	_mcp_agent_cost_usd_total = _get_or_create_counter(
 		"mcp_agent_cost_usd_total",
 		"Total cost in USD for LLM calls",
 		["provider", "model"]
 	)
-	_mcp_agent_input_tokens_total = Counter(
+	_mcp_agent_input_tokens_total = _get_or_create_counter(
 		"mcp_agent_input_tokens_total",
 		"Total input tokens used in LLM calls",
 		["provider"]
 	)
-	_mcp_agent_output_tokens_total = Counter(
+	_mcp_agent_output_tokens_total = _get_or_create_counter(
 		"mcp_agent_output_tokens_total",
 		"Total output tokens used in LLM calls",
 		["provider"]

@@ -1,0 +1,84 @@
+{
+  "_comment": "Hermes Agent MCP server configuration for mcp-agent-factory gateway (INT-01).",
+  "_versions_tested": {
+    "hermes": "0.19.0 (pip install hermes-agent==0.19.0)",
+    "gateway": "branch 40-int-01-ad-hermes-agent-gateway-connection-authentication-scoping-and-human-approval",
+    "ollama": "0.24.0",
+    "model_tested": "llama3.2:3b (no tool calling; connectivity and auth validated via hermes mcp test + direct curl)",
+    "component_a_validated": "tools/list returns 6 tools; hermes mcp test passes (~5800ms); echo returns expected result",
+    "component_b_validated": "client_credentials flow end-to-end; expired token blocked on tools/call; wrong aud rejected 401; missing token tools/call returns -32001",
+    "component_c_validated": "tools:call scope shows 5 tools (orchestrate hidden); empty grants shows 0 tools; code ref: app.py _TOOL_REQUIRED_SCOPE:76",
+    "component_d_validated": "direct tools/call of orchestrate returns -32003 (blocked); never silently executed",
+    "gaps_found": [
+      "B-gap-1: /register requires caller-supplied client_id/client_secret instead of auto-generating — not RFC 7591 §3.1 compliant",
+      "B-gap-2: Hermes CLI has no built-in OAuth PKCE browser flow; Mode 3 (OAuth 2.1 PKCE) incompatible with Hermes CLI auth model",
+      "B-note: RFC 8414 discovery and RFC 7591 endpoints work correctly server-side; gap is on Hermes client side",
+      "D-follow-up: orchestrate is blocked but not routed through interrupt()-based approval; a follow-up issue is needed to wire tools/call through the graph approval path"
+    ]
+  },
+
+  "mcpServers": {
+    "mcp-agent-factory-dev": {
+      "_comment_auth": "Mode 1 — dev mode (MCP_DEV_MODE=1 on the gateway). No auth. Local experiments only.",
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": {}
+    },
+
+    "mcp-agent-factory-token": {
+      "_comment_auth": "Mode 2 — static Bearer token (client_credentials flow).",
+      "_how_to_obtain": [
+        "1. Register a client (supply your own credentials — server does not auto-generate):",
+        "   POST http://localhost:8001/register",
+        "   Body (JSON): {\"client_id\": \"hermes\", \"client_secret\": \"CHOOSE_A_SECRET\", \"redirect_uri\": \"http://localhost:9999/callback\", \"grant_types\": [\"client_credentials\"]}",
+        "   NOTE: /register does not auto-assign client_id; caller must supply client_id, client_secret, redirect_uri.",
+        "   This deviates from RFC 7591 §3.1 (auto-assignment). Follow-up issue to fix.",
+        "2. Obtain a token: POST http://localhost:8001/token",
+        "   Body (JSON): {\"grant_type\": \"client_credentials\", \"client_id\": \"hermes\", \"client_secret\": \"CHOOSE_A_SECRET\", \"scope\": \"tools:call\"}",
+        "   NOTE: gateway expects JSON body, not form-encoded (despite RFC 6749 requiring form encoding).",
+        "3. Paste the access_token value below (replace PASTE_TOKEN_HERE).",
+        "4. Token lifetime is set by the auth server (default 3600 s). Rotate before expiry.",
+        "   Automation: re-run step 2 and update the config — there is no silent renewal for static tokens."
+      ],
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer PASTE_TOKEN_HERE"
+      }
+    },
+
+    "mcp-agent-factory-pkce": {
+      "_comment_auth": "Mode 3 — OAuth 2.1 with PKCE. Hermes must support RFC 8414 discovery.",
+      "_discovery_url": "http://localhost:8000/.well-known/oauth-authorization-server",
+      "_known_limitation": "Verify whether Hermes' OAuth client matches the gateway's RFC 8414 discovery and RFC 7591 dynamic registration. Record the outcome in docs/integrations/hermes-herdr.md.",
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "auth": {
+        "type": "oauth2",
+        "discovery_url": "http://localhost:8000/.well-known/oauth-authorization-server",
+        "client_id": "REPLACE_WITH_DYNAMIC_CLIENT_ID",
+        "scope": "tools:call"
+      }
+    }
+  },
+
+  "_tool_scopes": {
+    "_note": "The gateway enforces these scopes server-side. Hermes-side filtering is defense-in-depth only.",
+    "tools:read":        ["echo", "add"],
+    "tools:call":        ["echo", "add", "query_knowledge_base", "sampling_demo", "kv/add_phrase", "kv/check_affinity", "analyse_and_report"],
+    "tools:orchestrate": ["orchestrate"]
+  },
+
+  "_destructive_tools": {
+    "_note": "orchestrate is blocked from direct tools/call outside DEV_MODE. It requires the graph execution path (agents/analyze or POST /mcp/jobs). Follow-up issue to route it through human-in-the-loop approval.",
+    "blocked": ["orchestrate"]
+  },
+
+  "_security_reminders": [
+    "Never commit a file with a real token or client_secret — use placeholders only.",
+    "MCP_DEV_MODE=1 bypasses all auth; never use it outside local experiments.",
+    "The auth server (:8001) must not be reachable from the public internet.",
+    "Hermes keeps persistent memory and creates skills from experience. Use a test tenant during validation.",
+    "Tool results returned to Hermes reach Hermes' own model provider — the gateway's PII scrubbing covers only its own LLM calls."
+  ]
+}
