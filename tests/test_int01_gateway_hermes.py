@@ -22,7 +22,6 @@ from mcp_agent_factory.auth.resource import set_jwt_key as resource_set_key
 from mcp_agent_factory.gateway.app import gateway_app, set_sampling_client
 from mcp_agent_factory.gateway.sampling import StubSamplingClient
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

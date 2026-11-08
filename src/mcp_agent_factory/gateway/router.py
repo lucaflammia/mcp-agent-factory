@@ -21,7 +21,7 @@ from mcp_agent_factory.streams.eventlog import EventLog
 logger = logging.getLogger(__name__)
 
 try:
-	from prometheus_client import Counter, REGISTRY
+	from prometheus_client import REGISTRY, Counter
 
 	def _get_or_create_counter(name, doc, labelnames):
 		if name in REGISTRY._names_to_collectors:
