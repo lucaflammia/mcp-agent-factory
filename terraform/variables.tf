@@ -33,3 +33,9 @@ variable "max_tasks" {
   type        = number
   default     = 2
 }
+
+variable "budget_alert_email" {
+  description = "Email address to receive budget alert notifications"
+  type        = string
+  default     = ""
+}

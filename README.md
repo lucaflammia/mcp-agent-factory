@@ -219,7 +219,8 @@ Key environment variables:
 | `JWT_SECRET` | *(required for auth)* | Shared HS256 signing key — auth server and gateway must match |
 | `MCP_DEV_MODE` | `0` | Set `1` to bypass all auth (dev/demo only) |
 | `ORCHESTRATOR_MODE` | `legacy` | `legacy`, `pydantic_ai`, or `langgraph` |
-| `REDIS_URL` | *(unset → FakeRedis)* | Real Redis for sessions, KV, checkpoints |
+| `REDIS_URL` | *(unset → FakeRedis)* | Real Redis for sessions, KV, checkpoints. Without it the gateway uses in-memory FakeRedis — state is not persisted across restarts and async jobs are disabled |
+| `ASYNC_JOBS_ENABLED` | `true` | Set `false` to disable async job endpoints (they return `503`) regardless of Redis availability. The ECS cloud demo sets this to `false` because there is no worker; see #29 |
 | `KAFKA_BOOTSTRAP_SERVERS` | *(unset → InProcessEventLog)* | Real Kafka for telemetry stream |
 | `LLM_PROVIDER` | `ollama` | `openai`, `anthropic`, `ollama`, or `bedrock` |
 | `AWS_REGION` | `us-east-1` | AWS region for Bedrock (requires `boto3`) |

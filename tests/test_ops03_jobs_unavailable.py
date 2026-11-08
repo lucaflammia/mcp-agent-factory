@@ -64,3 +64,35 @@ def test_tools_call_unaffected_without_redis(client_no_redis):
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
     )
     assert resp.status_code == 200
+
+
+@pytest.fixture()
+def client_jobs_disabled_via_env(monkeypatch):
+    """Gateway with ASYNC_JOBS_ENABLED=false (explicit env var, cloud demo path)."""
+    monkeypatch.setenv("MCP_DEV_MODE", "1")
+    monkeypatch.setenv("ASYNC_JOBS_ENABLED", "false")
+
+    # Force reload of fleet module so the env var is picked up at import time
+    import importlib
+
+    from mcp_agent_factory.gateway import app as gateway_app_module
+    from mcp_agent_factory.gateway import fleet
+
+    fleet._jobs_enabled = False
+
+    from mcp_agent_factory.gateway.app import gateway_app, set_sampling_client
+    from mcp_agent_factory.gateway.sampling import StubSamplingClient
+
+    set_sampling_client(StubSamplingClient())
+
+    with TestClient(gateway_app, raise_server_exceptions=False) as c:
+        yield c
+
+
+def test_submit_job_503_via_env_var(client_jobs_disabled_via_env):
+    """ASYNC_JOBS_ENABLED=false disables async endpoints regardless of Redis."""
+    resp = client_jobs_disabled_via_env.post(
+        "/mcp/jobs", json={"method": "echo", "params": {}}
+    )
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["error"] == "async_jobs_unavailable"

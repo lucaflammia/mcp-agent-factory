@@ -62,6 +62,11 @@ Anthropic API, Grafana Cloud OTLP collector. These have free tiers and scale to 
 
 **Teardown removes all billable AWS resources.** Run `make demo-down` to avoid ongoing charges.
 
+A budget alert (`aws_budgets_budget.demo`) is provisioned in Terraform alongside the other
+resources. It fires when the account spend exceeds $40/month (~1.5× the floor). Set
+`budget_alert_email` in `terraform.tfvars` to receive email notifications. The budget is
+removed by `make demo-down` along with everything else.
+
 ## Async Jobs
 
 Async job endpoints (`POST /mcp/jobs`, `POST /mcp/jobs/batch`) are available locally
@@ -69,6 +74,23 @@ Async job endpoints (`POST /mcp/jobs`, `POST /mcp/jobs/batch`) are available loc
 is not co-located with the ECS task. Cloud async support is tracked in issue #29.
 
 The synchronous gateway (`POST /mcp`, `POST /mcp/tools/call`) is unaffected.
+
+### Current behavior without Redis (FakeRedis fallback)
+
+When `REDIS_URL` is not set, the gateway uses an in-memory FakeRedis instance. Without
+the explicit `ASYNC_JOBS_ENABLED=false` guard, job endpoints would accept submissions
+(returning a `job_id`) but FleetWorker would never start, leaving jobs `pending` forever.
+
+The ECS task definition sets `ASYNC_JOBS_ENABLED=false` explicitly. This short-circuits
+all `/mcp/jobs*` routes before they touch Redis, so the caller receives a structured `503`
+within milliseconds, not an accepted job that hangs:
+
+```json
+{"detail": {"error": "async_jobs_unavailable", "detail": "Async jobs are disabled on this deployment. See issue #29."}}
+```
+
+Locally, `ASYNC_JOBS_ENABLED` defaults to `true` and async jobs work normally when
+`REDIS_URL` points to the docker-compose Redis instance.
 
 ## What Changed from App Runner
 

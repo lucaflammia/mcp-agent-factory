@@ -162,6 +162,10 @@ resource "aws_ecs_task_definition" "gateway" {
       environment = [
         { name = "ENVIRONMENT", value = var.environment },
         { name = "VECTOR_STORE_BACKEND", value = "pgvector" },
+        # Async job endpoints are disabled in the cloud demo (no Redis worker).
+        # They return 503 immediately instead of accepting jobs that would hang.
+        # Async jobs in the cloud will be enabled by #29 (Step Functions Worker).
+        { name = "ASYNC_JOBS_ENABLED", value = "false" },
       ]
 
       secrets = [
@@ -211,6 +215,13 @@ resource "aws_ecs_task_definition" "gateway" {
   ])
 
   depends_on = [aws_cloudwatch_log_group.gateway]
+
+  # CI rolls out new image tags via aws-actions/amazon-ecs-deploy-task-definition.
+  # Ignoring container_definitions prevents a subsequent `terraform apply` from
+  # reverting the running service to the `:latest` tag declared here.
+  lifecycle {
+    ignore_changes = [container_definitions]
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -341,3 +352,27 @@ resource "aws_appautoscaling_policy" "gateway_cpu" {
 }
 
 data "aws_caller_identity" "current" {}
+
+# ---------------------------------------------------------------------------
+# Budget alert — notify when demo cost exceeds €40/month (~1.5× the floor)
+# Removed by `make demo-down` (terraform destroy) along with all other resources
+# ---------------------------------------------------------------------------
+
+resource "aws_budgets_budget" "demo" {
+  name         = "mcp-agent-factory-demo"
+  budget_type  = "COST"
+  limit_amount = "40"
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  dynamic "notification" {
+    for_each = var.budget_alert_email != "" ? [1] : []
+    content {
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = 100
+      threshold_type             = "PERCENTAGE"
+      notification_type          = "ACTUAL"
+      subscriber_email_addresses = [var.budget_alert_email]
+    }
+  }
+}

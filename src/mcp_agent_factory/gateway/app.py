@@ -167,10 +167,14 @@ async def _gateway_lifespan(app: FastAPI):
 	# Start Kafka producer if configured
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "start"):
 		await _event_log.start()
-	# Wire fleet worker. Async jobs are only enabled when a real Redis URL is
-	# configured; without it the endpoints return 503 immediately.
+	# Wire fleet worker. Async jobs are enabled when both a real Redis URL is
+	# configured AND ASYNC_JOBS_ENABLED is not explicitly set to "false".
+	# In the cloud demo (ECS without Redis), ASYNC_JOBS_ENABLED=false disables
+	# the endpoints immediately so callers get a 503 instead of a timeout.
+	_async_jobs_env = os.getenv("ASYNC_JOBS_ENABLED", "true").lower()
 	_has_redis = bool(os.getenv("REDIS_URL"))
-	set_fleet_redis(_redis_client, enabled=_has_redis)
+	_jobs_enabled = _has_redis and _async_jobs_env not in ("false", "0", "no")
+	set_fleet_redis(_redis_client, enabled=_jobs_enabled)
 	if _has_redis:
 		await start_fleet_workers()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
