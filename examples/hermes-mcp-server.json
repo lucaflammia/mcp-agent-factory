@@ -1,8 +1,11 @@
 {
   "_comment": "Hermes Agent MCP server configuration for mcp-agent-factory gateway (INT-01).",
   "_versions_tested": {
-    "hermes": "see https://github.com/NousResearch/hermes-agent — record your version here",
-    "gateway": "mcp-agent-factory commit on branch you tested against"
+    "hermes": "0.19.0 (pip install hermes-agent==0.19.0)",
+    "gateway": "branch 40-int-01-ad-hermes-agent-gateway-connection-authentication-scoping-and-human-approval",
+    "ollama": "0.24.0",
+    "model_tested": "qwen3:0.6b-q4_K_M (no tool calling; connectivity only)",
+    "component_a_validated": "tools/list returns 6 tools; hermes mcp test passes (5254ms)"
   },
 
   "mcpServers": {
