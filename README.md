@@ -11,10 +11,10 @@ streaming, and standards-compliant security.
 
 | | |
 |---|---|
-| **Public endpoint** | `https://<app_runner_url>/health` — run `make demo-up` then `terraform output gateway_url` |
-| **Platform** | AWS App Runner (eu-west-1) — TLS, scale-to-zero, OIDC CI |
-| **Idle cost** | **<€0.10/month** (ECR storage only; nothing runs at rest) |
-| **Demo-day cost** | **~€1** (App Runner instance time) |
+| **Public endpoint** | `http://<alb_dns>/health` — run `make demo-up` then `terraform output -raw gateway_url` |
+| **Platform** | AWS ECS Express Mode / Fargate (eu-west-1) — ALB, OIDC CI |
+| **Idle cost** | **~€25/month** (ALB + Fargate always-on; run `make demo-down` to stop) |
+| **Demo-day cost** | **~€25/month** (no scale-to-zero; tear down after each session) |
 | **IaC** | [`terraform/`](terraform/) — `make demo-up` / `make demo-down` |
 | **Deployment notes** | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — what broke and why |
 
@@ -45,6 +45,8 @@ Cross-tenant queries return empty results by design.
 `POST /mcp/jobs/batch` submits multiple jobs; `GET /mcp/jobs/batch/{batch_id}`
 polls aggregate completion. `FleetWorker` processes jobs off a Redis stream
 with at-least-once delivery, circuit-breaker protection, and idempotency guards.
+**Available locally (docker-compose) only.** The cloud demo (ECS) returns
+`503 async_jobs_unavailable` on these routes — cloud support is tracked in #29.
 
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
@@ -284,10 +286,10 @@ curl -s -X POST http://localhost:8000/mcp \
 | `POST` | `/sampling` | JWT | `sampling/createMessage` |
 | `GET` | `/sse/v1/events` | No | SSE event stream |
 | `POST` | `/sse/v1/messages` | JWT | Publish to SSE bus |
-| `POST` | `/mcp/jobs` | JWT | Submit async job, returns `job_id` |
-| `GET` | `/mcp/jobs/{job_id}` | JWT | Poll job status / result |
-| `POST` | `/mcp/jobs/batch` | JWT | Submit N jobs as a batch, returns `batch_id` + `job_ids` |
-| `GET` | `/mcp/jobs/batch/{batch_id}` | JWT | Aggregate batch status / results |
+| `POST` | `/mcp/jobs` | JWT | Submit async job, returns `job_id` (local only; `503` on cloud until #29) |
+| `GET` | `/mcp/jobs/{job_id}` | JWT | Poll job status / result (local only) |
+| `POST` | `/mcp/jobs/batch` | JWT | Submit N jobs as a batch (local only; `503` on cloud until #29) |
+| `GET` | `/mcp/jobs/batch/{batch_id}` | JWT | Aggregate batch status / results (local only) |
 
 Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 

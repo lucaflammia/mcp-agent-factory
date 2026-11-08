@@ -21,3 +21,15 @@ variable "github_repo" {
   type        = string
   default     = "mcp-agent-factory"
 }
+
+variable "min_tasks" {
+  description = "Minimum number of running ECS tasks (no scale-to-zero — there is a cost floor)"
+  type        = number
+  default     = 1
+}
+
+variable "max_tasks" {
+  description = "Maximum number of ECS tasks under auto scaling"
+  type        = number
+  default     = 2
+}

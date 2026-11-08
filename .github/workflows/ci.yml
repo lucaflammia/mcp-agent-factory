@@ -175,7 +175,7 @@ jobs:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   deploy:
-    name: Build & deploy to App Runner
+    name: Build & deploy to ECS
     runs-on: ubuntu-latest
     # Only deploy on push to main; never on PRs (avoids deploying unreviewed code)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -188,6 +188,10 @@ jobs:
 
     env:
       AWS_REGION: eu-west-1
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER_NAME }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE_NAME }}
+      TASK_DEFINITION_FAMILY: ${{ vars.ECS_TASK_DEFINITION_FAMILY }}
+      CONTAINER_NAME: gateway
 
     steps:
       - uses: actions/checkout@v4
@@ -203,24 +207,41 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push gateway image
+        id: build
         env:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          IMAGE="$ECR_REGISTRY/mcp-agent-factory/gateway:$IMAGE_TAG"
           docker build \
             --platform linux/amd64 \
             --build-arg EXTRAS=infra,otel \
-            -t "$ECR_REGISTRY/mcp-agent-factory/gateway:$IMAGE_TAG" \
+            -t "$IMAGE" \
             -t "$ECR_REGISTRY/mcp-agent-factory/gateway:latest" \
             .
-          docker push "$ECR_REGISTRY/mcp-agent-factory/gateway:$IMAGE_TAG"
+          docker push "$IMAGE"
           docker push "$ECR_REGISTRY/mcp-agent-factory/gateway:latest"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
-      - name: Trigger App Runner deployment
-        env:
-          SERVICE_ARN: ${{ secrets.APP_RUNNER_SERVICE_ARN }}
+      - name: Download current task definition
         run: |
-          aws apprunner start-deployment \
-            --service-arn "$SERVICE_ARN" \
-            --region "$AWS_REGION"
-          echo "Deployment triggered for image tag ${{ github.sha }}"
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEFINITION_FAMILY" \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Render new task definition with updated image
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

@@ -12,39 +12,42 @@ help:
 # ---------------------------------------------------------------------------
 # demo-up — provision AWS infrastructure and deploy the gateway image
 # Requires: AWS credentials, Terraform, Docker, and secrets already in SSM.
-# Time: ~8 minutes on first apply; ~2 minutes for updates.
-# Cost: ~€0 while paused; ~€1 for a demo day.
+# Time: ~5 minutes on first apply; ~2 minutes for updates.
+# Cost: ~€25/month (ALB + Fargate always-on). Run demo-down after each session.
 # ---------------------------------------------------------------------------
-demo-up: ## Provision AWS infra + deploy gateway (~8 min)
+demo-up: ## Provision AWS infra + deploy gateway (~5 min)
 	@echo "==> Initialising Terraform"
 	cd $(TF_DIR) && terraform init -input=false
-	@echo "==> Applying ECR repository (image must exist before App Runner is created)"
+	@echo "==> Applying ECR repository (image must exist before ECS task definition is created)"
 	cd $(TF_DIR) && terraform apply -auto-approve -input=false \
 		-target=aws_ecr_repository.gateway
 	@echo "==> Building and pushing gateway image"
 	$(MAKE) _build-and-push
-	@echo "==> Syncing secrets from .env into SSM before App Runner is created"
+	@echo "==> Syncing secrets from .env into SSM"
 	$(MAKE) ssm-sync
-	@echo "==> Applying remaining Terraform resources (App Runner, IAM, SSM, CloudWatch)"
+	@echo "==> Applying remaining Terraform resources (ECS, ALB, IAM, CloudWatch)"
 	cd $(TF_DIR) && terraform apply -auto-approve -input=false
 	@echo ""
-	@echo "Gateway URL: $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)"
-	@echo "Health:      $$(cd $(TF_DIR) && terraform output -raw app_runner_service_url)/health"
+	@echo "Gateway URL: $$(cd $(TF_DIR) && terraform output -raw gateway_url)"
+	@echo "Health:      $$(cd $(TF_DIR) && terraform output -raw gateway_url)/health"
 
-demo-down: ## Destroy all AWS resources (cost goes to ~€0)
+demo-down: ## Destroy all AWS resources (stops ALB + Fargate charges)
 	@echo "==> Running terraform destroy"
 	cd $(TF_DIR) && terraform destroy -auto-approve -input=false
 	@echo "==> Verifying teardown"
 	$(MAKE) demo-verify
 
 demo-verify: ## Verify no billable resources remain after teardown
-	@echo "--- App Runner services ---"
-	aws apprunner list-services --region $(AWS_REGION) \
-		--query 'ServiceSummaryList[?contains(ServiceName, `mcp-agent-factory`)]' \
+	@echo "--- ECS services ---"
+	aws ecs list-services --region $(AWS_REGION) --cluster mcp-agent-factory \
+		--query 'serviceArns' --output table 2>/dev/null || echo "  (cluster not found)"
+	@echo "--- ALBs ---"
+	aws elbv2 describe-load-balancers --region $(AWS_REGION) \
+		--query 'LoadBalancers[?contains(LoadBalancerName, `mcp-agent-factory`)].LoadBalancerName' \
 		--output table
-	@echo "--- App Runner CloudWatch log group ---"
+	@echo "--- CloudWatch log group ---"
 	aws logs describe-log-groups --region $(AWS_REGION) \
-		--log-group-name-prefix /aws/apprunner/mcp-agent-factory \
+		--log-group-name-prefix /ecs/mcp-agent-factory \
 		--query 'logGroups[*].logGroupName' \
 		--output table
 	@echo "==> Teardown verification complete."
@@ -95,15 +98,7 @@ ssm-populate: ## Interactively populate SSM SecureString parameters (run once af
 
 _build-and-push:
 	$(eval ECR_URL := $(shell cd $(TF_DIR) && terraform output -raw ecr_repository_url))
-	$(eval AWS_ACCOUNT_ID := $(shell aws sts get-caller-identity --query Account --output text))
 	aws ecr get-login-password --region $(AWS_REGION) | \
 		docker login --username AWS --password-stdin $(ECR_URL)
-	docker build --platform linux/amd64 -t $(ECR_URL):latest .
+	docker build --platform linux/amd64 --build-arg EXTRAS=infra,otel -t $(ECR_URL):latest .
 	docker push $(ECR_URL):latest
-
-_apprunner-deploy:
-	$(eval SERVICE_ARN := $(shell cd $(TF_DIR) && terraform output -raw app_runner_service_arn))
-	aws apprunner start-deployment \
-		--service-arn $(SERVICE_ARN) \
-		--region $(AWS_REGION)
-	@echo "Deployment triggered. App Runner will pull the new image and route traffic after /health passes."

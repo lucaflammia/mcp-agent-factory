@@ -45,12 +45,14 @@ _GROUP = "fleet-workers"
 # ---------------------------------------------------------------------------
 
 _redis: Any = None
+_jobs_enabled: bool = False
 
 
-def set_fleet_redis(client: Any) -> None:
+def set_fleet_redis(client: Any, enabled: bool = True) -> None:
     """Inject the shared Redis client (called from app startup)."""
-    global _redis
+    global _redis, _jobs_enabled
     _redis = client
+    _jobs_enabled = enabled
 
 
 # ---------------------------------------------------------------------------
@@ -250,10 +252,26 @@ async def stop_fleet_workers() -> None:
 
 fleet_router = APIRouter(prefix="/mcp/jobs", tags=["fleet"])
 
+_JOBS_UNAVAILABLE = {
+    "error": "async_jobs_unavailable",
+    "detail": (
+        "The async job backend (Redis) is not configured on this deployment. "
+        "Async jobs are available locally (see docker-compose.yml). "
+        "Cloud support is tracked in issue #29."
+    ),
+}
+
+
+def _require_redis() -> None:
+    """Raise 503 when async jobs are not available on this deployment."""
+    if not _jobs_enabled:
+        raise HTTPException(status_code=503, detail=_JOBS_UNAVAILABLE)
+
 
 @fleet_router.post("", response_model=JobStatus, status_code=202)
 async def submit_job(req: JobRequest) -> JobStatus:
     """Submit a single async job. Returns job_id immediately."""
+    _require_redis()
     job_id = await _submit_one(req.method, req.params)
     return JobStatus(job_id=job_id, status="pending")
 
@@ -261,6 +279,7 @@ async def submit_job(req: JobRequest) -> JobStatus:
 @fleet_router.get("/batch/{batch_id}", response_model=BatchStatus)
 async def get_batch(batch_id: str) -> BatchStatus:
     """Poll all jobs in a batch."""
+    _require_redis()
     raw = await _redis.get(f"mcp:batch:{batch_id}")
     if raw is None:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -296,6 +315,7 @@ async def get_batch(batch_id: str) -> BatchStatus:
 @fleet_router.post("/batch", response_model=dict)
 async def submit_batch(req: BatchRequest) -> dict:
     """Submit N tasks as a batch. Returns batch_id and all job_ids immediately."""
+    _require_redis()
     batch_id = str(uuid.uuid4())
     job_ids: list[str] = []
     for task in req.tasks:
@@ -339,6 +359,7 @@ async def fleet_debug() -> dict:
 @fleet_router.get("/{job_id}", response_model=JobStatus)
 async def get_job(job_id: str) -> JobStatus:
     """Poll a single job by ID."""
+    _require_redis()
     job = await _read_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
