@@ -320,6 +320,27 @@ valid admin token returns error `-32003` (destructive tools blocked) and is
 `interrupt()`-based approval loop.  A follow-up issue is needed to wire the
 block into the HITL resume flow (see [Human-in-the-Loop](#human-in-the-loop-hitl)).
 
+### Regression Tests (INT-01 A–D)
+
+11 pytest tests in `tests/test_int01_gateway_hermes.py` lock the validated
+invariants against future regressions.  All run in-process against
+`gateway_app` (no live Hermes, Redis, or Postgres required):
+
+| Test | Component | Verifies |
+|------|-----------|---------|
+| `test_tools_list_dev_mode` | A | Dev mode returns ≥ 1 tool |
+| `test_echo_call_dev_mode` | A | `echo` returns expected value |
+| `test_missing_token_rejected` | B | No `Authorization` → `-32001` |
+| `test_expired_token_rejected` | B | Expired JWT → error code |
+| `test_wrong_aud_rejected` | B | Wrong `aud` → 401 |
+| `test_scoped_token_hides_tools` | C | No `tools:call` scope → 403 |
+| `test_full_scope_shows_tools` | C | `tools:call` scope → ≥ 5 tools |
+| `test_orchestrate_blocked_without_approval` | D | `orchestrate` → `-32003`, never executed |
+
+Additional edge-case tests cover empty-grant tokens, missing scopes on
+`tools/call`, and the interaction between scope middleware and the tool
+catalogue handler.
+
 ## Infrastructure Stack
 
 `docker compose --profile full up --build` starts 12 services:

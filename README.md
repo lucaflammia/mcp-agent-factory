@@ -404,6 +404,7 @@ The gateway exposes an MCP endpoint at `http://localhost:8000/mcp` compatible wi
 | B — Auth (PKCE browser flow) | ⚠️ | Server-side works; Hermes CLI has no browser flow |
 | C — Tool scoping | ✅ | Gateway-side enforcement; `orchestrate` hidden without admin scope |
 | D — Destructive tool blocking | ✅ | `-32003` returned; tool never executed |
+| **Regression tests** | ✅ | 11 invariant tests in `tests/test_int01_gateway_hermes.py` |
 
 **Known deviations from RFC:** `/register` requires caller-supplied credentials
 (not RFC 7591 auto-assign); `/token` expects JSON body (not form-encoded per RFC 6749).
