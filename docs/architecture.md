@@ -270,6 +270,56 @@ GET /mcp/jobs/{id}  ←  result read from Redis key fleet:job:{id}
 
 **Jaeger spans:** each job emits a `fleet.job` parent span with `fleet.job_id`, `fleet.method`, and `fleet.status` attributes. Sub-spans are inherited from the pipeline layers.
 
+## Hermes Agent → Gateway Integration (INT-01 A–D)
+
+Validated 2026-11-08 against gateway at `http://localhost:8000/mcp` using
+`hermes mcp test`, `hermes mcp call`, and direct HTTP.  Model: `llama3.2:3b`
+(tool-call-incapable; connectivity and auth layers exercised via CLI).
+
+### Component A — Connectivity
+
+`hermes mcp test mcp-gateway` connects in ~5.8 s and discovers **6 tools**:
+`echo`, `add`, `query_knowledge_base`, `kv/add_phrase`, `kv/check_affinity`,
+`orchestrate`.  `echo` round-trip returns expected result.
+
+### Component B — Auth Modes
+
+Three auth modes are configured in `examples/hermes-mcp-server.json`:
+
+| Mode | Grant | Result |
+|------|-------|--------|
+| 1 — dev bypass | `MCP_DEV_MODE=1`, no token | ✅ All tools reachable |
+| 2 — machine-to-machine | `client_credentials` | ✅ Token issued; expired token blocked on `tools/call` with `-32001`; wrong `aud` → 401 |
+| 3 — PKCE (browser) | `authorization_code` | ⚠️ Server endpoints functional; Hermes CLI has no browser flow — not exercisable from CLI |
+
+**RFC deviations noted** (documented in `examples/hermes-mcp-server.json`):
+- `/register` requires caller-supplied `client_id`/`client_secret` (not RFC 7591 auto-assign).
+- `/token` expects JSON body, not `application/x-www-form-urlencoded` (RFC 6749 §4.4).
+
+### Component C — Tool Scoping
+
+Role-based scoping is enforced server-side in `gateway/app.py` via
+`_TOOL_REQUIRED_SCOPE` (line ~76).  Rules verified end-to-end:
+
+| Scenario | Tools visible | Expected |
+|----------|--------------|---------|
+| Token with `scope: tools:call` | 5 (orchestrate hidden) | ✅ |
+| Token with empty `grants` | 0 | ✅ |
+| Token without `tools:call` scope | `tools/list` returns error | ✅ |
+
+The gateway is **authoritative** — scope enforcement happens before the tool
+catalogue is returned, not in the client.
+
+### Component D — Destructive Tool Blocking
+
+`orchestrate` is tagged destructive.  Direct `tools/call orchestrate` with a
+valid admin token returns error `-32003` (destructive tools blocked) and is
+**never silently executed**.
+
+**Gap:** `orchestrate` is blocked but not yet routed through the LangGraph
+`interrupt()`-based approval loop.  A follow-up issue is needed to wire the
+block into the HITL resume flow (see [Human-in-the-Loop](#human-in-the-loop-hitl)).
+
 ## Infrastructure Stack
 
 `docker compose --profile full up --build` starts 12 services:

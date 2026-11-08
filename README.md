@@ -390,6 +390,30 @@ scripts/
 └── publish_traces.py            # Kafka trace publisher
 ```
 
+## Hermes Agent Integration
+
+The gateway exposes an MCP endpoint at `http://localhost:8000/mcp` compatible with
+[Hermes Agent](https://hermes-agent.dev).  Configure via `examples/hermes-mcp-server.json`.
+
+**Validated INT-01 A–D (2026-11-08):**
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| A — Connectivity | ✅ | 6 tools discovered in ~5.8 s |
+| B — Auth (client_credentials) | ✅ | Token issued; expired/wrong-aud blocked correctly |
+| B — Auth (PKCE browser flow) | ⚠️ | Server-side works; Hermes CLI has no browser flow |
+| C — Tool scoping | ✅ | Gateway-side enforcement; `orchestrate` hidden without admin scope |
+| D — Destructive tool blocking | ✅ | `-32003` returned; tool never executed |
+
+**Known deviations from RFC:** `/register` requires caller-supplied credentials
+(not RFC 7591 auto-assign); `/token` expects JSON body (not form-encoded per RFC 6749).
+
+**Pending:** `orchestrate` block needs wiring into LangGraph `interrupt()` HITL
+resume flow (follow-up issue).
+
+See [Architecture — Hermes Integration](docs/architecture.md#hermes-agent--gateway-integration-int-01-ad)
+for full test evidence.
+
 ## Security Notes
 
 - JWT tokens use HS256. Both auth server and gateway must share the same `JWT_SECRET`.
@@ -400,6 +424,10 @@ scripts/
 - RAG vector store is namespace-isolated by `owner_id` (bound to JWT `sub`).
 - `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls.
 - `DistributedLock` uses a UUID token to prevent cross-holder lock release.
+- Role-based tool scoping enforced server-side — scope decisions are authoritative
+  at the gateway, not delegated to clients.
+- Destructive tools (`orchestrate` and similar) return `-32003` and are never
+  silently executed regardless of token scope.
 - See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Production Checklist
@@ -415,11 +443,12 @@ scripts/
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — layered design, request lifecycle, OTel span chain
+- [Architecture](docs/architecture.md) — layered design, request lifecycle, OTel span chain, Hermes integration
 - [Evaluation](evals/README.md) — LLM evaluation harness, metrics, judge calibration
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review
+- [Hermes MCP Server Config](examples/hermes-mcp-server.json) — INT-01 auth modes, scoping, known deviations
 
 ## License
 
