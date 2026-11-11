@@ -157,7 +157,8 @@ async def _gateway_lifespan(app: FastAPI):
 	secret = os.getenv("JWT_SECRET")
 	if secret:
 		set_jwt_key(OctKey.import_key(secret.encode()))
-	if os.getenv("REDIS_URL"):
+	_startup_jobs_disabled = os.getenv("ASYNC_JOBS_ENABLED", "true").lower() in ("false", "0", "no")
+	if os.getenv("REDIS_URL") and not _startup_jobs_disabled:
 		try:
 			await _redis_client.ping()
 		except Exception as exc:
@@ -172,14 +173,15 @@ async def _gateway_lifespan(app: FastAPI):
 	# In the cloud demo (ECS without Redis), ASYNC_JOBS_ENABLED=false disables
 	# the endpoints immediately so callers get a 503 instead of a timeout.
 	_async_jobs_env = os.getenv("ASYNC_JOBS_ENABLED", "true").lower()
-	_has_redis = bool(os.getenv("REDIS_URL"))
-	_jobs_enabled = _has_redis and _async_jobs_env not in ("false", "0", "no")
+	_jobs_explicitly_disabled = _async_jobs_env in ("false", "0", "no")
+	_has_redis = bool(os.getenv("REDIS_URL")) and not _jobs_explicitly_disabled
+	_jobs_enabled = _has_redis
 	set_fleet_redis(_redis_client, enabled=_jobs_enabled)
 	if _has_redis:
 		await start_fleet_workers()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
-	if bool(os.getenv("REDIS_URL")):
+	if _has_redis:
 		await stop_fleet_workers()
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "stop"):
 		await _event_log.stop()
@@ -563,7 +565,7 @@ async def mcp_streamable_sse_get(
 @gateway_app.post("/sse/v1")
 async def mcp_endpoint(
 	req: MCPRequest,
-	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
+	_claims: dict = Depends(make_verify_token("tools:call", optional=False)),
 ) -> Any:
 	from fastapi.responses import JSONResponse
 	resp = await _mcp_dispatch(req, _claims)

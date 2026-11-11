@@ -127,7 +127,7 @@ resource "aws_route_table_association" "demo" {
 
 resource "aws_security_group" "gateway" {
   name        = "mcp-agent-factory-gateway"
-  description = "ECS gateway task — allow inbound HTTP from ALB"
+  description = "ECS gateway task - allow inbound HTTP from ALB"
   vpc_id      = aws_vpc.demo.id
 
   ingress {
@@ -277,7 +277,7 @@ resource "aws_lb" "gateway" {
 
 resource "aws_security_group" "alb" {
   name        = "mcp-agent-factory-alb"
-  description = "ALB — allow inbound HTTPS/HTTP"
+  description = "ALB - allow inbound HTTPS/HTTP"
   vpc_id      = aws_vpc.demo.id
 
   ingress {
