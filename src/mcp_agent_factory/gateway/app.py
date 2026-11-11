@@ -565,7 +565,7 @@ async def mcp_streamable_sse_get(
 @gateway_app.post("/sse/v1")
 async def mcp_endpoint(
 	req: MCPRequest,
-	_claims: dict = Depends(make_verify_token("tools:call", optional=False)),
+	_claims: dict | None = Depends(make_verify_token("tools:call", optional=True)),
 ) -> Any:
 	from fastapi.responses import JSONResponse
 	resp = await _mcp_dispatch(req, _claims)
