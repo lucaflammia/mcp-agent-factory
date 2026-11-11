@@ -9,21 +9,28 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
 
 
 @pytest.fixture()
 def client_no_redis(monkeypatch):
     """Gateway with async jobs disabled (simulates cloud deploy without Redis)."""
     monkeypatch.setenv("MCP_DEV_MODE", "1")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
+    monkeypatch.setenv("ASYNC_JOBS_ENABLED", "false")
 
     from mcp_agent_factory.gateway import fleet
     from mcp_agent_factory.gateway.app import gateway_app, set_sampling_client
     from mcp_agent_factory.gateway.sampling import StubSamplingClient
+    from mcp_agent_factory.streams.eventlog import InProcessEventLog
+    import mcp_agent_factory.gateway.app as _app_module
 
     set_sampling_client(StubSamplingClient())
+    # Replace _event_log in case a KafkaEventLog was already created on a prior import
+    _app_module._event_log = InProcessEventLog()
 
     with TestClient(gateway_app, raise_server_exceptions=False) as c:
-        # Disable jobs after lifespan runs — simulates missing REDIS_URL in prod
         original = fleet._jobs_enabled
         fleet._jobs_enabled = False
         yield c
@@ -70,6 +77,8 @@ def test_tools_call_unaffected_without_redis(client_no_redis):
 def client_jobs_disabled_via_env(monkeypatch):
     """Gateway with ASYNC_JOBS_ENABLED=false (explicit env var, cloud demo path)."""
     monkeypatch.setenv("MCP_DEV_MODE", "1")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
     monkeypatch.setenv("ASYNC_JOBS_ENABLED", "false")
 
     # Force reload of fleet module so the env var is picked up at import time
