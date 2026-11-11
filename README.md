@@ -428,6 +428,11 @@ for full test evidence.
 - RAG vector store is namespace-isolated by `owner_id` (bound to JWT `sub`).
 - `PrivacyConfig.assert_no_egress()` guards against accidental outbound calls.
 - `DistributedLock` uses a UUID token to prevent cross-holder lock release.
+- `/mcp` uses **optional Bearer auth** — unauthenticated requests reach the handler
+  (DEV_MODE returns tools; production returns an empty tool list or scoped subset).
+  Hard 401 enforcement would break MCP clients that probe `/mcp` before obtaining a
+  token. Tool scoping and destructive-tool blocking happen inside the handler, not at
+  the HTTP layer.
 - Role-based tool scoping enforced server-side — scope decisions are authoritative
   at the gateway, not delegated to clients.
 - Destructive tools (`orchestrate` and similar) return `-32003` and are never

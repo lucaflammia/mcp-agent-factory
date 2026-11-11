@@ -97,7 +97,7 @@ tier, and a standards-compliant security boundary.
 A typical `POST /mcp` request flows through the following stages:
 
 1. **TLS termination** — Caddy terminates HTTPS and forwards to the gateway on `:8000`.
-2. **Authentication** — `make_verify_token()` extracts the Bearer JWT, verifies signature and audience (`aud: mcp-server`). In dev mode (`MCP_DEV_MODE=1`), auth is bypassed.
+2. **Authentication** — `make_verify_token()` extracts the Bearer JWT, verifies signature and audience (`aud: mcp-server`). In dev mode (`MCP_DEV_MODE=1`), auth is bypassed. The `/mcp` endpoint uses `optional=True` — a missing or invalid token does not return HTTP 401; the request reaches the handler where tool scoping (and destructive-tool blocking) is applied based on the decoded token claims. Hard auth rejection (`optional=False`) is reserved for endpoints that must never serve unauthenticated callers.
 3. **Validation gate** — `ValidationGate` rejects malformed JSON-RPC payloads. `PIIGate` scrubs PII patterns (email, API keys, private IPs, JWTs) from the request body.
 4. **Routing** — `InternalServiceLayer` dispatches based on the JSON-RPC `method`:
    - `tools/list` → returns the registered tool catalogue
