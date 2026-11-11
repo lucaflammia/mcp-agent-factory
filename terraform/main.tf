@@ -29,6 +29,14 @@ provider "aws" {
   }
 }
 
+locals {
+  common_tags = {
+    project     = "mcp-agent-factory"
+    environment = var.environment
+    managed_by  = "terraform"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # ECR — container image repository
 # ---------------------------------------------------------------------------
@@ -72,24 +80,55 @@ resource "aws_cloudwatch_log_group" "gateway" {
 }
 
 # ---------------------------------------------------------------------------
-# Networking — use the default VPC; subnets and SGs are configurable
+# Networking — dedicated VPC for the demo stack (no default VPC assumed)
 # ---------------------------------------------------------------------------
 
-data "aws_vpc" "default" {
-  default = true
+resource "aws_vpc" "demo" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = merge(local.common_tags, { Name = "mcp-agent-factory-demo" })
 }
 
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
+resource "aws_internet_gateway" "demo" {
+  vpc_id = aws_vpc.demo.id
+  tags   = merge(local.common_tags, { Name = "mcp-agent-factory-demo" })
+}
+
+resource "aws_subnet" "demo" {
+  count                   = 2
+  vpc_id                  = aws_vpc.demo.id
+  cidr_block              = cidrsubnet("10.0.0.0/16", 8, count.index)
+  # Use the first two AZs of the configured region (hardcoded to avoid needing
+  # ec2:DescribeAvailabilityZones, which some restricted IAM users lack)
+  availability_zone       = "${var.aws_region}${["a", "b"][count.index]}"
+  map_public_ip_on_launch = true
+
+  tags = merge(local.common_tags, { Name = "mcp-agent-factory-demo-${count.index}" })
+}
+
+resource "aws_route_table" "demo" {
+  vpc_id = aws_vpc.demo.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.demo.id
   }
+
+  tags = merge(local.common_tags, { Name = "mcp-agent-factory-demo" })
+}
+
+resource "aws_route_table_association" "demo" {
+  count          = 2
+  subnet_id      = aws_subnet.demo[count.index].id
+  route_table_id = aws_route_table.demo.id
 }
 
 resource "aws_security_group" "gateway" {
   name        = "mcp-agent-factory-gateway"
   description = "ECS gateway task — allow inbound HTTP from ALB"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.demo.id
 
   ingress {
     description = "HTTP from ALB"
@@ -233,13 +272,13 @@ resource "aws_lb" "gateway" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = data.aws_subnets.default.ids
+  subnets            = aws_subnet.demo[*].id
 }
 
 resource "aws_security_group" "alb" {
   name        = "mcp-agent-factory-alb"
   description = "ALB — allow inbound HTTPS/HTTP"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.demo.id
 
   ingress {
     from_port   = 80
@@ -267,7 +306,7 @@ resource "aws_lb_target_group" "gateway" {
   name        = "mcp-agent-factory"
   port        = 8000
   protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = aws_vpc.demo.id
   target_type = "ip"
 
   health_check {
@@ -304,7 +343,7 @@ resource "aws_ecs_service" "gateway" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.aws_subnets.default.ids
+    subnets          = aws_subnet.demo[*].id
     security_groups  = [aws_security_group.gateway.id]
     assign_public_ip = true
   }
