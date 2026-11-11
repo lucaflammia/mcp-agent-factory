@@ -361,3 +361,20 @@ catalogue handler.
 | Redis Commander | 8086 | Redis key browser |
 | MCP Inspector | 6274 | MCP protocol debugger |
 | Caddy | 443 | TLS termination |
+
+### Cloud Deployment (ECS Express Mode)
+
+The reference cloud deployment runs the gateway on **Amazon ECS Express Mode** (Fargate). App Runner was used previously but AWS closed it to new customers as of April 30, 2026; the project migrated to ECS Express Mode per OPS-03.
+
+| Resource | Details |
+|----------|---------|
+| Compute | ECS Fargate task — 256 CPU / 512 MB, single task (min = max = 1) |
+| Load balancer | Application Load Balancer, port 443 → container 8000 |
+| Health check | `GET /health` (Express Mode default `/ping` overridden explicitly) |
+| IAM | Task execution role (`AmazonECSTaskExecutionRolePolicy` + SSM read) and task role (application-level AWS calls) |
+| Secrets | SSM Parameter Store — `JWT_SECRET`, OTLP credentials, LLM keys; never plaintext in task definition |
+| Logs | CloudWatch Logs `/ecs/mcp-agent-factory` |
+| Traces | OTel → Grafana Cloud Tempo via `OTLP_ENDPOINT` from SSM |
+| Cost | ~€25/month ALB + Fargate always-on; no scale-to-zero |
+| IaC | `terraform/` — `make demo-up` / `make demo-down` |
+| Async jobs | Disabled in cloud (`ASYNC_JOBS_ENABLED=false`); `/mcp/jobs` returns `503` until #29 lands |
