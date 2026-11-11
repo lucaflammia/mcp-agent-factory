@@ -7,9 +7,10 @@ fleet._jobs_enabled is False and all /mcp/jobs/* routes return 503 within
 """
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
 
 
 @pytest.fixture()
@@ -20,11 +21,11 @@ def client_no_redis(monkeypatch):
     monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
     monkeypatch.setenv("ASYNC_JOBS_ENABLED", "false")
 
+    import mcp_agent_factory.gateway.app as _app_module
     from mcp_agent_factory.gateway import fleet
     from mcp_agent_factory.gateway.app import gateway_app, set_sampling_client
     from mcp_agent_factory.gateway.sampling import StubSamplingClient
     from mcp_agent_factory.streams.eventlog import InProcessEventLog
-    import mcp_agent_factory.gateway.app as _app_module
 
     set_sampling_client(StubSamplingClient())
     # Replace _event_log in case a KafkaEventLog was already created on a prior import
