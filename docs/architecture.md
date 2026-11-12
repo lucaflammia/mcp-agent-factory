@@ -227,7 +227,9 @@ in the request path. Results are written as hot-reloadable JSON skill assets.
 
 ## Async Fleet Runtime
 
-The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes.
+The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes. Two execution backends are supported, selected by the `STATE_MACHINE_ARN` environment variable.
+
+### Redis Streams backend (local dev, default)
 
 ```
 Client
@@ -242,16 +244,9 @@ Client
                                      │
                                      ▼
                                4-layer pipeline (unchanged)
-                               Foundations → Production → Orchestration → Optimization
-                                     │
-                               Provider registry (adapters.py)
-                               ├── Anthropic
-                               ├── OpenAI
-                               ├── Ollama
-                               └── Bedrock  ← new (boto3, IAM auth)
 ```
 
-**Job lifecycle:**
+**Job lifecycle (Redis Streams):**
 
 ```
 POST /mcp/jobs  →  job stored in Redis (status: pending)
@@ -263,6 +258,41 @@ POST /mcp/jobs  →  job stored in Redis (status: pending)
                       │
 GET /mcp/jobs/{id}  ←  result read from Redis key fleet:job:{id}
 ```
+
+### Step Functions backend (cloud, issue #29)
+
+Activated when `STATE_MACHINE_ARN` is set. The in-process worker loop is not started.
+
+```
+Client
+  │
+  ├── POST /mcp/tools/call    → synchronous pipeline (unchanged)
+  │
+  └── POST /mcp/jobs          → sfn.start_execution (State Machine)
+      POST /mcp/jobs/batch           │  - timeout: FLEET_JOB_TIMEOUT_SECS
+      GET  /mcp/jobs/{job_id}        │  - retry: 3× with exponential backoff
+      GET  /mcp/jobs/batch/{id}      │  - audit: CloudWatch execution history
+                                     ▼
+                               Lambda pipeline worker (sfn_worker.py)
+                                     │
+                                     ▼
+                               4-layer pipeline (unchanged)
+```
+
+**Job lifecycle (Step Functions):**
+
+```
+POST /mcp/jobs  →  job stored in Redis (status: running)
+                →  sfn.start_execution(name=job_id, input=job_dict)
+                      │  execution_arn stored in Redis job record
+                      │
+GET /mcp/jobs/{id}  →  sfn.describe_execution(executionArn)
+                        RUNNING → running
+                        SUCCEEDED → done  (output stored in Redis)
+                        FAILED | TIMED_OUT | ABORTED → failed
+```
+
+The gateway API (routes, response shapes, 503 guard) is identical across both backends.
 
 **Batch endpoint:**
 
@@ -377,4 +407,4 @@ The reference cloud deployment runs the gateway on **Amazon ECS Express Mode** (
 | Traces | OTel → Grafana Cloud Tempo via `OTLP_ENDPOINT` from SSM |
 | Cost | ~€25/month ALB + Fargate always-on; no scale-to-zero |
 | IaC | `terraform/` — `make demo-up` / `make demo-down` |
-| Async jobs | Disabled in cloud (`ASYNC_JOBS_ENABLED=false`); `/mcp/jobs` returns `503` until #29 lands |
+| Async jobs | Cloud: enabled via Step Functions when `STATE_MACHINE_ARN` and `ASYNC_JOBS_ENABLED=true` are set (issue #29). Local: Redis Streams + in-process workers. `503` returned when both backends are unconfigured. |
