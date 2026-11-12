@@ -122,9 +122,8 @@ class TestProviderFactory:
     def test_factory_bedrock_env(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "bedrock")
         router = provider_factory()
-        assert any(h.provider_name == "bedrock" for h in router._handlers)
-        # Last handler is Ollama fallback
-        assert router._handlers[-1].provider_name == "ollama"
+        assert len(router._handlers) == 1
+        assert router._handlers[0].provider_name == "bedrock"
 
     def test_factory_gemini_env(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "gemini")

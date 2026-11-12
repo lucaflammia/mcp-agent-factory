@@ -382,3 +382,49 @@ class TestSfnWorkerHandler:
                     {"job_id": "test-job", "method": "agents/analyze", "params": {}},
                     None,
                 )
+
+
+# ---------------------------------------------------------------------------
+# Error-path coverage
+# ---------------------------------------------------------------------------
+
+class TestSfnErrorPaths:
+    @pytest.mark.asyncio
+    async def test_submit_sfn_start_execution_error(self, sfn_env, monkeypatch):
+        """When start_execution raises, job is marked failed."""
+        from unittest.mock import MagicMock
+
+        broken_sfn = MagicMock()
+        broken_sfn.start_execution.side_effect = Exception("AWS throttle")
+        monkeypatch.setattr(_fleet, "_sfn_client", broken_sfn)
+
+        job_id = await _fleet._submit_one("agents/analyze", {})
+        job = await _fleet._read_job(job_id)
+        assert job is not None
+        assert job["status"] == "failed"
+        assert "throttle" in (job.get("error") or "")
+
+    @pytest.mark.asyncio
+    async def test_sfn_refresh_job_describe_error(self, sfn_env, monkeypatch):
+        """When describe_execution raises, _sfn_refresh_job returns job unchanged."""
+        from unittest.mock import MagicMock
+
+        broken_sfn = MagicMock()
+        broken_sfn.describe_execution.side_effect = Exception("network error")
+        monkeypatch.setattr(_fleet, "_sfn_client", broken_sfn)
+
+        job: dict = {
+            "job_id": "err-test",
+            "status": "running",
+            "execution_arn": "arn:aws:states:us-east-1:123:execution:test:err-test",
+        }
+        result = await _fleet._sfn_refresh_job(job)
+        assert result["status"] == "running"  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_sfn_refresh_job_no_client(self, sfn_env, monkeypatch):
+        """When _sfn_client is None, _sfn_refresh_job returns job unchanged."""
+        monkeypatch.setattr(_fleet, "_sfn_client", None)
+        job: dict = {"job_id": "nc-test", "status": "pending", "execution_arn": "arn:..."}
+        result = await _fleet._sfn_refresh_job(job)
+        assert result["status"] == "pending"
