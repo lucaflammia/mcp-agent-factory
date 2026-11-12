@@ -35,16 +35,16 @@ from mcp_agent_factory.gateway.app import gateway_app
 def inject_fake_redis(monkeypatch):
     """Inject a fresh FakeRedis into the fleet module and clear env vars that
     would cause the lifespan to attempt a real Redis / Kafka connection."""
-    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")  # enables fleet jobs
     monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
     fake = _fakeredis.FakeRedis()
-    _fleet.set_fleet_redis(fake)
+    _fleet.set_fleet_redis(fake, enabled=True)
     # Also wire the app-level client so the lifespan ping succeeds
     import mcp_agent_factory.gateway.app as _app
     monkeypatch.setattr(_app, "_redis_client", fake)
     yield fake
     # Reset so the next test's lifespan does not start fleet workers
-    _fleet.set_fleet_redis(None)
+    _fleet.set_fleet_redis(None, enabled=False)
 
 
 @pytest.fixture

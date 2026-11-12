@@ -45,12 +45,14 @@ _GROUP = "fleet-workers"
 # ---------------------------------------------------------------------------
 
 _redis: Any = None
+_jobs_enabled: bool = False
 
 
-def set_fleet_redis(client: Any) -> None:
+def set_fleet_redis(client: Any, enabled: bool = True) -> None:
     """Inject the shared Redis client (called from app startup)."""
-    global _redis
+    global _redis, _jobs_enabled
     _redis = client
+    _jobs_enabled = enabled
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +250,29 @@ async def stop_fleet_workers() -> None:
 # FastAPI router
 # ---------------------------------------------------------------------------
 
-fleet_router = APIRouter(prefix="/mcp/jobs", tags=["fleet"])
+_JOBS_UNAVAILABLE = {
+    "error": "async_jobs_unavailable",
+    "detail": (
+        "The async job backend (Redis) is not configured on this deployment. "
+        "Async jobs are available locally (see docker-compose.yml). "
+        "Cloud support is tracked in issue #29."
+    ),
+}
+
+
+def _require_redis() -> None:
+    """Raise 503 when async jobs are not available on this deployment."""
+    if not _jobs_enabled:
+        raise HTTPException(status_code=503, detail=_JOBS_UNAVAILABLE)
+
+
+from fastapi import Depends  # noqa: E402  (import after module-level singletons)
+
+fleet_router = APIRouter(
+    prefix="/mcp/jobs",
+    tags=["fleet"],
+    dependencies=[Depends(_require_redis)],
+)
 
 
 @fleet_router.post("", response_model=JobStatus, status_code=202)

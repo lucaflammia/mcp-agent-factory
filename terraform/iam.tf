@@ -8,7 +8,6 @@ resource "aws_iam_openid_connect_provider" "github" {
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 
   lifecycle {
-    # Safe to import if the provider already exists in the account
     prevent_destroy = false
   }
 }
@@ -47,10 +46,8 @@ resource "aws_iam_role_policy" "ci_ecr" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken",
-        ]
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
         Resource = "*"
       },
       {
@@ -66,61 +63,68 @@ resource "aws_iam_role_policy" "ci_ecr" {
         ]
         Resource = aws_ecr_repository.gateway.arn
       },
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ci_ecs_deploy" {
+  name = "ecs-deploy"
+  role = aws_iam_role.ci.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["apprunner:UpdateService"]
-        Resource = aws_apprunner_service.gateway.arn
-      }
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeServices",
+          "ecs:DescribeTaskDefinition",
+          "ecs:RegisterTaskDefinition",
+          "ecs:UpdateService",
+        ]
+        Resource = "*"
+      },
+      {
+        # iam:PassRole scoped only to the two ECS roles this CI pipeline uses
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = [
+          aws_iam_role.ecs_task_execution.arn,
+          aws_iam_role.ecs_task.arn,
+        ]
+      },
     ]
   })
 }
 
 # ---------------------------------------------------------------------------
-# App Runner ECR access role — allows App Runner to pull images from ECR
+# ECS task execution role — allows ECS to pull images and write logs
 # ---------------------------------------------------------------------------
 
-resource "aws_iam_role" "apprunner_ecr" {
-  name = "mcp-agent-factory-apprunner-ecr"
+resource "aws_iam_role" "ecs_task_execution" {
+  name = "mcp-agent-factory-ecs-task-execution"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect    = "Allow"
-        Principal = { Service = "build.apprunner.amazonaws.com" }
+        Principal = { Service = "ecs-tasks.amazonaws.com" }
         Action    = "sts:AssumeRole"
       }
     ]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "apprunner_ecr" {
-  role       = aws_iam_role.apprunner_ecr.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
+resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# ---------------------------------------------------------------------------
-# App Runner instance role — runtime permissions for the container
-# ---------------------------------------------------------------------------
-
-resource "aws_iam_role" "apprunner_instance" {
-  name = "mcp-agent-factory-apprunner-instance"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect    = "Allow"
-        Principal = { Service = "tasks.apprunner.amazonaws.com" }
-        Action    = "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "apprunner_ssm" {
+# Allow the execution role to read SSM SecureString parameters (for secrets injection)
+resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
   name = "ssm-read"
-  role = aws_iam_role.apprunner_instance.id
+  role = aws_iam_role.ecs_task_execution.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -128,7 +132,50 @@ resource "aws_iam_role_policy" "apprunner_ssm" {
       {
         Effect   = "Allow"
         Action   = ["ssm:GetParameters", "ssm:GetParameter"]
-        # Scoped to this project's namespace — nothing else
+        Resource = "arn:aws:ssm:*:*:parameter/mcp-agent-factory/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com" }
+        }
+      }
+    ]
+  })
+}
+
+# ---------------------------------------------------------------------------
+# ECS task role — runtime permissions for the container process
+# (least privilege: read SSM, no other AWS calls needed by the app itself)
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "ecs_task" {
+  name = "mcp-agent-factory-ecs-task"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "ecs-tasks.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task_ssm" {
+  name = "ssm-read"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameters", "ssm:GetParameter"]
         Resource = "arn:aws:ssm:*:*:parameter/mcp-agent-factory/*"
       },
       {

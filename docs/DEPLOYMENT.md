@@ -5,159 +5,108 @@
 
 ## Architecture
 
-The deployed slice is the smallest genuinely interesting cut: TLS termination, the
-FastAPI gateway, and the two persistence services that distinguish this system from a
-simple proxy — pgvector for RAG and Redis for sessions and distributed locking.
+The deployed slice is the smallest genuinely interesting cut: an ALB, an ECS Fargate task
+running the FastAPI gateway, and the two persistence services that distinguish this system
+from a simple proxy — pgvector for RAG and Redis for sessions and distributed locking.
 
 ```
 ┌───────────────────────────────────────────────────────────┐
 │                        AWS (eu-west-1)                     │
 │                                                           │
-│   ECR ──► App Runner ──► /health  ◄── GitHub Actions CI  │
-│   (image)   (TLS, HTTPS)    │         (OIDC, no keys)    │
-│             scale-to-0      │                             │
-│                        ┌────┴─────────────────────┐      │
-│                        │   FastAPI gateway (8000)  │      │
-│                        │   - PIIGate               │      │
-│                        │   - Auth (OAuth 2.1)      │      │
-│                        │   - MultiAgentOrchestrator│      │
-│                        │   - OTel → Grafana Cloud  │      │
-│                        └──┬────────────┬───────────┘      │
-│                     SSM ──┘            │                  │
-│                (SecureString params)   │                  │
-└────────────────────────────────────────┼──────────────────┘
-                                         │  (external, free tier)
-                        ┌────────────────┼──────────────────┐
-                        │   Neon (pgvector)  Upstash (Redis) │
-                        │   Anthropic API    Grafana Cloud    │
-                        └───────────────────────────────────┘
+│  ECR → ALB → ECS (Fargate) → /health ← GitHub Actions CI │
+│  (image)  (HTTPS)   (task)              (OIDC, no keys)   │
+│                        │                                  │
+│                   ┌────┴─────────────────────┐            │
+│                   │   FastAPI gateway (8000)  │            │
+│                   │   - PIIGate               │            │
+│                   │   - Auth (OAuth 2.1)      │            │
+│                   │   - MultiAgentOrchestrator│            │
+│                   │   - OTel → Grafana Cloud  │            │
+│                   └──┬────────────┬───────────┘            │
+│                SSM ──┘            │                       │
+│           (SecureString params)   │                       │
+└───────────────────────────────────┼───────────────────────┘
+                                    │  (external, free tier)
+                   ┌────────────────┼──────────────────┐
+                   │   Neon (pgvector)  Upstash (Redis) │
+                   │   Anthropic API    Grafana Cloud    │
+                   └───────────────────────────────────┘
 ```
 
-**What is in AWS:** ECR, App Runner, IAM roles, SSM Parameter Store, CloudWatch log group.
+**What is in AWS:** ECR, ECS cluster, Fargate task, ALB, IAM roles, SSM Parameter Store,
+CloudWatch log group, Auto Scaling.
 
 **What is outside AWS:** Neon (serverless Postgres + pgvector), Upstash (serverless Redis),
-Anthropic API, Grafana Cloud OTLP collector. These have free tiers and scale to zero,
-which keeps idle AWS cost near zero.
+Anthropic API, Grafana Cloud OTLP collector. These have free tiers and scale to zero.
 
 ## Stack and Cost
+
+> **No scale-to-zero.** Fargate keeps at least one task running at all times. This means
+> there is a monthly cost floor unlike App Runner's idle-to-zero model. Run `make demo-down`
+> after each session to avoid unintended charges.
 
 | Resource | Purpose | Idle cost | Demo-day cost |
 |---|---|---|---|
 | ECR repository | Container image storage | ~€0.10/month | ~€0.10/month |
-| App Runner service | Gateway, TLS, scale-to-zero | €0 (paused) | ~€0.50–1.00 |
-| IAM roles (3) | OIDC CI, App Runner ECR pull, App Runner instance | free | free |
+| ALB | TLS termination, health routing | ~€17/month | ~€17/month |
+| ECS Fargate task (0.5 vCPU / 1 GB) | Gateway | ~€8/month | ~€8/month |
+| IAM roles (3) | OIDC CI, task execution, task | free | free |
 | SSM Parameter Store (6 SecureStrings) | Secrets | free | free |
-| CloudWatch log group (7-day retention) | App Runner logs | ~€0 at low volume | ~€0 |
-| **AWS total** | | **~€0.10/month** | **~€1/day** |
+| CloudWatch log group (7-day retention) | Container logs | ~€0 at low volume | ~€0 |
+| Auto Scaling | 1–2 tasks at 70% CPU | free | free |
+| **AWS total (always-on)** | | **~€25/month** | **~€25/month** |
 | Neon (free tier) | pgvector RAG | free | free |
 | Upstash (free tier) | Redis sessions + Redlock | free | free |
 | Anthropic API | LLM calls | per-token | per-token |
 | Grafana Cloud (free tier) | OTel traces | free | free |
 
-**Total idle cost: <€0.10/month** (ECR storage only — nothing runs at rest).
-**Total demo-day cost: ~€1** (App Runner instance time only).
+**Teardown removes all billable AWS resources.** Run `make demo-down` to avoid ongoing charges.
 
-> No NAT Gateway (€32/month), ALB (€17/month), RDS, or ElastiCache were created.
-> These resources do not scale to zero. Neon and Upstash replace them at zero idle cost.
+A budget alert (`aws_budgets_budget.demo`) is provisioned in Terraform alongside the other
+resources. It fires when the account spend exceeds $40/month (~1.5× the floor). Set
+`budget_alert_email` in `terraform.tfvars` to receive email notifications. The budget is
+removed by `make demo-down` along with everything else.
 
-## What Broke Moving from Compose to Cloud
+## Async Jobs
 
-This section documents what was invisible locally and only appeared under the constraints
-of a real cloud deployment. It is the most operationally useful part of this document.
+Async job endpoints (`POST /mcp/jobs`, `POST /mcp/jobs/batch`) are available locally
+(docker-compose) but return `503 async_jobs_unavailable` on the cloud demo because Redis
+is not co-located with the ECS task. Cloud async support is tracked in issue #29.
 
-### 1. Hostname assumptions (`localhost` → service DNS)
+The synchronous gateway (`POST /mcp`, `POST /mcp/tools/call`) is unaffected.
 
-In `docker-compose`, services reference each other by container name (`redis`, `kafka`,
-`gateway`). In App Runner, the gateway is the only container AWS manages; external
-services are reached by their provider hostnames.
+### Current behavior without Redis (FakeRedis fallback)
 
-- `REDIS_URL` changed from `redis://redis:6379` to `rediss://default:...@....upstash.io:6379`
-- `DATABASE_URL` changed from `postgresql://localhost:5432/...` to a Neon connection string
-- The gateway reads both from SSM at startup — no code change needed, only the values changed.
+When `REDIS_URL` is not set, the gateway uses an in-memory FakeRedis instance. Without
+the explicit `ASYNC_JOBS_ENABLED=false` guard, job endpoints would accept submissions
+(returning a `job_id`) but FleetWorker would never start, leaving jobs `pending` forever.
 
-### 2. Secret injection (env vars in compose → SSM + IAM)
+The ECS task definition sets `ASYNC_JOBS_ENABLED=false` explicitly. This short-circuits
+all `/mcp/jobs*` routes before they touch Redis, so the caller receives a structured `503`
+within milliseconds, not an accepted job that hangs:
 
-In compose, secrets live in a `.env` file bind-mounted into the container. In App Runner,
-`runtime_environment_secrets` maps SSM parameter ARNs to environment variable names; the
-App Runner instance role provides `ssm:GetParameters` access. The container sees the same
-environment variable names; the difference is where the values originate.
-
-The `load_dotenv()` call in `gateway/app.py` is a no-op when `.env` does not exist —
-SSM-injected variables are already in the environment before Python starts.
-
-### 3. App Runner cold start latency
-
-App Runner's `min_size = 0` means the service scales to zero when idle. The first request
-after a cold period takes 10–30 seconds while App Runner provisions a new instance and
-runs the health check. Subsequent requests are fast.
-
-For a demo: run `curl https://<app_url>/health` once before the call to warm the instance.
-
-The health check configuration (`healthy_threshold = 1`, `interval = 10s`) means traffic
-routes to the container after a single successful `/health` — App Runner waits for this
-before considering the deployment complete.
-
-### 4. Image size with Python ML dependencies
-
-The full `.[ml]` extras (sentence-transformers, torch) push the image to ~2 GB, which
-meaningfully increases cold start time and ECR storage cost.
-
-**Mitigation:** the Dockerfile defaults to `EXTRAS=infra,otel`, which installs the OTel
-instrumentation and infra dependencies but skips sentence-transformers. The gateway uses
-`StubEmbedder` unless `VECTOR_STORE_BACKEND=pgvector` is set, in which case it uses Neon
-with a server-side embedding function (pgvector's `pg_trgm` or an RPC to an external
-embedder). The image builds to ~400 MB.
-
-If real ML embeddings are required, lazy-import sentence-transformers on first use rather
-than at module import time — cold start completes before the model loads.
-
-### 5. Neon connection limits under serverless Postgres
-
-Neon's free tier caps concurrent connections at 10. Under compose, a long-lived connection
-pool with `pool_size=10` is fine. Under App Runner with `max_size=2` instances, each
-instance can hold up to 5 connections — that is fine at demo scale.
-
-For production scale, use `pgbouncer` in front of Neon, or use Neon's connection pooling
-endpoint (`:5432` vs `:5433`).
-
-### 6. Bedrock model IDs — cross-region inference profile prefix required
-
-Claude 3.5 and Claude 4.x models on Bedrock cannot be invoked with bare model IDs
-(`anthropic.claude-*`) using on-demand throughput. The `ValidationException` returned is:
-> *"Invocation of model ID … with on-demand throughput isn't supported. Retry your request
-> with the ID or ARN of an inference profile that contains this model."*
-
-Use the `us.` cross-region inference profile prefix instead:
-```
-# Wrong (EOL or no on-demand support):
-anthropic.claude-3-5-sonnet-20241022-v2:0
-anthropic.claude-haiku-4-5-20251001-v1:0
-
-# Correct:
-us.anthropic.claude-haiku-4-5-20251001-v1:0
-us.anthropic.claude-sonnet-4-5-20251115-v1:0
+```json
+{"detail": {"error": "async_jobs_unavailable", "detail": "Async jobs are disabled on this deployment. See issue #29."}}
 ```
 
-The `BEDROCK_MODEL_ID` environment variable defaults to `us.anthropic.claude-haiku-4-5-20251001-v1:0`
-in both `docker-compose.yml` and `router.py`.
+Locally, `ASYNC_JOBS_ENABLED` defaults to `true` and async jobs work normally when
+`REDIS_URL` points to the docker-compose Redis instance.
 
-AWS credentials must be passed into the container explicitly — Docker does not inherit
-shell credentials. The `docker-compose.yml` passes through `AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_DEFAULT_REGION` from the host
-shell. For production, use an IAM instance profile or task role instead.
+## What Changed from App Runner
 
-### 7. Platform-level TLS (Caddy removed)
+AWS closed App Runner to new customers as of April 30, 2026. This deployment migrated to
+ECS Express Mode (Fargate + ALB), which is AWS's recommended migration path.
 
-The repo ships a `Caddyfile` for local TLS termination. App Runner provides TLS
-termination natively — the Caddy container is not deployed. The gateway listens on HTTP
-port 8000; App Runner handles HTTPS externally.
-
-### 8. OTel endpoint changed
-
-In compose, the OTel collector runs as a sidecar container (`otel-collector`). In App Runner,
-the gateway exports traces directly to Grafana Cloud's OTLP endpoint over HTTPS. The
-`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` environment variables
-control this; both are stored as SSM SecureStrings.
+Key differences:
+- **IAM roles:** Two roles required (task execution + task) instead of one App Runner
+  instance role. Task execution role handles ECR pull and CloudWatch logs;
+  task role handles SSM reads at runtime.
+- **Health check path:** ECS uses `/health` explicitly (App Runner also used `/health` —
+  no change to the application).
+- **Cost model:** ALB + Fargate always-on (~€25/month) vs App Runner scale-to-zero (~€0
+  idle). Run `make demo-down` to stop paying.
+- **No `APP_RUNNER_SERVICE_ARN` secret.** Deploy uses `ECS_CLUSTER_NAME`,
+  `ECS_SERVICE_NAME`, and `ECS_TASK_DEFINITION_FAMILY` repository variables.
 
 ## Secrets
 
@@ -165,16 +114,15 @@ All secrets are `SecureString` parameters in SSM under `/mcp-agent-factory/*`.
 
 | SSM path | Contains |
 |---|---|
-| `/mcp-agent-factory/anthropic-api-key` | `sk-ant-...` |
+| `/mcp-agent-factory/gemini-api-key` | Gemini API key |
 | `/mcp-agent-factory/database-url` | Neon connection string |
 | `/mcp-agent-factory/redis-url` | Upstash connection string |
 | `/mcp-agent-factory/jwt-secret` | 32-byte hex JWT signing key |
 | `/mcp-agent-factory/otel-endpoint` | Grafana Cloud OTLP URL |
 | `/mcp-agent-factory/otel-headers` | Grafana Cloud auth header |
 
-No secrets are in the image, in environment variables set at deploy time, in `.env` files
-in the repository, or in GitHub Secrets (except `AWS_CI_ROLE_ARN` and
-`APP_RUNNER_SERVICE_ARN`, which are resource identifiers, not credentials).
+No secrets appear in the image, in environment variables at deploy time, in repository files,
+or in GitHub Secrets (except `AWS_CI_ROLE_ARN`, which is a resource identifier).
 
 To populate after `terraform apply`:
 
@@ -190,10 +138,25 @@ Push to `main` triggers `.github/workflows/ci.yml` → `deploy` job:
    No static `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` in GitHub Secrets.
 2. Login to ECR, build the gateway image for `linux/amd64`, tag with the commit SHA and `latest`.
 3. Push both tags to ECR.
-4. Call `aws apprunner start-deployment` to pull the new image.
+4. Download the current ECS task definition, patch the image to the commit SHA, register
+   the new revision, and update the ECS service (waits for stability).
 
-The OIDC trust policy is scoped to `repo:lucaflammia/mcp-agent-factory:*` — a token from
-any other repository cannot assume this role.
+GitHub repository variables required: `ECS_CLUSTER_NAME`, `ECS_SERVICE_NAME`,
+`ECS_TASK_DEFINITION_FAMILY`.
+
+The OIDC trust policy is scoped to `repo:lucaflammia/mcp-agent-factory:*`.
+
+## Post-Deploy Trace Verification
+
+After deployment, verify that traces reach Grafana Cloud Tempo:
+
+1. Call `/health` a few times to generate spans:
+   ```bash
+   for i in 1 2 3; do curl -s http://$(cd terraform && terraform output -raw gateway_url)/health; done
+   ```
+2. Open Grafana Cloud → Explore → Tempo data source.
+3. Search for service name `mcp-gateway` in the last 15 minutes.
+4. Confirm at least one trace appears with spans for the `/health` route.
 
 ## Teardown and Cost Verification
 
@@ -202,7 +165,7 @@ make demo-down    # terraform destroy + teardown verification
 ```
 
 `make demo-verify` checks:
-- No App Runner services named `mcp-agent-factory` remain
+- No ECS services named `mcp-agent-factory-gateway` remain
 - No unassociated Elastic IPs
 - No available (unattached) EBS volumes
 - CloudWatch log group is gone
@@ -211,55 +174,44 @@ make demo-down    # terraform destroy + teardown verification
 - Filter: `Tag: project = mcp-agent-factory`
 - Verify the curve is flat after the teardown date
 
-Screenshot of flat Cost Explorer curve: `docs/cost-explorer-post-teardown.png`
-*(Committed after first demo-down cycle.)*
-
 ## Demo Instructions
 
 For a scheduled interview or demo day:
 
 ```bash
-# 1. Bring the environment up (~8 minutes, ~€1 total for the session)
+# 1. Bring the environment up (~5 minutes)
 make demo-up
 
-# 2. Warm the instance (avoids cold-start on the first demo request)
-curl https://<app_url>/health
+# 2. Verify the endpoint
+curl http://$(cd terraform && terraform output -raw gateway_url)/health
 
 # 3. Run the demo
 # ... (see docs/demo-walkthrough.md for the full flow)
 
-# 4. Tear down after the call
+# 4. Tear down after the call (stops ALB + Fargate charges)
 make demo-down
 ```
 
-The `<app_url>` is printed by `make demo-up` and is available via:
+The gateway URL is printed by `make demo-up` and is available via:
 
 ```bash
-cd terraform && terraform output -raw app_runner_service_url
+cd terraform && terraform output -raw gateway_url
 ```
 
 ## Known Gaps
 
-These are intentional omissions, not missing work.
-
 | Gap | Why omitted | Path forward |
 |---|---|---|
-| Full 18-service compose stack | Does not add depth to the cloud story | Not planned |
-| ALB + NAT Gateway | ~€49/month idle; App Runner covers the use case | Not planned |
-| Full OTel pipeline (Prometheus, Grafana, Jaeger) | Grafana Cloud OTLP covers traces; local compose handles metrics | Add metrics export to Grafana Cloud when needed |
-| ECS Fargate module | Proved in Terraform (commented out in `main.tf`); not running to avoid ALB cost | Uncomment `module.fargate_gateway` to redeploy |
+| Scale-to-zero | Fargate keeps at least 1 task running | Use Lambda container image for infrequent workloads |
+| Async jobs in cloud | Redis not co-located with ECS task | Issue #29 (Step Functions Worker) |
+| Full OTel pipeline (Prometheus, Grafana, Jaeger) | Grafana Cloud OTLP covers traces | Add metrics export to Grafana Cloud when needed |
 | Multi-region | Single region is correct for a portfolio project | Add Route 53 + failover when SLA requires it |
-| Load testing | No sustained load scenario defined | Add k6 test when performance baseline is needed |
-| Chaos engineering | No fault injection tooling | Uncomment circuit breaker chaos tests |
 | pgvector real embeddings | Image skips sentence-transformers for size | Set `EXTRAS=infra,otel,ml` in Dockerfile when needed |
 
 ## Security Baseline (one-time account setup)
-
-These are personal AWS account settings, not project resources. Do once:
 
 - **AWS Budgets:** €1/month, notify at 100% actual and 100% forecasted
 - **Free Tier alert:** enable in Billing Preferences
 - **Cost Anomaly Detection:** all services, threshold €5
 - **IAM hygiene:** MFA on root, no root access keys, dedicated IAM role for Terraform
 - **Tagging:** `project = mcp-agent-factory` via `default_tags` on the Terraform provider
-  (every resource is tagged automatically — Cost Explorer can filter by project)
