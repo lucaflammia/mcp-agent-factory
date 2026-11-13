@@ -294,6 +294,10 @@ GET /mcp/jobs/{id}  →  sfn.describe_execution(executionArn)
 
 The gateway API (routes, response shapes, 503 guard) is identical across both backends.
 
+**Local CI testing (LocalStack):**
+
+`docker compose --profile sfn up -d localstack` starts a LocalStack container that emulates Step Functions and Lambda on `localhost:4566`. Set `AWS_ENDPOINT_URL=http://localhost:4566` and `STATE_MACHINE_ARN=arn:aws:states:us-east-1:000000000000:stateMachine:test` to run `tests/test_fleet_sfn.py` against the local emulator.
+
 **Batch endpoint:**
 
 `POST /mcp/jobs/batch` accepts up to N tasks, submits each as an independent job, and returns a `batch_id` plus all `job_ids`. `GET /mcp/jobs/batch/{batch_id}` aggregates statuses in one round-trip. A single failing job does not affect others.

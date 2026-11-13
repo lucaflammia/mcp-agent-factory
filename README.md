@@ -328,7 +328,7 @@ Throughput: with `FLEET_CONCURRENCY=4` and ~5 s average job duration, 1k jobs/da
 ## Tests
 
 ```bash
-pytest tests/ -v    # 460+ tests (integration tests skip without Docker)
+pytest tests/ -v    # 530+ tests (integration tests skip without Docker)
 
 # Integration tests (requires full Docker stack)
 REDIS_URL=redis://localhost:6379 pytest -m integration -v
