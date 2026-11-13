@@ -52,6 +52,23 @@ demo-verify: ## Verify no billable resources remain after teardown
 		--log-group-name-prefix /ecs/mcp-agent-factory \
 		--query 'logGroups[*].logGroupName' \
 		--output table
+	@echo "--- ElastiCache clusters ---"
+	aws elasticache describe-cache-clusters --region $(AWS_REGION) \
+		--query 'CacheClusters[?contains(CacheClusterId, `mcp-agent-factory`)].{Id:CacheClusterId,Status:CacheClusterStatus}' \
+		--output table
+	@echo "--- Step Functions state machines ---"
+	aws stepfunctions list-state-machines --region $(AWS_REGION) \
+		--query 'stateMachines[?contains(name, `mcp-agent-factory`)].{Name:name,Status:status}' \
+		--output table
+	@echo "--- Lambda functions ---"
+	aws lambda list-functions --region $(AWS_REGION) \
+		--query 'Functions[?contains(FunctionName, `mcp-agent-factory`)].FunctionName' \
+		--output table
+	@echo "--- SSM parameters ---"
+	aws ssm describe-parameters --region $(AWS_REGION) \
+		--parameter-filters "Key=Name,Option=BeginsWith,Values=/mcp-agent-factory/" \
+		--query 'Parameters[*].Name' \
+		--output table 2>/dev/null || echo "  (none found)"
 	@echo "==> Teardown verification complete."
 	@echo "    Check Cost Explorer tomorrow (billing lag ~24h) with filter project=mcp-agent-factory"
 
