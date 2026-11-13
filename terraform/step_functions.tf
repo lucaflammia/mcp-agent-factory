@@ -21,16 +21,21 @@ locals {
 # Lambda function — pipeline worker
 # ---------------------------------------------------------------------------
 
-data "archive_file" "sfn_worker" {
-  type        = "zip"
-  source_dir  = "${path.module}/../src/mcp_agent_factory/streams"
-  output_path = "${path.module}/.terraform/sfn_worker.zip"
+resource "null_resource" "build_sfn_lambda" {
+  provisioner "local-exec" {
+    command = "bash ${path.module}/build_lambda_package.sh"
+  }
+
+  triggers = {
+    # Rebuild if the source code changes
+    sfn_worker_src = filemd5("${path.module}/../src/mcp_agent_factory/streams/sfn_worker.py")
+  }
 }
 
 resource "aws_lambda_function" "pipeline_worker" {
   function_name    = "mcp-agent-factory-pipeline-worker"
-  filename         = data.archive_file.sfn_worker.output_path
-  source_code_hash = data.archive_file.sfn_worker.output_base64sha256
+  filename         = "${path.module}/.terraform/sfn_worker.zip"
+  source_code_hash = filemd5("${path.module}/.terraform/sfn_worker.zip")
   handler          = "sfn_worker.handler"
   runtime          = "python3.11"
   role             = aws_iam_role.lambda_worker.arn
@@ -48,7 +53,10 @@ resource "aws_lambda_function" "pipeline_worker" {
     project = "mcp-agent-factory"
   }
 
-  depends_on = [aws_cloudwatch_log_group.lambda_worker]
+  depends_on = [
+    aws_cloudwatch_log_group.lambda_worker,
+    null_resource.build_sfn_lambda
+  ]
 }
 
 resource "aws_cloudwatch_log_group" "lambda_worker" {
