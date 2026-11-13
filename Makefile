@@ -16,6 +16,8 @@ help:
 # Cost: ~€25/month (ALB + Fargate always-on). Run demo-down after each session.
 # ---------------------------------------------------------------------------
 demo-up: ## Provision AWS infra + deploy gateway (~5 min)
+	@echo "==> Building Lambda deployment package"
+	$(MAKE) _build-lambda-package
 	@echo "==> Initialising Terraform"
 	cd $(TF_DIR) && terraform init -input=false
 	@echo "==> Applying ECR repository (image must exist before ECS task definition is created)"
@@ -95,6 +97,9 @@ ssm-populate: ## Interactively populate SSM SecureString parameters (run once af
 # ---------------------------------------------------------------------------
 # Internal helpers (not part of the public interface)
 # ---------------------------------------------------------------------------
+
+_build-lambda-package:
+	bash $(TF_DIR)/build_lambda_package.sh
 
 _build-and-push:
 	$(eval ECR_URL := $(shell cd $(TF_DIR) && terraform output -raw ecr_repository_url))
