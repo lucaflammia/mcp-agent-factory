@@ -44,7 +44,7 @@ resource "aws_lambda_function" "pipeline_worker" {
 
   environment {
     variables = {
-      GATEWAY_URL  = "https://${aws_lb.gateway.dns_name}"
+      GATEWAY_URL  = "http://${aws_lb.gateway.dns_name}"
       MCP_DEV_MODE = "0"
     }
   }
