@@ -16,6 +16,7 @@ streaming, and standards-compliant security.
 | **Idle cost** | **~€25/month** (ALB + Fargate always-on; run `make demo-down` to stop) |
 | **Demo-day cost** | **~€25/month** (no scale-to-zero; tear down after each session) |
 | **IaC** | [`terraform/`](terraform/) — `make demo-up` / `make demo-down` |
+| **Health check** | [`AWS-SERVICES-HEALTH-CHECK.md`](AWS-SERVICES-HEALTH-CHECK.md) — verify ElastiCache, ECS, ALB, Step Functions, Lambda, ECR after deploy |
 | **Deployment notes** | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — what broke and why |
 
 > The environment is ephemeral by design: `make demo-up` takes ~8 minutes, `make demo-down`
@@ -45,8 +46,7 @@ Cross-tenant queries return empty results by design.
 `POST /mcp/jobs/batch` submits multiple jobs; `GET /mcp/jobs/batch/{batch_id}`
 polls aggregate completion. `FleetWorker` processes jobs off a Redis stream
 with at-least-once delivery, circuit-breaker protection, and idempotency guards.
-**Available locally (docker-compose) only.** The cloud demo (ECS) returns
-`503 async_jobs_unavailable` on these routes — cloud support is tracked in #29.
+**Available locally (docker-compose) and in cloud via Step Functions.** Local: Redis Streams with in-process workers. Cloud: AWS Step Functions with Lambda (issue #29 — in progress). Without either backend configured, routes return `503 async_jobs_unavailable`.
 
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
@@ -296,7 +296,9 @@ Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 
 ## Async Fleet — Cost Estimate (1,000 jobs/day)
 
-### Step Functions backend (cloud, issue #29)
+### Step Functions backend (cloud, issue #29 — in progress)
+
+**Infrastructure status**: ✅ ElastiCache Redis, ECS, ALB, and IAM provisioned. ⏳ Step Functions state machine and Lambda worker pending PR #29 completion.
 
 Costs below assume Claude 3.5 Sonnet on Bedrock with a typical 2,000 input / 500 output token job.
 

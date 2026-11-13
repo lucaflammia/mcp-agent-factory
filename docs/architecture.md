@@ -412,3 +412,31 @@ The reference cloud deployment runs the gateway on **Amazon ECS Express Mode** (
 | Cost | ~€25/month ALB + Fargate always-on; no scale-to-zero |
 | IaC | `terraform/` — `make demo-up` / `make demo-down` |
 | Async jobs | Cloud: enabled via Step Functions when `STATE_MACHINE_ARN` and `ASYNC_JOBS_ENABLED=true` are set (issue #29). Local: Redis Streams + in-process workers. `503` returned when both backends are unconfigured. |
+
+### Infrastructure Health Verification
+
+To verify the cloud deployment is running correctly after `make demo-up`:
+
+```bash
+# Quick health check (all three layers in one command)
+echo "=== ECS Service ===" && \
+aws ecs describe-services --cluster mcp-agent-factory --services mcp-agent-factory-gateway --region eu-west-1 --query 'services[0].[serviceName,status,runningCount,desiredCount]' --output text && \
+echo -e "\n=== Redis ===" && \
+aws elasticache describe-cache-clusters --cache-cluster-id mcp-agent-factory --region eu-west-1 --query 'CacheClusters[0].[CacheClusterStatus,Engine]' --output text && \
+echo -e "\n=== ALB Target Health ===" && \
+aws elbv2 describe-target-health --target-group-arn $(aws elbv2 describe-target-groups --names mcp-agent-factory --region eu-west-1 --query 'TargetGroups[0].TargetGroupArn' --output text) --region eu-west-1 --query 'TargetHealthDescriptions[0].[Target.Id,TargetHealth.State]' --output text
+```
+
+**Expected output**:
+```
+=== ECS Service ===
+mcp-agent-factory-gateway	ACTIVE	1	1
+
+=== Redis ===
+available	redis
+
+=== ALB Target Health ===
+10.0.1.168	healthy
+```
+
+**Comprehensive health check suite**: See [`AWS-SERVICES-HEALTH-CHECK.md`](../AWS-SERVICES-HEALTH-CHECK.md) for detailed commands to verify ElastiCache, ECS, ALB, Step Functions, Lambda, ECR, SSM parameters, security groups, IAM roles, and Terraform state.
