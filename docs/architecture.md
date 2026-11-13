@@ -259,7 +259,9 @@ POST /mcp/jobs  →  job stored in Redis (status: pending)
 GET /mcp/jobs/{id}  ←  result read from Redis key fleet:job:{id}
 ```
 
-### Step Functions backend (cloud, issue #29)
+### Step Functions backend (cloud, issue #29 ✅ deployed)
+
+**Status:** ✅ **Fully deployed and operational** — Step Functions state machine `mcp-agent-factory-fleet` + Lambda worker `mcp-agent-factory-pipeline-worker` running in production (eu-west-1). See [`STEP-FUNCTIONS-VERIFICATION.md`](../STEP-FUNCTIONS-VERIFICATION.md) for deployment verification, end-to-end test results, and monitoring guide.
 
 Activated when `STATE_MACHINE_ARN` is set. The in-process worker loop is not started.
 

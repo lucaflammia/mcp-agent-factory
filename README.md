@@ -17,6 +17,7 @@ streaming, and standards-compliant security.
 | **Demo-day cost** | **~€25/month** (no scale-to-zero; tear down after each session) |
 | **IaC** | [`terraform/`](terraform/) — `make demo-up` / `make demo-down` |
 | **Health check** | [`AWS-SERVICES-HEALTH-CHECK.md`](AWS-SERVICES-HEALTH-CHECK.md) — verify ElastiCache, ECS, ALB, Step Functions, Lambda, ECR after deploy |
+| **Step Functions** | [`STEP-FUNCTIONS-VERIFICATION.md`](STEP-FUNCTIONS-VERIFICATION.md) — async fleet worker deployed ✅; issue #29 complete |
 | **Deployment notes** | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — what broke and why |
 
 > The environment is ephemeral by design: `make demo-up` takes ~8 minutes, `make demo-down`
@@ -44,9 +45,7 @@ Cross-tenant queries return empty results by design.
 **Async fleet runtime** — `POST /mcp/jobs` enqueues a job and returns a
 `job_id` immediately; `GET /mcp/jobs/{job_id}` returns current status/result;
 `POST /mcp/jobs/batch` submits multiple jobs; `GET /mcp/jobs/batch/{batch_id}`
-polls aggregate completion. `FleetWorker` processes jobs off a Redis stream
-with at-least-once delivery, circuit-breaker protection, and idempotency guards.
-**Available locally (docker-compose) and in cloud via Step Functions.** Local: Redis Streams with in-process workers. Cloud: AWS Step Functions with Lambda (issue #29 — in progress). Without either backend configured, routes return `503 async_jobs_unavailable`.
+polls aggregate completion. **Local: Redis Streams + in-process workers (docker-compose). Cloud: AWS Step Functions + Lambda (issue #29 ✅ deployed).** Fully fault-tolerant with at-least-once delivery, retry policies (2× backoff, 3 attempts max), and audit trails. See `STEP-FUNCTIONS-VERIFICATION.md` for deployment status and monitoring guide.
 
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
