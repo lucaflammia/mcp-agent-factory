@@ -37,3 +37,8 @@ output "task_role_arn" {
   description = "ECS task role ARN (runtime permissions)"
   value       = aws_iam_role.ecs_task.arn
 }
+
+output "redis_endpoint" {
+  description = "Redis ElastiCache endpoint (host:port)"
+  value       = "${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.port}"
+}
