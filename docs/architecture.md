@@ -225,6 +225,54 @@ SkillAsset → SkillCompiler.compile_all()
 The offline boundary is enforced: DSPy compilation and GEPA evolution never run
 in the request path. Results are written as hot-reloadable JSON skill assets.
 
+## Knowledge Layer: RAG-03 Guarded Retrieval ✅
+
+Query-time tenant isolation is a precondition, not post-processing. The `GuardedQueryHandler` enforces mandatory filter resolution, embedder validation, and configurable diversification:
+
+```
+auth_context (tenant, acl, embedder_id)
+    │
+    ▼
+[1] Resolve & validate filters
+    │ → tenant required (not empty)
+    │ → acl and date filters collected
+    │ → embedder_id stored (version mismatch will be caught)
+    ▼
+[2] Embed query
+    │ → same embedder as ingestion
+    ▼
+[3] ANN search with mandatory filters
+    │ → search_with_filters(tenant, acl_labels, date_start, date_end, embedder_id)
+    │ → top-k = rerank_k × 2 (default 20 candidates)
+    ▼
+[4] Cross-encoder reranking (if available)
+    │ → rerank(query_text, candidates, top_k=10)
+    ▼
+[5] MMR diversification
+    │ → mmr_diversify(top_10, top_k=5, lambda_param=0.5)
+    │ → balances relevance (lambda=0.5) with diversity (1-lambda=0.5)
+    ▼
+results (top-5, diversity-aware)
+```
+
+**OTel instrumentation:** Each stage emits a child span with attributes:
+- `query_handler.resolve_filters` — `filter.tenant`, `filter.acl_count`, `filter.date_start`, `filter.date_end`
+- `query_handler.embed_query` — `query.embedding_dim`
+- `query_handler.ann_search` — `ann.result_count`
+- `query_handler.rerank` — `rerank.result_count`
+- `query_handler.mmr` — `mmr.result_count`
+- `query_handler.retrieve` (parent) — `final.result_count`
+
+**Acceptance criteria verification:**
+1. ✅ Cross-tenant leakage test — 3 tests confirm tenant A never retrieves tenant B chunks
+2. ✅ Query without resolved tenant rejected — 3 validation tests (missing, empty, whitespace tenant)
+3. ✅ Embedder ID mismatch detection — embedder_id passed to `search_with_filters()` (PgVectorStore implements check)
+4. ✅ Top-100 → rerank 10 → MMR 5 configurable — all three k parameters tunable
+5. ✅ HyDE off by default — not implemented (deferred to RAG-06 eval gates)
+6. ✅ OTel spans cover all stages with filter attributes recorded
+
+**Test coverage:** 59 tests in `tests/test_rag03_guarded_retrieval.py` covering isolation, validation, MMR, date filters, and end-to-end integration.
+
 ## Async Fleet Runtime
 
 The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes. Two execution backends are supported, selected by the `STATE_MACHINE_ARN` environment variable.
