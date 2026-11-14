@@ -39,7 +39,7 @@ aws lambda get-function-configuration \
   --query 'Environment.Variables | keys(@)'
 ```
 
-Should include `REDIS_URL` and `FLASK_ENV`.
+Should include `GATEWAY_URL` and `MCP_DEV_MODE`.
 
 ---
 
@@ -52,7 +52,7 @@ aws ssm get-parameter \
   --query 'Parameter.Value'
 
 aws ssm get-parameter \
-  --name /mcp-agent-factory/step-functions-arn \
+  --name /mcp-agent-factory/STATE_MACHINE_ARN \
   --region eu-west-1 \
   --query 'Parameter.Value'
 ```

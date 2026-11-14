@@ -20,7 +20,7 @@ aws sts get-caller-identity --query '[Account,Arn]'
 
 ```bash
 aws elasticache describe-cache-clusters \
-  --cache-cluster-id mcp-agent-factory-redis \
+  --cache-cluster-id mcp-agent-factory \
   --region eu-west-1 \
   --show-cache-node-info \
   --query 'CacheClusters[0].[CacheClusterStatus,Engine,EngineVersion,CacheNodes[0].Endpoint]'
@@ -32,7 +32,7 @@ To retrieve just the endpoint:
 
 ```bash
 aws elasticache describe-cache-clusters \
-  --cache-cluster-id mcp-agent-factory-redis \
+  --cache-cluster-id mcp-agent-factory \
   --region eu-west-1 \
   --show-cache-node-info \
   --query 'CacheClusters[0].CacheNodes[0].Endpoint'
@@ -171,7 +171,7 @@ Lambda execution role:
 
 ```bash
 aws iam get-role \
-  --role-name mcp-agent-factory-pipeline-worker-role \
+  --role-name mcp-agent-factory-lambda-worker \
   --query 'Role.Arn'
 ```
 
