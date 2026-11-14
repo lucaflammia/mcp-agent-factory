@@ -19,25 +19,49 @@ CREATE INDEX IF NOT EXISTS knowledge_chunks_owner_idx ON knowledge_chunks (owner
 
 
 class VectorStore(Protocol):
-  def upsert(self, owner_id: str, text: str, vector: np.ndarray) -> None: ...
+  def upsert(self, owner_id: str, text: str, vector: np.ndarray, chunk_id: str | None = None) -> None: ...
   def search(self, owner_id: str, query_vector: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]: ...
 
 
 class InMemoryVectorStore:
-  """Per-owner_id namespaced in-memory vector store with cosine similarity search."""
+  """Per-owner_id namespaced in-memory vector store with cosine similarity search.
+
+  RAG-02: upsert is idempotent on (owner_id, chunk_id). If chunk_id is None,
+  the first 64 chars of text are used as the key (backward-compat).
+  delete_by_source() removes all chunks for a given source_id.
+  """
 
   def __init__(self) -> None:
-    self._store: dict[str, list[tuple[str, np.ndarray]]] = defaultdict(list)
+    # (owner_id, chunk_id) -> (text, vector, source_id)
+    self._store: dict[tuple[str, str], tuple[str, np.ndarray, str]] = {}
 
-  def upsert(self, owner_id: str, text: str, vector: np.ndarray) -> None:
-    self._store[owner_id].append((text, vector))
+  def upsert(
+    self,
+    owner_id: str,
+    text: str,
+    vector: np.ndarray,
+    chunk_id: str | None = None,
+    source_id: str = "",
+  ) -> None:
+    key = (owner_id, chunk_id if chunk_id is not None else text[:64])
+    self._store[key] = (text, vector, source_id)
+
+  def delete_by_source(self, owner_id: str, source_id: str) -> int:
+    """Remove all chunks for the given source_id. Returns count deleted."""
+    to_delete = [k for k, (_, _, sid) in self._store.items() if k[0] == owner_id and sid == source_id]
+    for k in to_delete:
+      del self._store[k]
+    return len(to_delete)
+
+  def chunk_exists(self, owner_id: str, chunk_id: str) -> bool:
+    return (owner_id, chunk_id) in self._store
 
   def search(self, owner_id: str, query_vector: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]:
     tracer = get_tracer("mcp_gateway.vector_store")
     with tracer.start_as_current_span("agent.vector_store.search") as span:
       span.set_attribute("owner_id", owner_id)
       span.set_attribute("top_k", top_k)
-      entries = self._store.get(owner_id, [])
+      entries = [(text, vec) for (oid, _), (text, vec, _) in self._store.items() if oid == owner_id]
       if not entries:
         span.set_attribute("result_count", 0)
         return []
