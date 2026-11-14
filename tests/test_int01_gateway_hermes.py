@@ -66,6 +66,8 @@ def key():
 def dev_client(monkeypatch):
     import mcp_agent_factory.gateway.app as _app
     monkeypatch.setattr(_app, "DEV_MODE", True)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
     with TestClient(gateway_app, raise_server_exceptions=True) as c:
         yield c
 
@@ -74,6 +76,8 @@ def dev_client(monkeypatch):
 def auth_client(monkeypatch):
     import mcp_agent_factory.gateway.app as _app
     monkeypatch.setattr(_app, "DEV_MODE", False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
     with TestClient(gateway_app, raise_server_exceptions=True) as c:
         yield c
 
