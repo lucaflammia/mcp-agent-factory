@@ -10,17 +10,17 @@ Acceptance Criteria Coverage:
 """
 import asyncio
 import json
+
 import pytest
 
 from mcp_agent_factory.knowledge.generation import (
-	RagAnswer,
-	GenerationValidator,
-	GenerationHandler,
-	format_context,
 	PROMPT_TEMPLATE,
+	GenerationHandler,
+	GenerationValidator,
+	RagAnswer,
+	format_context,
 )
 from mcp_agent_factory.knowledge.vector_store import ChunkResult
-
 
 # ============================================================================
 # Fixtures
