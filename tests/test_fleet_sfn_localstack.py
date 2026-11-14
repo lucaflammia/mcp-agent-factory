@@ -4,7 +4,7 @@ Step Functions fleet backend — LocalStack integration tests.
 Requires a running LocalStack instance with stepfunctions enabled.
 Run locally:
     docker compose --profile sfn up -d localstack
-    AWS_ENDPOINT_URL=http://localhost:4566 pytest -m integration tests/test_fleet_sfn_localstack.py
+    AWS_ENDPOINT_URL=http://localhost:4566 pytest -m localstack tests/test_fleet_sfn_localstack.py
 
 In CI the sfn-integration job starts LocalStack as a service container before
 running this suite.
@@ -105,7 +105,7 @@ def localstack_sfn():
 # Tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.integration
+@pytest.mark.localstack
 @pytest.mark.asyncio
 async def test_localstack_submit_starts_execution(localstack_sfn):
     """POST /mcp/jobs path: _submit_one starts a real SFN execution in LocalStack."""
@@ -116,7 +116,7 @@ async def test_localstack_submit_starts_execution(localstack_sfn):
     assert job["status"] == "running"
 
 
-@pytest.mark.integration
+@pytest.mark.localstack
 @pytest.mark.asyncio
 async def test_localstack_execution_name_matches_job_id(localstack_sfn):
     """Execution name must equal job_id for deterministic ARN construction."""
@@ -125,7 +125,7 @@ async def test_localstack_execution_name_matches_job_id(localstack_sfn):
     assert job_id in job["execution_arn"]
 
 
-@pytest.mark.integration
+@pytest.mark.localstack
 @pytest.mark.asyncio
 async def test_localstack_multiple_executions_are_distinct(localstack_sfn):
     """Batch path: each submit_one call starts a separate LocalStack execution."""
@@ -141,7 +141,7 @@ async def test_localstack_multiple_executions_are_distinct(localstack_sfn):
     assert id_b in names
 
 
-@pytest.mark.integration
+@pytest.mark.localstack
 @pytest.mark.asyncio
 async def test_localstack_running_execution_maps_to_running(localstack_sfn):
     """Freshly submitted execution should map to status 'running'."""
@@ -151,7 +151,7 @@ async def test_localstack_running_execution_maps_to_running(localstack_sfn):
     assert job["status"] == "running"
 
 
-@pytest.mark.integration
+@pytest.mark.localstack
 @pytest.mark.asyncio
 async def test_localstack_stopped_execution_maps_to_failed(localstack_sfn):
     """An aborted execution maps to status 'failed' (not stuck in 'running')."""

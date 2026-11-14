@@ -107,7 +107,7 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379
           KAFKA_BOOTSTRAP: localhost:9092
-        run: pytest -m integration --tb=short -q
+        run: pytest -m "integration and not localstack" --tb=short -q
 
   sfn-integration:
     name: Step Functions integration (LocalStack)
@@ -167,7 +167,7 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           REDIS_URL: redis://localhost:6379
-        run: pytest -m integration tests/test_fleet_sfn_localstack.py --tb=short -q
+        run: pytest -m localstack tests/test_fleet_sfn_localstack.py --tb=short -q
 
   eval:
     name: Evaluation harness
