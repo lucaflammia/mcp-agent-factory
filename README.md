@@ -58,6 +58,30 @@ PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 
 ## RAG Pipeline
 
+### RAG-03: Guarded Retrieval ✅
+
+Tenant isolation is enforced at the query handler layer, not post-hoc. All queries must include:
+
+1. **Resolved tenant from auth context** — missing tenant raises `ValueError`
+2. **Mandatory filters passed to ANN** — tenant, ACL, date filters applied inside the search
+3. **Embedder version verification** — query embedder_id passed to vector store; mismatch raises error
+4. **Cross-encoder reranking** — top-100 ANN → rerank to 10 → MMR to 5 (configurable)
+5. **OTel observability** — spans cover filter resolution, ANN search, reranking, and MMR diversification
+
+**Query handler signature:**
+```python
+handler = GuardedQueryHandler(vector_store, embedder, filter_resolver)
+results = handler.retrieve(
+    query_text="...",
+    auth_context={"tenant": "acme", "acl": ["admin"], "embedder_id": "all-MiniLM-L6-v2@v1"},
+    top_k=5,
+    rerank_k=10,  # intermediate count after reranking
+    mmr_k=5,      # final count after MMR diversification
+)
+```
+
+**Test coverage:** 59 comprehensive tests covering cross-tenant isolation, tenant validation, embedder checking, MMR diversification, filter resolution, date filters, and OTel instrumentation.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |
