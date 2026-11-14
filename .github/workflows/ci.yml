@@ -125,10 +125,10 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
         options: >-
-          --health-cmd "bash -c 'curl -sf http://localhost:4566/_localstack/health | python3 -c \"import sys,json; h=json.load(sys.stdin)[\"services\"]; sys.exit(0 if h.get(\"stepfunctions\")==\"available\" else 1)\"'"
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 15
+          --health-retries 20
           --health-start-period 30s
       redis:
         image: redis:7
@@ -149,6 +149,16 @@ jobs:
 
       - name: Install dependencies
         run: pip install -e ".[dev,infra,otel]"
+
+      - name: Wait for LocalStack Step Functions
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -sf http://localhost:4566/_localstack/health | python3 -c "import sys,json; h=json.load(sys.stdin).get('services',{}); print(h.get('stepfunctions',''))" 2>/dev/null || true)
+            [ "$status" = "available" ] && echo "LocalStack Step Functions ready" && exit 0
+            echo "Waiting for Step Functions... ($i/30)"
+            sleep 3
+          done
+          echo "LocalStack Step Functions did not become available" && exit 1
 
       - name: Run LocalStack SFN integration tests
         env:
