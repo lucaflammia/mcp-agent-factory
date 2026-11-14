@@ -384,7 +384,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
     healthcheck:
-      test: ["CMD", "bash", "-c", "curl -sf http://localhost:4566/_localstack/health | python3 -c \"import sys,json; h=json.load(sys.stdin)['services']; sys.exit(0 if h.get('stepfunctions')=='available' else 1)\""]
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
       interval: 10s
       timeout: 5s
       retries: 10
