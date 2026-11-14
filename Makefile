@@ -13,7 +13,7 @@ help:
 # demo-up — provision AWS infrastructure and deploy the gateway image
 # Requires: AWS credentials, Terraform, Docker, and secrets already in SSM.
 # Time: ~5 minutes on first apply; ~2 minutes for updates.
-# Cost: ~€25/month (ALB + Fargate always-on). Run demo-down after each session.
+# Cost: ~€37/month (ALB + Fargate + ElastiCache always-on). Run demo-down after each session.
 # ---------------------------------------------------------------------------
 demo-up: ## Provision AWS infra + deploy gateway (~5 min)
 	@echo "==> Building Lambda deployment package"
