@@ -1,10 +1,17 @@
 from mcp_agent_factory.knowledge.chunker import Chunk, chunk_text
 from mcp_agent_factory.knowledge.embedder import Embedder, LocalEmbedder, StubEmbedder
 from mcp_agent_factory.knowledge.ingest import IngestionWorker
+from mcp_agent_factory.knowledge.query_handler import (
+    DefaultFilterResolver,
+    FilterResolver,
+    GuardedQueryHandler,
+    QueryFilter,
+)
 from mcp_agent_factory.knowledge.reranker import (
     CrossEncoderReranker,
     NoOpReranker,
     Reranker,
+    mmr_diversify,
 )
 from mcp_agent_factory.knowledge.tools import query_knowledge_base
 from mcp_agent_factory.knowledge.vector_store import (
@@ -17,7 +24,8 @@ __all__ = [
     "Chunk", "chunk_text",
     "Embedder", "StubEmbedder", "LocalEmbedder",
     "IngestionWorker",
-    "Reranker", "NoOpReranker", "CrossEncoderReranker",
+    "QueryFilter", "FilterResolver", "DefaultFilterResolver", "GuardedQueryHandler",
+    "Reranker", "NoOpReranker", "CrossEncoderReranker", "mmr_diversify",
     "query_knowledge_base",
     "VectorStore", "InMemoryVectorStore", "PgVectorStore",
 ]
