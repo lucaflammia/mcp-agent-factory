@@ -22,8 +22,8 @@ import pytest
 
 from mcp_agent_factory.knowledge.chunker import (
     CHUNKER_CONFIGS,
-    ChunkerConfig,
     REQUIRED_METADATA_FIELDS,
+    ChunkerConfig,
     chunk_document,
     validate_chunk_metadata,
 )
@@ -32,7 +32,6 @@ from mcp_agent_factory.knowledge.ingest import IdempotentIngestionPipeline
 from mcp_agent_factory.knowledge.pii import PiiAuditLog, scrub_pii
 from mcp_agent_factory.knowledge.source import InMemorySourceAdapter, SourceDocument
 from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
