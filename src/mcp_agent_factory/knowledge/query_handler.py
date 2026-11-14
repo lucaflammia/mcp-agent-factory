@@ -18,6 +18,7 @@ from typing import Protocol
 import numpy as np
 
 from mcp_agent_factory.gateway.telemetry import get_tracer
+from mcp_agent_factory.knowledge.vector_store import ChunkResult
 
 
 @dataclass
@@ -112,7 +113,7 @@ class GuardedQueryHandler:
         top_k: int = 5,
         rerank_k: int = 10,
         mmr_k: int = 5,
-    ) -> list[tuple[str, float]]:
+    ) -> list[ChunkResult]:
         """Retrieve documents with mandatory filter validation and embedder checking.
 
         Args:
@@ -123,7 +124,7 @@ class GuardedQueryHandler:
             mmr_k: intermediate count after MMR (typically == top_k)
 
         Returns:
-            list of (text, score) tuples, filtered and reranked
+            list of ChunkResult objects with text, score, and chunk_id for citation tracking
 
         Raises:
             ValueError: if tenant is missing, embedder_id mismatch, or filters are invalid

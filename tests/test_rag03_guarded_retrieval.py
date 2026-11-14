@@ -86,7 +86,7 @@ class TestCrossTenantIsolation:
         )
 
         assert len(results) >= 1
-        assert results[0][0] == "my data"
+        assert results[0][0] if isinstance(results[0], tuple) else results[0].text == "my data"
 
     def test_multiple_tenants_isolated(self, embedder, store, handler):
         """Multiple tenants with different data remain isolated."""
@@ -105,7 +105,7 @@ class TestCrossTenantIsolation:
             auth_context=auth_context_a,
             top_k=5,
         )
-        texts_a = [t for t, _ in results_a]
+        texts_a = [r.text for r in results_a]
         assert "tenant a data" in texts_a
         assert "tenant b data" not in texts_a
 
@@ -116,7 +116,7 @@ class TestCrossTenantIsolation:
             auth_context=auth_context_b,
             top_k=5,
         )
-        texts_b = [t for t, _ in results_b]
+        texts_b = [r.text for r in results_b]
         assert "tenant b data" in texts_b
         assert "tenant a data" not in texts_b
 
@@ -220,7 +220,7 @@ class TestMMRDiversification:
         result = mmr_diversify(candidates, embeddings, top_k=2, lambda_param=0.5)
 
         assert len(result) <= 2
-        texts = [t for t, _ in result]
+        texts = [r[0] for r in result]
         # Should prefer "text A" (highest relevance) and "text B" (most diverse)
         assert "text A" in texts or "text B" in texts
 
@@ -400,7 +400,7 @@ class TestVectorStoreWithFilters:
         )
 
         assert len(results) >= 1
-        assert results[0][0] == "data"
+        assert results[0][0] if isinstance(results[0], tuple) else results[0].text == "data"
 
     def test_search_with_filters_tenant_isolation(self, store, embedder):
         """search_with_filters should isolate by tenant."""
@@ -527,7 +527,7 @@ class TestRRFFusion:
 
         assert len(result) <= 2
         # document B appears in both, so should rank high
-        texts = [t for t, _ in result]
+        texts = [r[0] for r in result]
         assert "document B" in texts
 
     def test_rrf_fusion_no_duplicates(self):
@@ -679,7 +679,7 @@ class TestInMemoryVectorStoreEdgeCases:
 
         # Should find "updated", not "original"
         assert len(results) >= 1
-        assert results[0][0] == "updated"
+        assert results[0][0] if isinstance(results[0], tuple) else results[0].text == "updated"
 
 
 class TestNoOpReranker:
@@ -874,7 +874,7 @@ class TestQueryHandlerFallbackSearch:
         # Should have called the fallback search method (not search_with_filters)
         assert mock_store.search.called
         assert len(results) == 1
-        assert results[0][0] == "result"
+        assert results[0][0] if isinstance(results[0], tuple) else results[0].text == "result"
 
 
 class TestInMemoryVectorStoreSearchWithFiltersWithParams:
