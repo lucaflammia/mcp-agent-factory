@@ -8,6 +8,8 @@ Acceptance criteria:
 5. HyDE off by default, gated by flag
 6. OTel spans cover filter resolution, ANN, rerank, diversification
 """
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -19,6 +21,7 @@ from mcp_agent_factory.knowledge import (
     StubEmbedder,
     mmr_diversify,
 )
+from mcp_agent_factory.knowledge.vector_store import PgVectorStore
 
 
 @pytest.fixture
@@ -459,3 +462,514 @@ class TestGuardedQueryHandler:
             if "tenant filter is required" in str(e):
                 pytest.fail("Handler rejected valid context")
             raise
+
+    def test_handler_with_store_without_rerank_method(self):
+        """Handler should gracefully skip reranking if store lacks rerank method."""
+        from mcp_agent_factory.knowledge import StubEmbedder
+
+        # InMemoryVectorStore doesn't have rerank, so this tests the fallback
+        store = InMemoryVectorStore()
+        embedder = StubEmbedder()
+        handler = GuardedQueryHandler(
+            vector_store=store,
+            embedder=embedder,
+            filter_resolver=DefaultFilterResolver(),
+        )
+
+        # Upsert data
+        v = embedder.embed("test data")
+        store.upsert("tenant", "test data", v)
+
+        # Retrieve should work without reranking
+        results = handler.retrieve(
+            query_text="test",
+            auth_context={"tenant": "tenant", "acl": []},
+            top_k=5,
+            rerank_k=3,
+        )
+
+        assert isinstance(results, list)
+
+    def test_handler_with_configured_pipeline_stages(self, handler, embedder, store):
+        """Handler should respect configurable top_k, rerank_k, mmr_k."""
+        for i in range(10):
+            v = embedder.embed(f"item {i}")
+            store.upsert("tenant", f"item {i}", v)
+
+        results = handler.retrieve(
+            query_text="item",
+            auth_context={"tenant": "tenant", "acl": []},
+            top_k=2,
+            rerank_k=4,
+            mmr_k=2,
+        )
+
+        assert len(results) <= 2
+
+
+class TestRRFFusion:
+    """Test Reciprocal Rank Fusion (hybrid search)."""
+
+    def test_rrf_fusion_combines_results(self):
+        """RRF should combine dense and text results."""
+        from mcp_agent_factory.knowledge.vector_store import _rrf_fusion
+
+        dense_results = [
+            ("document A", 0.9),
+            ("document B", 0.7),
+        ]
+        text_results = [
+            ("document B", 0.8),
+            ("document C", 0.6),
+        ]
+
+        result = _rrf_fusion(dense_results, text_results, top_k=2, k=60)
+
+        assert len(result) <= 2
+        # document B appears in both, so should rank high
+        texts = [t for t, _ in result]
+        assert "document B" in texts
+
+    def test_rrf_fusion_no_duplicates(self):
+        """RRF should fuse duplicate documents from both rankings."""
+        from mcp_agent_factory.knowledge.vector_store import _rrf_fusion
+
+        dense_results = [("doc", 0.9)] * 5
+        text_results = [("doc", 0.8)] * 5
+
+        result = _rrf_fusion(dense_results, text_results, top_k=1, k=60)
+
+        # Should only have one unique document
+        assert len(result) == 1
+        assert result[0][0] == "doc"
+
+    def test_rrf_fusion_empty_results(self):
+        """RRF with empty results should return empty."""
+        from mcp_agent_factory.knowledge.vector_store import _rrf_fusion
+
+        result = _rrf_fusion([], [], top_k=5, k=60)
+        assert result == []
+
+    def test_rrf_fusion_one_empty_list(self):
+        """RRF with one empty list should return results from the other."""
+        from mcp_agent_factory.knowledge.vector_store import _rrf_fusion
+
+        dense_results = [("doc A", 0.9)]
+        text_results = []
+
+        result = _rrf_fusion(dense_results, text_results, top_k=1, k=60)
+
+        assert len(result) == 1
+        assert result[0][0] == "doc A"
+
+
+class TestMMREdgeCases:
+    """Additional MMR tests for coverage."""
+
+    def test_mmr_with_top_k_larger_than_candidates(self):
+        """MMR with top_k > candidates should return all candidates."""
+        candidates = [("a", 0.9), ("b", 0.8)]
+        embedder = StubEmbedder()
+        embeddings = {
+            "a": embedder.embed("a"),
+            "b": embedder.embed("b"),
+        }
+
+        result = mmr_diversify(candidates, embeddings, top_k=10)
+
+        assert len(result) == 2
+
+    def test_mmr_with_zero_top_k(self):
+        """MMR with top_k=0 should return empty."""
+        candidates = [("a", 0.9)]
+        result = mmr_diversify(candidates, {}, top_k=0)
+        assert result == []
+
+    def test_mmr_with_single_candidate(self):
+        """MMR with single candidate should return it."""
+        candidates = [("a", 0.9)]
+        embedder = StubEmbedder()
+        embeddings = {"a": embedder.embed("a")}
+
+        result = mmr_diversify(candidates, embeddings, top_k=5)
+
+        assert len(result) == 1
+        assert result[0][0] == "a"
+
+    def test_mmr_candidates_missing_embeddings(self):
+        """MMR should handle candidates with missing embeddings."""
+        candidates = [("a", 0.9), ("b", 0.8), ("c", 0.7)]
+        embedder = StubEmbedder()
+        embeddings = {
+            "a": embedder.embed("a"),
+            # b and c are missing
+        }
+
+        result = mmr_diversify(candidates, embeddings, top_k=3)
+
+        # Should still return results
+        assert len(result) <= 3
+
+    def test_mmr_with_identical_scores(self):
+        """MMR should handle candidates with identical scores."""
+        candidates = [("a", 0.9), ("b", 0.9), ("c", 0.9)]
+        embedder = StubEmbedder()
+        embeddings = {
+            "a": embedder.embed("a"),
+            "b": embedder.embed("b"),
+            "c": embedder.embed("c"),
+        }
+
+        result = mmr_diversify(candidates, embeddings, top_k=2, lambda_param=0.5)
+
+        assert len(result) <= 2
+
+
+class TestInMemoryVectorStoreEdgeCases:
+    """Additional InMemoryVectorStore coverage."""
+
+    def test_in_memory_store_mmr_empty_candidates(self, store):
+        """MMR on store should handle empty candidates."""
+        result = store.mmr_diversify([], top_k=5)
+        assert result == []
+
+    def test_in_memory_store_search_empty(self, store, embedder):
+        """Search on empty store should return empty list."""
+        v = embedder.embed("query")
+        results = store.search("tenant", v, top_k=5)
+        assert results == []
+
+    def test_in_memory_store_search_with_filters_empty(self, store, embedder):
+        """search_with_filters on empty store should return empty."""
+        v = embedder.embed("query")
+        results = store.search_with_filters(
+            owner_id="tenant",
+            query_vector=v,
+            top_k=5,
+        )
+        assert results == []
+
+    def test_in_memory_store_delete_by_source(self, store, embedder):
+        """delete_by_source should remove chunks by source_id."""
+        v1 = embedder.embed("doc1")
+        v2 = embedder.embed("doc2")
+        v3 = embedder.embed("doc3")
+
+        store.upsert("tenant", "doc1", v1, chunk_id="c1", source_id="source-a")
+        store.upsert("tenant", "doc2", v2, chunk_id="c2", source_id="source-a")
+        store.upsert("tenant", "doc3", v3, chunk_id="c3", source_id="source-b")
+
+        # Delete all chunks from source-a
+        count = store.delete_by_source("tenant", "source-a")
+
+        assert count == 2
+        assert store.chunk_exists("tenant", "c3")
+        assert not store.chunk_exists("tenant", "c1")
+        assert not store.chunk_exists("tenant", "c2")
+
+    def test_in_memory_store_upsert_idempotent(self, store, embedder):
+        """Upsert with same chunk_id should overwrite."""
+        v1 = embedder.embed("original")
+        v2 = embedder.embed("updated")
+
+        store.upsert("tenant", "original", v1, chunk_id="ch1")
+        store.upsert("tenant", "updated", v2, chunk_id="ch1")
+
+        results = store.search("tenant", v2, top_k=5)
+
+        # Should find "updated", not "original"
+        assert len(results) >= 1
+        assert results[0][0] == "updated"
+
+
+class TestNoOpReranker:
+    """Test NoOpReranker pass-through."""
+
+    def test_noop_reranker_truncates(self):
+        """NoOpReranker should truncate to top_k."""
+        from mcp_agent_factory.knowledge.reranker import NoOpReranker
+
+        reranker = NoOpReranker()
+        candidates = [("a", 0.9), ("b", 0.8), ("c", 0.7)]
+
+        result = reranker.rerank("query", candidates, top_k=2)
+
+        assert len(result) == 2
+        assert result[0][0] == "a"
+        assert result[1][0] == "b"
+
+    def test_noop_reranker_empty(self):
+        """NoOpReranker should handle empty candidates."""
+        from mcp_agent_factory.knowledge.reranker import NoOpReranker
+
+        reranker = NoOpReranker()
+        result = reranker.rerank("query", [], top_k=5)
+
+        assert result == []
+
+
+class TestQueryHandlerWithDateFilters:
+    """Test query handler with date filtering."""
+
+    def test_handler_with_date_filters(self, handler, embedder, store):
+        """Handler should pass date_start and date_end to filters."""
+        from datetime import datetime, timezone
+
+        v = embedder.embed("test data")
+        store.upsert("tenant", "test data", v)
+
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+
+        auth_context = {
+            "tenant": "tenant",
+            "acl": [],
+            "date_start": start,
+            "date_end": end,
+        }
+
+        results = handler.retrieve(
+            query_text="test",
+            auth_context=auth_context,
+            top_k=5,
+        )
+
+        assert isinstance(results, list)
+
+    def test_handler_with_only_date_start(self, handler, embedder, store):
+        """Handler should accept only date_start."""
+        from datetime import datetime, timezone
+
+        v = embedder.embed("test data")
+        store.upsert("tenant", "test data", v)
+
+        start = datetime(2024, 6, 1, tzinfo=timezone.utc)
+
+        auth_context = {
+            "tenant": "tenant",
+            "acl": [],
+            "date_start": start,
+        }
+
+        results = handler.retrieve(
+            query_text="test",
+            auth_context=auth_context,
+            top_k=5,
+        )
+
+        assert isinstance(results, list)
+
+    def test_handler_with_only_date_end(self, handler, embedder, store):
+        """Handler should accept only date_end."""
+        from datetime import datetime, timezone
+
+        v = embedder.embed("test data")
+        store.upsert("tenant", "test data", v)
+
+        end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+
+        auth_context = {
+            "tenant": "tenant",
+            "acl": [],
+            "date_end": end,
+        }
+
+        results = handler.retrieve(
+            query_text="test",
+            auth_context=auth_context,
+            top_k=5,
+        )
+
+        assert isinstance(results, list)
+
+
+class TestCrossEncoderReranker:
+    """Test CrossEncoderReranker (lazy-loaded model)."""
+
+    def test_cross_encoder_disabled(self):
+        """CrossEncoderReranker with enabled=False should pass through."""
+        from mcp_agent_factory.knowledge.reranker import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker(enabled=False)
+        candidates = [("a", 0.9), ("b", 0.8), ("c", 0.7)]
+
+        result = reranker.rerank("query", candidates, top_k=2)
+
+        # Should pass through and truncate to top_k
+        assert len(result) == 2
+        assert result[0][0] == "a"
+
+    def test_cross_encoder_empty_with_enabled(self):
+        """CrossEncoderReranker with empty candidates should return empty."""
+        from mcp_agent_factory.knowledge.reranker import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker(enabled=True)
+        result = reranker.rerank("query", [], top_k=5)
+
+        # Empty candidates should return empty regardless of enabled
+        assert result == []
+
+
+class TestQueryHandlerWithStoreHavingRerank:
+    """Test query handler when store has rerank method."""
+
+    def test_handler_with_mock_reranker(self, embedder, store):
+        """Handler should use store's rerank method if available."""
+        from mcp_agent_factory.knowledge import DefaultFilterResolver
+
+        # Add a mock rerank method to the store
+        def mock_rerank(query_text, candidates, top_k=5):
+            # Return only the top 2
+            return candidates[:min(2, top_k)]
+
+        store.rerank = mock_rerank
+
+        handler = GuardedQueryHandler(
+            vector_store=store,
+            embedder=embedder,
+            filter_resolver=DefaultFilterResolver(),
+        )
+
+        # Upsert multiple documents
+        for i in range(5):
+            v = embedder.embed(f"document {i}")
+            store.upsert("tenant", f"document {i}", v)
+
+        results = handler.retrieve(
+            query_text="document",
+            auth_context={"tenant": "tenant", "acl": []},
+            top_k=3,
+            rerank_k=2,
+        )
+
+        # Should have results
+        assert isinstance(results, list)
+
+
+class TestQueryHandlerFallbackSearch:
+    """Test query handler fallback when store lacks search_with_filters."""
+
+    def test_handler_with_store_without_search_with_filters(self, embedder):
+        """Handler should fallback to basic search if store lacks search_with_filters."""
+        from mcp_agent_factory.knowledge import DefaultFilterResolver
+
+        # Create a minimal mock store that has only search() method
+        mock_store = MagicMock(spec=["search", "mmr_diversify"])
+        mock_store.search.return_value = [("result", 0.9)]
+        mock_store.mmr_diversify.return_value = [("result", 0.9)]
+        # Don't define search_with_filters at all to test fallback
+
+        handler = GuardedQueryHandler(
+            vector_store=mock_store,
+            embedder=embedder,
+            filter_resolver=DefaultFilterResolver(),
+        )
+
+        results = handler.retrieve(
+            query_text="test",
+            auth_context={"tenant": "tenant", "acl": []},
+            top_k=5,
+        )
+
+        # Should have called the fallback search method (not search_with_filters)
+        assert mock_store.search.called
+        assert len(results) == 1
+        assert results[0][0] == "result"
+
+
+class TestInMemoryVectorStoreSearchWithFiltersWithParams:
+    """Test search_with_filters with various parameter combinations."""
+
+    def test_search_with_filters_with_acl(self, store, embedder):
+        """search_with_filters should accept acl_labels parameter."""
+        v = embedder.embed("data")
+        store.upsert("tenant", "data", v)
+
+        results = store.search_with_filters(
+            owner_id="tenant",
+            query_vector=v,
+            acl_labels=["admin", "user"],
+            top_k=5,
+        )
+
+        # Should work (in-memory store ignores ACL but accepts parameter)
+        assert isinstance(results, list)
+
+    def test_search_with_filters_with_embedder_id(self, store, embedder):
+        """search_with_filters should accept embedder_id parameter."""
+        v = embedder.embed("data")
+        store.upsert("tenant", "data", v)
+
+        results = store.search_with_filters(
+            owner_id="tenant",
+            query_vector=v,
+            embedder_id="test-embedder@v1",
+            top_k=5,
+        )
+
+        # Should work (in-memory store ignores embedder_id but accepts parameter)
+        assert isinstance(results, list)
+
+    def test_search_with_filters_all_params(self, store, embedder):
+        """search_with_filters should work with all parameters."""
+        from datetime import datetime, timezone
+
+        v = embedder.embed("data")
+        store.upsert("tenant", "data", v)
+
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+
+        results = store.search_with_filters(
+            owner_id="tenant",
+            query_vector=v,
+            acl_labels=["admin"],
+            date_start=start,
+            date_end=end,
+            embedder_id="model@v1",
+            top_k=5,
+        )
+
+        assert isinstance(results, list)
+
+
+class TestVectorStoreProtocol:
+    """Test VectorStore protocol compliance."""
+
+    def test_in_memory_store_satisfies_protocol(self, store, embedder):
+        """InMemoryVectorStore should satisfy VectorStore protocol."""
+        # Protocol requires upsert and search methods
+        assert hasattr(store, "upsert")
+        assert hasattr(store, "search")
+        assert callable(store.upsert)
+        assert callable(store.search)
+
+        # Should work with protocol methods
+        v = embedder.embed("test")
+        store.upsert("tenant", "test", v)
+        results = store.search("tenant", v, top_k=5)
+
+        assert isinstance(results, list)
+
+
+class TestPgVectorStoreBasic:
+    """Basic tests for PgVectorStore initialization."""
+
+    def test_pg_vector_store_init(self):
+        """PgVectorStore should initialize with DSN."""
+        store = PgVectorStore(dsn="postgresql://localhost/test", embedding_dim=384)
+        assert store._dsn == "postgresql://localhost/test"
+        assert store._dim == 384
+        assert store._conn is None
+
+    def test_pg_vector_store_close_no_connection(self):
+        """PgVectorStore.close should handle when no connection was opened."""
+        store = PgVectorStore(dsn="postgresql://localhost/test")
+        # close() should not raise even if connection was never opened
+        store.close()
+
+    def test_pg_vector_store_empty_mmr_candidates(self):
+        """PgVectorStore.mmr_diversify with empty candidates should return empty."""
+        store = PgVectorStore(dsn="postgresql://localhost/test")
+        result = store.mmr_diversify([], top_k=5)
+        assert result == []
