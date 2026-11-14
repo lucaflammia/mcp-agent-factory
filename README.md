@@ -333,7 +333,13 @@ pytest tests/ -v    # 530+ tests (integration tests skip without Docker)
 
 # Integration tests (requires full Docker stack)
 REDIS_URL=redis://localhost:6379 pytest -m integration -v
+
+# Step Functions integration tests against LocalStack
+docker compose --profile sfn up -d localstack
+AWS_ENDPOINT_URL=http://localhost:4566 pytest -m integration tests/test_fleet_sfn_localstack.py
 ```
+
+The `sfn-integration` CI job (`.github/workflows/ci.yml`) runs the LocalStack suite automatically on every push.
 
 ## Evaluation
 
