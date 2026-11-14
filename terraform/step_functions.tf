@@ -21,17 +21,6 @@ locals {
 # Lambda function — pipeline worker
 # ---------------------------------------------------------------------------
 
-resource "null_resource" "build_sfn_lambda" {
-  provisioner "local-exec" {
-    command = "bash ${path.module}/build_lambda_package.sh"
-  }
-
-  triggers = {
-    # Rebuild if the source code changes
-    sfn_worker_src = filemd5("${path.module}/../src/mcp_agent_factory/streams/sfn_worker.py")
-  }
-}
-
 resource "aws_lambda_function" "pipeline_worker" {
   function_name    = "mcp-agent-factory-pipeline-worker"
   filename         = "${path.module}/.terraform/sfn_worker.zip"
@@ -55,7 +44,6 @@ resource "aws_lambda_function" "pipeline_worker" {
 
   depends_on = [
     aws_cloudwatch_log_group.lambda_worker,
-    null_resource.build_sfn_lambda
   ]
 }
 
