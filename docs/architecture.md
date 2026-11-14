@@ -227,7 +227,9 @@ in the request path. Results are written as hot-reloadable JSON skill assets.
 
 ## Async Fleet Runtime
 
-The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes.
+The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes. Two execution backends are supported, selected by the `STATE_MACHINE_ARN` environment variable.
+
+### Redis Streams backend (local dev, default)
 
 ```
 Client
@@ -242,16 +244,9 @@ Client
                                      │
                                      ▼
                                4-layer pipeline (unchanged)
-                               Foundations → Production → Orchestration → Optimization
-                                     │
-                               Provider registry (adapters.py)
-                               ├── Anthropic
-                               ├── OpenAI
-                               ├── Ollama
-                               └── Bedrock  ← new (boto3, IAM auth)
 ```
 
-**Job lifecycle:**
+**Job lifecycle (Redis Streams):**
 
 ```
 POST /mcp/jobs  →  job stored in Redis (status: pending)
@@ -262,6 +257,52 @@ POST /mcp/jobs  →  job stored in Redis (status: pending)
                 status: running  →  _execute_job()  →  status: done | failed
                       │
 GET /mcp/jobs/{id}  ←  result read from Redis key fleet:job:{id}
+```
+
+### Step Functions backend (cloud, issue #29 ✅ deployed)
+
+**Status:** ✅ **Fully deployed and operational** — Step Functions state machine `mcp-agent-factory-fleet` + Lambda worker `mcp-agent-factory-pipeline-worker` running in production (eu-west-1). See [`STEP-FUNCTIONS-VERIFICATION.md`](../STEP-FUNCTIONS-VERIFICATION.md) for deployment verification, end-to-end test results, and monitoring guide.
+
+Activated when `STATE_MACHINE_ARN` is set. The in-process worker loop is not started.
+
+```
+Client
+  │
+  ├── POST /mcp/tools/call    → synchronous pipeline (unchanged)
+  │
+  └── POST /mcp/jobs          → sfn.start_execution (State Machine)
+      POST /mcp/jobs/batch           │  - timeout: FLEET_JOB_TIMEOUT_SECS
+      GET  /mcp/jobs/{job_id}        │  - retry: 3× with exponential backoff
+      GET  /mcp/jobs/batch/{id}      │  - audit: CloudWatch execution history
+                                     ▼
+                               Lambda pipeline worker (sfn_worker.py)
+                                     │
+                                     ▼
+                               4-layer pipeline (unchanged)
+```
+
+**Job lifecycle (Step Functions):**
+
+```
+POST /mcp/jobs  →  job stored in Redis (status: running)
+                →  sfn.start_execution(name=job_id, input=job_dict)
+                      │  execution_arn stored in Redis job record
+                      │
+GET /mcp/jobs/{id}  →  sfn.describe_execution(executionArn)
+                        RUNNING → running
+                        SUCCEEDED → done  (output stored in Redis)
+                        FAILED | TIMED_OUT | ABORTED → failed
+```
+
+The gateway API (routes, response shapes, 503 guard) is identical across both backends.
+
+**Local and CI testing (LocalStack):**
+
+`docker compose --profile sfn up -d localstack` starts a LocalStack 3 container that emulates Step Functions on `localhost:4566`. The `sfn-integration` CI job in `.github/workflows/ci.yml` starts LocalStack and Redis as service containers, then runs `tests/test_fleet_sfn_localstack.py` (marked `@pytest.mark.integration`) against the real LocalStack API surface. To run locally:
+
+```bash
+docker compose --profile sfn up -d localstack
+AWS_ENDPOINT_URL=http://localhost:4566 pytest -m integration tests/test_fleet_sfn_localstack.py
 ```
 
 **Batch endpoint:**
@@ -377,4 +418,32 @@ The reference cloud deployment runs the gateway on **Amazon ECS Express Mode** (
 | Traces | OTel → Grafana Cloud Tempo via `OTLP_ENDPOINT` from SSM |
 | Cost | ~€25/month ALB + Fargate always-on; no scale-to-zero |
 | IaC | `terraform/` — `make demo-up` / `make demo-down` |
-| Async jobs | Disabled in cloud (`ASYNC_JOBS_ENABLED=false`); `/mcp/jobs` returns `503` until #29 lands |
+| Async jobs | Cloud: enabled via Step Functions when `STATE_MACHINE_ARN` and `ASYNC_JOBS_ENABLED=true` are set (issue #29). Local: Redis Streams + in-process workers. `503` returned when both backends are unconfigured. |
+
+### Infrastructure Health Verification
+
+To verify the cloud deployment is running correctly after `make demo-up`:
+
+```bash
+# Quick health check (all three layers in one command)
+echo "=== ECS Service ===" && \
+aws ecs describe-services --cluster mcp-agent-factory --services mcp-agent-factory-gateway --region eu-west-1 --query 'services[0].[serviceName,status,runningCount,desiredCount]' --output text && \
+echo -e "\n=== Redis ===" && \
+aws elasticache describe-cache-clusters --cache-cluster-id mcp-agent-factory --region eu-west-1 --query 'CacheClusters[0].[CacheClusterStatus,Engine]' --output text && \
+echo -e "\n=== ALB Target Health ===" && \
+aws elbv2 describe-target-health --target-group-arn $(aws elbv2 describe-target-groups --names mcp-agent-factory --region eu-west-1 --query 'TargetGroups[0].TargetGroupArn' --output text) --region eu-west-1 --query 'TargetHealthDescriptions[0].[Target.Id,TargetHealth.State]' --output text
+```
+
+**Expected output**:
+```
+=== ECS Service ===
+mcp-agent-factory-gateway	ACTIVE	1	1
+
+=== Redis ===
+available	redis
+
+=== ALB Target Health ===
+10.0.1.168	healthy
+```
+
+**Comprehensive health check suite**: See [`AWS-SERVICES-HEALTH-CHECK.md`](../AWS-SERVICES-HEALTH-CHECK.md) for detailed commands to verify ElastiCache, ECS, ALB, Step Functions, Lambda, ECR, SSM parameters, security groups, IAM roles, and Terraform state.

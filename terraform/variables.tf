@@ -39,3 +39,9 @@ variable "budget_alert_email" {
   type        = string
   default     = ""
 }
+
+variable "fleet_job_timeout_seconds" {
+  description = "Per-job timeout in seconds for the Step Functions state machine and Lambda worker"
+  type        = string
+  default     = "300"
+}

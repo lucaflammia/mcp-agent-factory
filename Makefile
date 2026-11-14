@@ -13,9 +13,11 @@ help:
 # demo-up — provision AWS infrastructure and deploy the gateway image
 # Requires: AWS credentials, Terraform, Docker, and secrets already in SSM.
 # Time: ~5 minutes on first apply; ~2 minutes for updates.
-# Cost: ~€25/month (ALB + Fargate always-on). Run demo-down after each session.
+# Cost: ~€37/month (ALB + Fargate + ElastiCache always-on). Run demo-down after each session.
 # ---------------------------------------------------------------------------
 demo-up: ## Provision AWS infra + deploy gateway (~5 min)
+	@echo "==> Building Lambda deployment package"
+	$(MAKE) _build-lambda-package
 	@echo "==> Initialising Terraform"
 	cd $(TF_DIR) && terraform init -input=false
 	@echo "==> Applying ECR repository (image must exist before ECS task definition is created)"
@@ -50,6 +52,23 @@ demo-verify: ## Verify no billable resources remain after teardown
 		--log-group-name-prefix /ecs/mcp-agent-factory \
 		--query 'logGroups[*].logGroupName' \
 		--output table
+	@echo "--- ElastiCache clusters ---"
+	aws elasticache describe-cache-clusters --region $(AWS_REGION) \
+		--query 'CacheClusters[?contains(CacheClusterId, `mcp-agent-factory`)].{Id:CacheClusterId,Status:CacheClusterStatus}' \
+		--output table
+	@echo "--- Step Functions state machines ---"
+	aws stepfunctions list-state-machines --region $(AWS_REGION) \
+		--query 'stateMachines[?contains(name, `mcp-agent-factory`)].{Name:name,Status:status}' \
+		--output table
+	@echo "--- Lambda functions ---"
+	aws lambda list-functions --region $(AWS_REGION) \
+		--query 'Functions[?contains(FunctionName, `mcp-agent-factory`)].FunctionName' \
+		--output table
+	@echo "--- SSM parameters ---"
+	aws ssm describe-parameters --region $(AWS_REGION) \
+		--parameter-filters "Key=Name,Option=BeginsWith,Values=/mcp-agent-factory/" \
+		--query 'Parameters[*].Name' \
+		--output table 2>/dev/null || echo "  (none found)"
 	@echo "==> Teardown verification complete."
 	@echo "    Check Cost Explorer tomorrow (billing lag ~24h) with filter project=mcp-agent-factory"
 
@@ -95,6 +114,9 @@ ssm-populate: ## Interactively populate SSM SecureString parameters (run once af
 # ---------------------------------------------------------------------------
 # Internal helpers (not part of the public interface)
 # ---------------------------------------------------------------------------
+
+_build-lambda-package:
+	bash $(TF_DIR)/build_lambda_package.sh
 
 _build-and-push:
 	$(eval ECR_URL := $(shell cd $(TF_DIR) && terraform output -raw ecr_repository_url))

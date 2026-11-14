@@ -16,6 +16,8 @@ streaming, and standards-compliant security.
 | **Idle cost** | **~€25/month** (ALB + Fargate always-on; run `make demo-down` to stop) |
 | **Demo-day cost** | **~€25/month** (no scale-to-zero; tear down after each session) |
 | **IaC** | [`terraform/`](terraform/) — `make demo-up` / `make demo-down` |
+| **Health check** | [`AWS-SERVICES-HEALTH-CHECK.md`](AWS-SERVICES-HEALTH-CHECK.md) — verify ElastiCache, ECS, ALB, Step Functions, Lambda, ECR after deploy |
+| **Step Functions** | [`STEP-FUNCTIONS-VERIFICATION.md`](STEP-FUNCTIONS-VERIFICATION.md) — async fleet worker deployed ✅; issue #29 complete |
 | **Deployment notes** | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — what broke and why |
 
 > The environment is ephemeral by design: `make demo-up` takes ~8 minutes, `make demo-down`
@@ -43,10 +45,7 @@ Cross-tenant queries return empty results by design.
 **Async fleet runtime** — `POST /mcp/jobs` enqueues a job and returns a
 `job_id` immediately; `GET /mcp/jobs/{job_id}` returns current status/result;
 `POST /mcp/jobs/batch` submits multiple jobs; `GET /mcp/jobs/batch/{batch_id}`
-polls aggregate completion. `FleetWorker` processes jobs off a Redis stream
-with at-least-once delivery, circuit-breaker protection, and idempotency guards.
-**Available locally (docker-compose) only.** The cloud demo (ECS) returns
-`503 async_jobs_unavailable` on these routes — cloud support is tracked in #29.
+polls aggregate completion. **Local: Redis Streams + in-process workers (docker-compose). Cloud: AWS Step Functions + Lambda (issue #29 ✅ deployed).** Fully fault-tolerant with at-least-once delivery, retry policies (2× backoff, 3 attempts max), and audit trails. See `STEP-FUNCTIONS-VERIFICATION.md` for deployment status and monitoring guide.
 
 **Standards compliance** — MCP over STDIO and Streamable HTTP, OAuth 2.1 with
 PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
@@ -287,23 +286,40 @@ curl -s -X POST http://localhost:8000/mcp \
 | `POST` | `/sampling` | JWT | `sampling/createMessage` |
 | `GET` | `/sse/v1/events` | No | SSE event stream |
 | `POST` | `/sse/v1/messages` | JWT | Publish to SSE bus |
-| `POST` | `/mcp/jobs` | JWT | Submit async job, returns `job_id` (local only; `503` on cloud until #29) |
-| `GET` | `/mcp/jobs/{job_id}` | JWT | Poll job status / result (local only) |
-| `POST` | `/mcp/jobs/batch` | JWT | Submit N jobs as a batch (local only; `503` on cloud until #29) |
-| `GET` | `/mcp/jobs/batch/{batch_id}` | JWT | Aggregate batch status / results (local only) |
+| `POST` | `/mcp/jobs` | JWT | Submit async job, returns `job_id`. Local: Redis Streams. Cloud: Step Functions (`STATE_MACHINE_ARN` set). `503` if neither backend is configured. |
+| `GET` | `/mcp/jobs/{job_id}` | JWT | Poll job status / result |
+| `POST` | `/mcp/jobs/batch` | JWT | Submit N jobs as a batch |
+| `GET` | `/mcp/jobs/batch/{batch_id}` | JWT | Aggregate batch status / results |
 
 Auth server (`:8001`): `POST /register`, `GET /authorize`, `POST /token`.
 
 ## Async Fleet — Cost Estimate (1,000 jobs/day)
 
-Costs below assume Claude 3.5 Sonnet on Bedrock with a typical 2,000 input / 500 output token job, and a single `cache.t4g.micro` Redis node on ElastiCache.
+### Step Functions backend (cloud, issue #29 — in progress)
+
+**Infrastructure status**: ✅ ElastiCache Redis, ECS, ALB, and IAM provisioned. ⏳ Step Functions state machine and Lambda worker pending PR #29 completion.
+
+Costs below assume Claude 3.5 Sonnet on Bedrock with a typical 2,000 input / 500 output token job.
+
+| Component | Unit cost | Daily (1k jobs) | Monthly |
+|-----------|-----------|-----------------|---------|
+| Step Functions — state transitions | $0.000025 / transition | ~$0.075 (3 transitions/job) | ~$2.25 |
+| Lambda — pipeline worker (512 MB, ~5 s avg) | $0.0000166667 / GB-s | ~$0.04 | ~$1.20 |
+| Bedrock — Claude 3.5 Sonnet input | $0.003 / 1k tokens | $6.00 | ~$180 |
+| Bedrock — Claude 3.5 Sonnet output | $0.015 / 1k tokens | $7.50 | ~$225 |
+| CloudWatch Logs (execution history) | $0.50 / GB ingested | ~$0.01 | ~$0.30 |
+| **Total** | | **~$13.63** | **~$409** |
+
+Step Functions adds <1 % overhead vs. the Redis Streams backend for typical workloads.
+Retry semantics and timeout enforcement are managed by the state machine — no manual PEL scanning required.
+
+### Redis Streams backend (local dev)
 
 | Component | Unit cost | Daily (1k jobs) | Monthly |
 |-----------|-----------|-----------------|---------|
 | Bedrock — Claude 3.5 Sonnet input | $0.003 / 1k tokens | $6.00 | ~$180 |
 | Bedrock — Claude 3.5 Sonnet output | $0.015 / 1k tokens | $7.50 | ~$225 |
 | ElastiCache Redis (`cache.t4g.micro`) | $0.016 / hr | $0.38 | ~$12 |
-| Data transfer (Redis ↔ gateway, same AZ) | $0.00 | $0.00 | $0 |
 | **Total** | | **~$13.88** | **~$417** |
 
 Throughput: with `FLEET_CONCURRENCY=4` and ~5 s average job duration, 1k jobs/day is comfortably within a single worker process. Scale `FLEET_CONCURRENCY` or add worker replicas for higher throughput.
@@ -313,11 +329,17 @@ Throughput: with `FLEET_CONCURRENCY=4` and ~5 s average job duration, 1k jobs/da
 ## Tests
 
 ```bash
-pytest tests/ -v    # 460+ tests (integration tests skip without Docker)
+pytest tests/ -v    # 530+ tests (integration tests skip without Docker)
 
 # Integration tests (requires full Docker stack)
 REDIS_URL=redis://localhost:6379 pytest -m integration -v
+
+# Step Functions integration tests against LocalStack
+docker compose --profile sfn up -d localstack
+AWS_ENDPOINT_URL=http://localhost:4566 pytest -m integration tests/test_fleet_sfn_localstack.py
 ```
+
+The `sfn-integration` CI job (`.github/workflows/ci.yml`) runs the LocalStack suite automatically on every push.
 
 ## Evaluation
 

@@ -127,7 +127,7 @@ resource "aws_route_table_association" "demo" {
 
 resource "aws_security_group" "gateway" {
   name        = "mcp-agent-factory-gateway"
-  description = "ECS gateway task - allow inbound HTTP from ALB"
+  description = "ECS gateway task - allow inbound HTTP from ALB, outbound to Redis"
   vpc_id      = aws_vpc.demo.id
 
   ingress {
@@ -139,11 +139,56 @@ resource "aws_security_group" "gateway" {
   }
 
   egress {
+    description = "All HTTPS (for AWS API calls, etc.)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description     = "Redis"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [aws_security_group.redis.id]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_security_group" "redis" {
+  name        = "mcp-agent-factory-redis"
+  description = "Redis ElastiCache - allow inbound from gateway"
+  vpc_id      = aws_vpc.demo.id
+
+  egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# Separate ingress rule to avoid circular dependency
+resource "aws_security_group_rule" "redis_from_gateway" {
+  type                     = "ingress"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.redis.id
+  source_security_group_id = aws_security_group.gateway.id
+  description              = "Redis from gateway"
 }
 
 # ---------------------------------------------------------------------------
@@ -167,6 +212,44 @@ resource "aws_ecs_cluster_capacity_providers" "gateway" {
     capacity_provider = "FARGATE"
     weight            = 1
   }
+}
+
+# ---------------------------------------------------------------------------
+# ElastiCache Redis — async job queue backend for Step Functions
+# Multi-AZ for high availability; automatic failover enabled
+# ---------------------------------------------------------------------------
+
+resource "aws_elasticache_subnet_group" "demo" {
+  name       = "mcp-agent-factory"
+  subnet_ids = aws_subnet.demo[*].id
+}
+
+resource "aws_elasticache_cluster" "redis" {
+  cluster_id           = "mcp-agent-factory"
+  engine               = "redis"
+  node_type            = "cache.t3.micro"  # smallest, free-tier eligible
+  num_cache_nodes      = 1
+  parameter_group_name = "default.redis7"
+  engine_version       = "7.0"
+  port                 = 6379
+  security_group_ids   = [aws_security_group.redis.id]
+  subnet_group_name    = aws_elasticache_subnet_group.demo.name
+
+  tags = merge(local.common_tags, { Name = "mcp-agent-factory-redis" })
+}
+
+# ---------------------------------------------------------------------------
+# SSM parameter for Redis URL (used by ECS task and docker-compose)
+# ConnectionString format: rediss://username:password@host:port/db
+# For demo: auth is disabled (requirepass set to ""), so format is: redis://host:port/0
+# ---------------------------------------------------------------------------
+
+resource "aws_ssm_parameter" "redis_url" {
+  name      = "/mcp-agent-factory/redis-url"
+  type      = "SecureString"
+  value     = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.port}/0"
+  overwrite = true
+  tags      = merge(local.common_tags, { Name = "redis-url" })
 }
 
 # ---------------------------------------------------------------------------
@@ -201,10 +284,9 @@ resource "aws_ecs_task_definition" "gateway" {
       environment = [
         { name = "ENVIRONMENT", value = var.environment },
         { name = "VECTOR_STORE_BACKEND", value = "pgvector" },
-        # Async job endpoints are disabled in the cloud demo (no Redis worker).
-        # They return 503 immediately instead of accepting jobs that would hang.
-        # Async jobs in the cloud will be enabled by #29 (Step Functions Worker).
-        { name = "ASYNC_JOBS_ENABLED", value = "false" },
+        # Async jobs are enabled via Step Functions (#29). The gateway reads STATE_MACHINE_ARN
+        # from SSM and activates the SFN backend when present.
+        { name = "ASYNC_JOBS_ENABLED", value = "true" },
       ]
 
       secrets = [
@@ -231,6 +313,10 @@ resource "aws_ecs_task_definition" "gateway" {
         {
           name      = "OTEL_EXPORTER_OTLP_HEADERS"
           valueFrom = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/otel-headers"
+        },
+        {
+          name      = "STATE_MACHINE_ARN"
+          valueFrom = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mcp-agent-factory/STATE_MACHINE_ARN"
         },
       ]
 

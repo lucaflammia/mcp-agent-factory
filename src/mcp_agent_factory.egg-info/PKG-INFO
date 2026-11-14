@@ -3,6 +3,9 @@ Name: mcp-agent-factory
 Version: 0.1.0
 Summary: Industrial-grade Multi-Agent Orchestrator using Model Context Protocol
 Requires-Python: >=3.11
+License-File: LICENSE
+License-File: NOTICE
+License-File: AUTHORS
 Requires-Dist: redis>=5
 Requires-Dist: python-dotenv>=1.0
 Requires-Dist: httpx>=0.27
@@ -22,8 +25,12 @@ Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
 Requires-Dist: fakeredis>=2.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0; extra == "dev"
+Requires-Dist: moto[stepfunctions]>=5.0; extra == "dev"
+Requires-Dist: boto3>=1.34; extra == "dev"
 Provides-Extra: infra
 Requires-Dist: aiokafka>=0.10; extra == "infra"
+Requires-Dist: boto3>=1.34; extra == "infra"
 Provides-Extra: ml
 Requires-Dist: sentence-transformers>=2.2; extra == "ml"
 Provides-Extra: crew
@@ -31,11 +38,16 @@ Requires-Dist: crewai>=0.80; extra == "crew"
 Provides-Extra: optimizer
 Requires-Dist: dspy-ai>=2.5; extra == "optimizer"
 Requires-Dist: aiokafka>=0.10; extra == "optimizer"
+Provides-Extra: pgvector
+Requires-Dist: psycopg[binary]>=3.1; extra == "pgvector"
+Requires-Dist: pgvector>=0.3; extra == "pgvector"
 Provides-Extra: otel
 Requires-Dist: opentelemetry-api>=1.24; extra == "otel"
 Requires-Dist: opentelemetry-sdk>=1.24; extra == "otel"
 Requires-Dist: opentelemetry-exporter-otlp-proto-grpc>=1.24; extra == "otel"
+Requires-Dist: opentelemetry-exporter-otlp-proto-http>=1.24; extra == "otel"
 Requires-Dist: opentelemetry-instrumentation-fastapi>=0.45b0; extra == "otel"
 Requires-Dist: opentelemetry-instrumentation-httpx>=0.45b0; extra == "otel"
 Requires-Dist: prometheus-fastapi-instrumentator>=6.1; extra == "otel"
 Requires-Dist: prometheus_client>=0.20; extra == "otel"
+Dynamic: license-file

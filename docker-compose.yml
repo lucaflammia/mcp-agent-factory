@@ -365,6 +365,31 @@ services:
     ports:
       - "8086:8081"
 
+  # ---------------------------------------------------------------------------
+  # LocalStack — Step Functions (and Lambda) emulation for local/CI testing
+  # Start with: docker compose --profile sfn up -d localstack
+  # Set AWS_ENDPOINT_URL=http://localhost:4566 and STATE_MACHINE_ARN accordingly
+  # ---------------------------------------------------------------------------
+
+  localstack:
+    image: localstack/localstack:3
+    profiles: [sfn, full]
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: stepfunctions,lambda,iam,logs
+      DEBUG: 0
+      LAMBDA_EXECUTOR: local
+      AWS_DEFAULT_REGION: ${AWS_REGION:-eu-west-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   # MCP Inspector — visual introspection of MCP tool boundaries and handshake
   # Access: http://localhost:6274
   # Transports:
