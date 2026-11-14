@@ -109,6 +109,56 @@ jobs:
           KAFKA_BOOTSTRAP: localhost:9092
         run: pytest -m integration --tb=short -q
 
+  sfn-integration:
+    name: Step Functions integration (LocalStack)
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:3
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: stepfunctions,lambda,iam,logs
+          DEBUG: 0
+          LAMBDA_EXECUTOR: local
+          AWS_DEFAULT_REGION: eu-west-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+        options: >-
+          --health-cmd "bash -c 'curl -sf http://localhost:4566/_localstack/health | python3 -c \"import sys,json; h=json.load(sys.stdin)[\"services\"]; sys.exit(0 if h.get(\"stepfunctions\")==\"available\" else 1)\"'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 30s
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,infra,otel]"
+
+      - name: Run LocalStack SFN integration tests
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_DEFAULT_REGION: eu-west-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          REDIS_URL: redis://localhost:6379
+        run: pytest -m integration tests/test_fleet_sfn_localstack.py --tb=short -q
+
   eval:
     name: Evaluation harness
     runs-on: ubuntu-latest
