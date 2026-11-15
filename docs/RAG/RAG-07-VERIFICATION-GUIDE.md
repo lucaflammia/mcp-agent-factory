@@ -17,6 +17,7 @@ docker-compose up -d
 # Run DB migrations
 psql $DATABASE_URL -f migrations/001_pgvector_init.sql
 psql $DATABASE_URL -f migrations/002_rag05_embedder_versioning.sql
+psql $DATABASE_URL -f migrations/003_rag_source_id.sql
 ```
 
 ---
@@ -38,10 +39,10 @@ python -m mcp_agent_factory.knowledge.ingest --source data/samples/finance_q3_20
 ### Verify chunk metadata
 
 ```sql
-SELECT tenant, embedder_id, content_hash FROM chunks LIMIT 5;
+SELECT owner_id, embedder_id, content_hash, source_id FROM chunks LIMIT 5;
 ```
 
-All three columns must be non-null.
+All four columns must be non-null (or source_id may be null for backfilled rows).
 
 ### Verify PII scrubbing
 
