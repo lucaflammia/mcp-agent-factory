@@ -29,9 +29,15 @@ CREATE INDEX IF NOT EXISTS idx_chunks_owner_embedder_embedding
     WHERE embedder_id IS NOT NULL;
 
 -- Create unique constraint on (owner_id, embedder_id, content_hash) for deduplication
-ALTER TABLE chunks
-    ADD CONSTRAINT IF NOT EXISTS uq_chunks_owner_embedder_hash
-    UNIQUE (owner_id, embedder_id, content_hash);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_chunks_owner_embedder_hash'
+    ) THEN
+        ALTER TABLE chunks ADD CONSTRAINT uq_chunks_owner_embedder_hash
+            UNIQUE (owner_id, embedder_id, content_hash);
+    END IF;
+END $$;
 
 -- Add updated_at timestamp for tracking when each version was added
 ALTER TABLE chunks
