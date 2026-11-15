@@ -382,6 +382,7 @@ class TestDocumentation:
             os.path.dirname(__file__),
             "..",
             "docs",
+            "RAG",
             "RAG-05-EMBEDDER-VERSIONING.md"
         )
         assert os.path.exists(doc_path), f"Documentation not found at {doc_path}"
