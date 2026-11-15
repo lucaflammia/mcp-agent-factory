@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import defaultdict
 from dataclasses import dataclass
@@ -592,7 +593,7 @@ class PgVectorStore:
     conn.commit()
     return deleted
 
-  def backup(self, path: str | Path) -> dict[str, Any]:
+  async def backup(self, path: str | Path) -> dict[str, Any]:
     """Create a point-in-time backup of all chunks to a JSON file.
 
     Returns metadata: {
@@ -602,86 +603,114 @@ class PgVectorStore:
       'timestamp': isoformat,
     }
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    def _do_backup():
+      path_obj = Path(path)
+      path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = self._connect()
-    backup_data = {
-      'chunks': [],
-      'metadata': {
-        'timestamp': datetime.utcnow().isoformat(),
+      conn = self._connect()
+      backup_data = {
+        'chunks': [],
+        'metadata': {
+          'timestamp': datetime.utcnow().isoformat(),
+        }
       }
-    }
 
-    with conn.cursor() as cur:
-      cur.execute("""
-        SELECT owner_id, chunk_id, text, embedding, source_id, embedder_id
-        FROM chunks
-        ORDER BY owner_id, chunk_id
-      """)
-      for row in cur.fetchall():
-        backup_data['chunks'].append({
-          'owner_id': row[0],
-          'chunk_id': row[1],
-          'text': row[2],
-          'embedding': row[3].tolist() if hasattr(row[3], 'tolist') else row[3],
-          'source_id': row[4],
-          'embedder_id': row[5],
-        })
+      with conn.cursor() as cur:
+        cur.execute("""
+          SELECT owner_id, chunk_id, text, embedding, source_id, embedder_id
+          FROM chunks
+          ORDER BY owner_id, chunk_id
+        """)
+        for row in cur.fetchall():
+          embedding = row[3]
+          if hasattr(embedding, 'to_list'):
+            # pgvector.Vector objects have to_list() method
+            embedding_list = embedding.to_list()
+          elif isinstance(embedding, str):
+            # psycopg might return as string: "[0.1,0.2,...]"
+            embedding_list = json.loads(embedding)
+          elif hasattr(embedding, 'tolist'):
+            # numpy arrays
+            embedding_list = embedding.tolist()
+          else:
+            # Fallback: attempt iteration
+            embedding_list = list(embedding)
 
-    backup_data['metadata']['chunk_count'] = len(backup_data['chunks'])
+          # Compute content_hash if not in database (for compatibility)
+          import hashlib
+          text = row[2]
+          content_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
 
-    with open(path, 'w') as f:
-      json.dump(backup_data, f, indent=2)
+          backup_data['chunks'].append({
+            'owner_id': row[0],
+            'chunk_id': row[1],
+            'text': row[2],
+            'embedding': embedding_list,
+            'source_id': row[4],
+            'embedder_id': row[5],
+            'content_hash': content_hash,
+          })
 
-    owner_ids = set(c['owner_id'] for c in backup_data['chunks'])
-    return {
-      'backup_path': str(path),
-      'chunk_count': len(backup_data['chunks']),
-      'owner_ids': sorted(owner_ids),
-      'timestamp': backup_data['metadata']['timestamp'],
-    }
+      backup_data['metadata']['chunk_count'] = len(backup_data['chunks'])
 
-  def restore(self, path: str | Path) -> dict[str, int]:
+      with open(path_obj, 'w') as f:
+        json.dump(backup_data, f, indent=2)
+
+      owner_ids = set(c['owner_id'] for c in backup_data['chunks'])
+      return {
+        'backup_path': str(path_obj),
+        'chunk_count': len(backup_data['chunks']),
+        'owner_ids': sorted(owner_ids),
+        'timestamp': backup_data['metadata']['timestamp'],
+      }
+
+    return await asyncio.to_thread(_do_backup)
+
+  async def restore(self, path: str | Path) -> dict[str, int]:
     """Restore vector store from a backup file (clears existing data).
 
     Returns: {'chunks_restored': int, 'owners_restored': int}
     """
-    path = Path(path)
-    if not path.exists():
-      raise FileNotFoundError(f"Backup file not found: {path}")
+    def _do_restore():
+      path_obj = Path(path)
+      if not path_obj.exists():
+        raise FileNotFoundError(f"Backup file not found: {path_obj}")
 
-    with open(path) as f:
-      backup_data = json.load(f)
+      with open(path_obj) as f:
+        backup_data = json.load(f)
 
-    conn = self._connect()
-    owner_ids = set()
+      conn = self._connect()
+      owner_ids = set()
 
-    # Clear existing data
-    with conn.cursor() as cur:
-      cur.execute("TRUNCATE chunks CASCADE")
+      # Clear existing data
+      with conn.cursor() as cur:
+        cur.execute("TRUNCATE chunks CASCADE")
 
-    # Restore chunks
-    with conn.cursor() as cur:
-      for chunk in backup_data.get('chunks', []):
-        cur.execute("""
-          INSERT INTO chunks (owner_id, chunk_id, text, embedding, source_id, embedder_id)
-          VALUES (%s, %s, %s, %s, %s, %s)
-        """, (
-          chunk['owner_id'],
-          chunk['chunk_id'],
-          chunk['text'],
-          chunk['embedding'],
-          chunk.get('source_id', ''),
-          chunk.get('embedder_id', 'unknown'),
-        ))
-        owner_ids.add(chunk['owner_id'])
+      # Restore chunks
+      with conn.cursor() as cur:
+        for chunk in backup_data.get('chunks', []):
+          cur.execute("""
+            INSERT INTO chunks (owner_id, chunk_id, text, embedding, ts, source_id, embedder_id, content_hash)
+            VALUES (%s, %s, %s, %s, to_tsvector('english', %s), %s, %s, %s)
+          """, (
+            chunk['owner_id'],
+            chunk['chunk_id'],
+            chunk['text'],
+            chunk['embedding'],
+            chunk['text'],
+            chunk.get('source_id', ''),
+            chunk.get('embedder_id', 'unknown'),
+            chunk.get('content_hash', ''),
+          ))
+          owner_ids.add(chunk['owner_id'])
 
-    conn.commit()
-    return {
-      'chunks_restored': len(backup_data.get('chunks', [])),
-      'owners_restored': len(owner_ids),
-    }
+      conn.commit()
+      return {
+        'chunks_restored': len(backup_data.get('chunks', [])),
+        'owners_restored': len(owner_ids),
+      }
+
+    return await asyncio.to_thread(_do_restore)
 
   def compact(self) -> dict[str, Any]:
     """Run maintenance: VACUUM, ANALYZE, and update index statistics.
