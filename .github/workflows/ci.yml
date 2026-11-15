@@ -5,6 +5,9 @@ on:
     branches: [main, tier-1, rag-prod]
   pull_request:
     branches: [main, tier-1, rag-prod]
+  schedule:
+    # Nightly eval gate — fails on regression beyond threshold
+    - cron: "0 2 * * *"
 
 permissions:
   contents: read

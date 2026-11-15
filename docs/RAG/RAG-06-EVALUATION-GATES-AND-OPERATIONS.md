@@ -20,7 +20,7 @@ RAG-06 establishes three critical operational frameworks:
 
 The golden set is a versioned dataset of questions, expected answers, and source chunks:
 - **Location:** `evals/datasets/rag_qa.jsonl` (primary), `evals/datasets/extraction.jsonl`, `evals/datasets/refusal.jsonl`
-- **Version tracking:** Every eval run records `git_sha` and `timestamp` in metadata
+- **Version tracking:** Every eval run records `git_sha`, `timestamp`, and `golden_set_version` (SHA-256 hash of all dataset files, first 12 hex chars) in metadata
 
 ### Structure
 
@@ -44,6 +44,12 @@ The golden set is a versioned dataset of questions, expected answers, and source
 
 **CI Job (`.github/workflows/ci.yml`):**
 ```yaml
+on:
+  push:            # runs on every push to main/tier-1/rag-prod
+  pull_request:    # runs on PRs to those branches
+  schedule:
+    - cron: "0 2 * * *"   # nightly at 02:00 UTC
+
 eval:
   - Run: python -m evals.runner --all --tag <SHA>
   - Compare: python -m evals.compare baseline <SHA>
