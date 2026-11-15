@@ -132,12 +132,23 @@ class InMemoryVectorStore:
       'timestamp': backup_data['metadata']['timestamp'],
     }
 
-  def restore(self, path: str | Path) -> dict[str, int]:
+  def restore(self, path: str | Path | dict) -> dict[str, int]:
     """Restore vector store from a backup file.
+
+    Args:
+      path: File path (str or Path) or backup metadata dict (from backup()).
+            If dict, extracts the 'backup_path' key.
 
     Returns: {'chunks_restored': int, 'owners_restored': int}
     """
-    path = Path(path)
+    # Handle backup metadata dict returned from backup()
+    if isinstance(path, dict):
+      path_str = path.get('backup_path')
+      if not path_str:
+        raise ValueError("Backup metadata dict must contain 'backup_path' key")
+      path = Path(path_str)
+    else:
+      path = Path(path)
     if not path.exists():
       raise FileNotFoundError(f"Backup file not found: {path}")
 
@@ -666,13 +677,24 @@ class PgVectorStore:
 
     return await asyncio.to_thread(_do_backup)
 
-  async def restore(self, path: str | Path) -> dict[str, int]:
+  async def restore(self, path: str | Path | dict) -> dict[str, int]:
     """Restore vector store from a backup file (clears existing data).
+
+    Args:
+      path: File path (str or Path) or backup metadata dict (from backup()).
+            If dict, extracts the 'backup_path' key.
 
     Returns: {'chunks_restored': int, 'owners_restored': int}
     """
     def _do_restore():
-      path_obj = Path(path)
+      # Handle backup metadata dict returned from backup()
+      if isinstance(path, dict):
+        path_str = path.get('backup_path')
+        if not path_str:
+          raise ValueError("Backup metadata dict must contain 'backup_path' key")
+        path_obj = Path(path_str)
+      else:
+        path_obj = Path(path)
       if not path_obj.exists():
         raise FileNotFoundError(f"Backup file not found: {path_obj}")
 
