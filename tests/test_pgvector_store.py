@@ -466,3 +466,30 @@ class TestPgVectorStoreOperations:
     results = store.search_hybrid("tenant-a", "query", v, top_k=5)
 
     assert results == []
+
+  def test_connect_raises_on_missing_psycopg(self, mock_pg_deps):
+    """Test that _connect raises RuntimeError if psycopg import fails."""
+    conn, cur = mock_pg_deps
+    store = _store(conn, cur)
+    # Clear the mocked psycopg to simulate import failure
+    store._conn = None
+
+    with patch.dict(sys.modules, {"psycopg": None, "pgvector": None}):
+      with pytest.raises(RuntimeError, match="psycopg and pgvector are required"):
+        store._connect()
+
+  def test_search_with_filters_inner_exception_fallback(self, mock_pg_deps):
+    """Test that search_with_filters inner exception handler falls back on schema error."""
+    conn, cur = mock_pg_deps
+    store = _store(conn, cur)
+
+    # Make execute raise an exception to trigger inner exception handler
+    cur.execute.side_effect = Exception("Schema does not support filtering")
+    v = np.ones(384, dtype=np.float32)
+
+    # The inner exception handler should fall back to basic search
+    # We need to set up search() to return results
+    with patch.object(store, "search", return_value=[("fallback", 0.7)]):
+      results = store.search_with_filters("tenant-a", v, top_k=5)
+      assert results == [("fallback", 0.7)]
+
