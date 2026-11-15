@@ -38,6 +38,57 @@ class SourceAdapter(Protocol):
         ...  # pragma: no cover
 
 
+class FileSourceAdapter:
+    """SourceAdapter that reads a single file from disk (PDF or plain text).
+
+    PDF extraction requires ``pymupdf`` (``import fitz``) or falls back to
+    ``pypdf`` if available, otherwise reads as plain text.
+    """
+
+    def __init__(self, path: str, tenant: str, source_id: str | None = None) -> None:
+        self._path = path
+        self._tenant = tenant
+        self._source_id = source_id or path
+
+    def _read_text(self) -> str:
+        path = self._path
+        if path.lower().endswith(".pdf"):
+            try:
+                import fitz  # pymupdf
+                doc = fitz.open(path)
+                return "\n".join(page.get_text() for page in doc)
+            except ImportError:
+                pass
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(path)
+                return "\n".join(p.extract_text() or "" for p in reader.pages)
+            except ImportError:
+                pass
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    async def list_documents(self) -> AsyncIterator[SourceDocument]:
+        text = self._read_text()
+        yield SourceDocument(
+            source_id=self._source_id,
+            tenant=self._tenant,
+            text=text,
+            extra={"source_type": "pdf" if self._path.lower().endswith(".pdf") else "default"},
+        )
+
+    async def list_modified(self, since: datetime) -> AsyncIterator[SourceDocument]:
+        import os
+        mtime = datetime.fromtimestamp(os.path.getmtime(self._path), tz=timezone.utc)
+        if mtime > since:
+            async for doc in self.list_documents():
+                yield doc
+
+    async def list_deleted_ids(self, since: datetime) -> AsyncIterator[str]:
+        return
+        yield  # make it an async generator
+
+
 class InMemorySourceAdapter:
     """SourceAdapter backed by an explicit document list — useful for tests."""
 

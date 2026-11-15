@@ -7,8 +7,9 @@ This guide walks through verifying every acceptance criterion for the production
 ## Prerequisites
 
 ```bash
-# Install dependencies
+# Install dependencies (includes sentence-transformers for 384-dim embeddings)
 pip install -e ".[dev]"
+pip install sentence-transformers psycopg[binary]
 
 # Start supporting services (Postgres + pgvector, Redis, Prometheus, Grafana)
 docker-compose up -d
@@ -45,7 +46,7 @@ All three columns must be non-null.
 ### Verify PII scrubbing
 
 ```bash
-python -m pytest tests/test_pii.py -v
+python -m pytest tests/test_rag02_idempotent_ingestion.py -v -k "pii"
 ```
 
 ---
@@ -55,23 +56,15 @@ python -m pytest tests/test_pii.py -v
 ### Tenant isolation smoke test
 
 ```bash
-python -m pytest tests/test_query_handler.py -v -k "tenant"
+python -m pytest tests/test_pgvector_store.py -v -k "tenant"
 ```
 
 A query with `tenant=A` must return zero results for chunks ingested under `tenant=B`.
 
-### Embedder version check at query time
+### Full RAG-02 / ingestion test suite
 
 ```bash
-python -m pytest tests/test_query_handler.py -v -k "embedder"
-```
-
-A query using a deprecated embedder version must be rejected with a clear error.
-
-### Hard filters
-
-```bash
-python -m pytest tests/test_query_handler.py -v -k "filter"
+python -m pytest tests/test_rag02_idempotent_ingestion.py tests/test_ingest.py -v
 ```
 
 ---
@@ -81,42 +74,19 @@ python -m pytest tests/test_query_handler.py -v -k "filter"
 ### Schema validation and citation check
 
 ```bash
-python -m pytest tests/test_generation.py -v
+python -m pytest tests/test_rag04_validated_generation.py -v
 ```
 
 Inject a question with known source chunks; assert the response includes `citations` referencing the correct `chunk_id` values and passes schema validation.
-
-### Refusal on out-of-scope questions
-
-```bash
-python -c "
-from mcp_agent_factory.knowledge.generation import generate
-result = generate('What is the boiling point of tungsten?', chunks=[])
-assert result['answer'].startswith('I cannot'), f'Expected refusal, got: {result[\"answer\"]}'
-print('Refusal OK')
-"
-```
 
 ---
 
 ## 4. Embedder Versioning and Dual-Write Cutover (RAG-05)
 
-### Version recorded in every embedding
+### Version recorded in every embedding, dual-write, and cutover
 
 ```bash
-python -m pytest tests/test_embedder.py -v -k "version"
-```
-
-### Dual-write mode: both old and new index get writes
-
-```bash
-python -m pytest tests/test_embedder.py -v -k "dual_write"
-```
-
-### Cutover: disable old version, verify queries use new
-
-```bash
-python -m pytest tests/test_embedder.py -v -k "cutover"
+python -m pytest tests/test_rag05_embedder_versioning.py -v
 ```
 
 ---
@@ -126,7 +96,7 @@ python -m pytest tests/test_embedder.py -v -k "cutover"
 ### Run the eval harness against the golden set
 
 ```bash
-python -m evals.runner --dataset evals/datasets/rag_qa.jsonl --output evals/results/manual-run.json
+python -m evals.runner --dataset rag_qa --tag manual-run
 ```
 
 Output must include `golden_set_version` in `meta` and separate `retrieval` / `generation` metric blocks.
@@ -134,13 +104,14 @@ Output must include `golden_set_version` in `meta` and separate `retrieval` / `g
 ### Simulate a quality regression
 
 ```bash
-# Compare against baseline — should pass
-python -m evals.compare evals/results/baseline.json evals/results/manual-run.json
+# Compare two run tags — the compare tool exits non-zero on regression
+python -m evals.compare baseline manual-run
 
-# Degrade the baseline threshold to force a failure
-python -m evals.compare evals/results/baseline.json evals/results/manual-run.json --threshold 0.01
-echo "Exit code: $?"  # expect non-zero
+# To see raw JSON diff
+python -m evals.compare baseline manual-run --json
 ```
+
+Run tags are set via `--tag` when calling `evals.runner`. The baseline tag is `baseline` (file: `evals/results/baseline.json`).
 
 ---
 

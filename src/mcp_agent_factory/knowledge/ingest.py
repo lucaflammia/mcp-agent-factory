@@ -374,3 +374,58 @@ class IngestionWorker:
             "chunk_size": self._chunk_size,
             "overlap": self._overlap,
         })
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def _cli() -> None:
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description="Ingest a document into the RAG knowledge base.")
+    parser.add_argument("--source", required=True, help="Path to the source document (PDF or text).")
+    parser.add_argument("--tenant", default="default", help="Tenant identifier.")
+    parser.add_argument("--embedder-id", default="stub@v1", help="Embedder version tag.")
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"), help="PostgreSQL DSN.")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    from mcp_agent_factory.knowledge.embedder import LocalEmbedder, StubEmbedder
+    from mcp_agent_factory.knowledge.source import FileSourceAdapter
+    from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore, PgVectorStore
+
+    store = PgVectorStore(args.database_url) if args.database_url else InMemoryVectorStore()
+
+    try:
+        embedder = LocalEmbedder()
+        embedder.embed("warmup")  # trigger load; fail fast if sentence-transformers missing
+        logging.getLogger(__name__).info("Using LocalEmbedder (all-MiniLM-L6-v2, 384-dim)")
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "sentence-transformers not available; install it with: "
+            "pip install sentence-transformers\n"
+            "Falling back to StubEmbedder (64-dim) — only works with InMemoryVectorStore."
+        )
+        if args.database_url:
+            raise SystemExit(
+                "ERROR: LocalEmbedder required for PgVectorStore (schema expects 384-dim vectors).\n"
+                "Install sentence-transformers: pip install sentence-transformers"
+            )
+        embedder = StubEmbedder()
+
+    pipeline = IdempotentIngestionPipeline(
+        store=store,
+        embedder=embedder,
+        embedder_id=args.embedder_id,
+    )
+
+    adapter = FileSourceAdapter(path=args.source, tenant=args.tenant)
+    stats = asyncio.run(pipeline.ingest(adapter))
+    print(f"Ingestion complete: {stats}")
+
+
+if __name__ == "__main__":
+    _cli()
