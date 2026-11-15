@@ -1,7 +1,9 @@
 """Unit tests for PgVectorStore (no live Postgres needed — patches psycopg)."""
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
@@ -143,8 +145,6 @@ class TestPgVectorStoreOperations:
     conn, cur = mock_pg_deps
     store = _store(conn, cur)
 
-    import tempfile
-    import json
     with tempfile.TemporaryDirectory() as tmpdir:
       backup_path = f"{tmpdir}/backup.json"
       backup_data = {
