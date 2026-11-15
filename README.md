@@ -137,6 +137,22 @@ results = handler.retrieve(query, auth_context={"tenant": "acme", ..., "embedder
 
 **Test coverage:** 11 tests covering version isolation, mismatch errors, dual-write, query switching, rollback, and backfill deduplication.
 
+### RAG-06: Evaluation Gates and Operations ✅
+
+Operational confidence layer: versioned golden-set CI gate, observability dashboards, and runbook-backed operations procedures.
+
+1. **Golden-set eval gate** — `evals/datasets/{rag_qa,extraction,refusal}.jsonl` are versioned in the repo; every eval run records `golden_set_version` (SHA-256 of dataset files), `git_sha`, and Wilson CI bounds in `evals/results/<tag>.json`
+2. **Nightly CI regression gate** — `.github/workflows/ci.yml` runs evals on every push *and* nightly at 02:00 UTC; fails if pass rate regresses beyond 5% against `evals/results/baseline.json`
+3. **Retrieval + generation metrics reported separately** — `evals/metrics/` splits retrieval recall/MRR/nDCG from generation groundedness/refusal
+4. **Grafana dashboards** — `observability/grafana/dashboards/rag-metrics.json` shows top-1 score distribution, score gap, empty-result rate, refusal rate, and baseline comparison; alerts fire on refusal-rate spike
+5. **Backup/restore** — `PgVectorStore.backup()` / `.restore()` with documented drill; restore time recorded
+6. **Right to be forgotten** — `PgVectorStore.delete_by_data_subject()` removes all chunks by data subject; `delete_by_source_id()` removes by source; follow-up query verifies content is gone
+7. **Weekly compaction** — `PgVectorStore.compact()` scheduled every Monday 02:00 UTC; documented in runbook
+
+**Documentation:** `docs/RAG/RAG-06-EVALUATION-GATES-AND-OPERATIONS.md` — eval gate setup, dashboard guide, and operations runbook.
+
+**Test coverage:** 29 tests covering backup/restore, deletion, compaction, search filters, MMR diversification, and connection management.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |

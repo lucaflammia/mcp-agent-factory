@@ -5,6 +5,9 @@ on:
     branches: [main, tier-1, rag-prod]
   pull_request:
     branches: [main, tier-1, rag-prod]
+  schedule:
+    # Nightly eval gate — fails on regression beyond threshold
+    - cron: "0 2 * * *"
 
 permissions:
   contents: read
@@ -197,7 +200,27 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python -m evals.runner --dry-run --all
+        run: python -m evals.runner --all --tag "${{ github.sha }}"
+
+      - name: Compare against baseline
+        if: steps.check.outputs.exists == 'true' && github.event_name == 'push'
+        run: |
+          python -m evals.compare baseline "${{ github.sha }}" --json > /tmp/comparison.json
+          DELTA=$(python3 -c "import json; d=json.load(open('/tmp/comparison.json')); print(d['pass_rates']['delta'])")
+          if (( $(echo "$DELTA < -0.05" | bc -l) )); then
+            echo "REGRESSION DETECTED: Pass rate declined by $DELTA (threshold: -5%)"
+            python -m evals.compare baseline "${{ github.sha }}"
+            exit 1
+          fi
+          echo "Pass rate delta: $DELTA (within threshold)"
+
+      - name: Upload eval results
+        if: always() && steps.check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.sha }}
+          path: evals/results/
+          retention-days: 30
 
       - name: Check for regressions
         if: steps.check.outputs.exists == 'true'

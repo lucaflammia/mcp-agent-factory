@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from pathlib import Path
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -71,6 +73,102 @@ class InMemoryVectorStore:
 
   def chunk_exists(self, owner_id: str, chunk_id: str, embedder_id: str = "unknown") -> bool:
     return (owner_id, chunk_id, embedder_id) in self._store
+
+  def delete_by_data_subject(self, owner_id: str, data_subject_id: str) -> int:
+    """Delete all chunks for a data subject (RTBF). Returns count deleted.
+
+    RAG-06: Right to be forgotten — removes chunks where the data subject
+    is referenced in source_id or content. Use for GDPR/privacy compliance.
+    """
+    to_delete = [
+      k for k, (text, _, sid) in self._store.items()
+      if k[0] == owner_id and (data_subject_id in sid or data_subject_id in text)
+    ]
+    for k in to_delete:
+      del self._store[k]
+    return len(to_delete)
+
+  def backup(self, path: str | Path) -> dict[str, Any]:
+    """Create a point-in-time backup of the vector store.
+
+    Returns metadata: {
+      'backup_path': path,
+      'chunk_count': int,
+      'owner_ids': [str],
+      'timestamp': isoformat,
+    }
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    backup_data = {
+      'store': {},
+      'metadata': {
+        'timestamp': datetime.utcnow().isoformat(),
+        'chunk_count': len(self._store),
+      }
+    }
+
+    for key, (text, vec, source_id) in self._store.items():
+      owner_id, chunk_id, embedder_id = key
+      backup_data['store'][str(key)] = {
+        'owner_id': owner_id,
+        'chunk_id': chunk_id,
+        'embedder_id': embedder_id,
+        'text': text,
+        'vector': vec.tolist(),
+        'source_id': source_id,
+      }
+
+    with open(path, 'w') as f:
+      json.dump(backup_data, f, indent=2)
+
+    owner_ids = set(k[0] for k in self._store.keys())
+    return {
+      'backup_path': str(path),
+      'chunk_count': len(self._store),
+      'owner_ids': sorted(owner_ids),
+      'timestamp': backup_data['metadata']['timestamp'],
+    }
+
+  def restore(self, path: str | Path) -> dict[str, int]:
+    """Restore vector store from a backup file.
+
+    Returns: {'chunks_restored': int, 'owners_restored': int}
+    """
+    path = Path(path)
+    if not path.exists():
+      raise FileNotFoundError(f"Backup file not found: {path}")
+
+    with open(path) as f:
+      backup_data = json.load(f)
+
+    self._store.clear()
+    owner_ids = set()
+
+    for key_str, data in backup_data.get('store', {}).items():
+      key = (data['owner_id'], data['chunk_id'], data['embedder_id'])
+      vec = np.array(data['vector'], dtype=np.float32)
+      self._store[key] = (data['text'], vec, data['source_id'])
+      owner_ids.add(data['owner_id'])
+
+    return {
+      'chunks_restored': len(self._store),
+      'owners_restored': len(owner_ids),
+    }
+
+  def compact(self) -> dict[str, Any]:
+    """Remove dead entries and defragment store (no-op for in-memory).
+
+    For in-memory store, this is a no-op. For PgVectorStore, this would
+    run VACUUM and update statistics.
+
+    Returns: {'status': 'ok', 'chunk_count': int}
+    """
+    return {
+      'status': 'ok',
+      'chunk_count': len(self._store),
+    }
 
   def search(self, owner_id: str, query_vector: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]:
     tracer = get_tracer("mcp_gateway.vector_store")
@@ -463,6 +561,148 @@ class PgVectorStore:
     except Exception:
       # If MMR fails, return top_k by score
       return sorted(candidates, key=lambda x: x[1], reverse=True)[:top_k]
+
+  def delete_by_source(self, owner_id: str, source_id: str) -> int:
+    """Remove all chunks for the given source_id. Returns count deleted."""
+    conn = self._connect()
+    with conn.cursor() as cur:
+      cur.execute(
+        "DELETE FROM chunks WHERE owner_id = %s AND source_id = %s",
+        (owner_id, source_id)
+      )
+      deleted = cur.rowcount
+    conn.commit()
+    return deleted
+
+  def delete_by_data_subject(self, owner_id: str, data_subject_id: str) -> int:
+    """Delete all chunks for a data subject (RTBF). Returns count deleted.
+
+    RAG-06: Right to be forgotten — removes chunks where the data subject
+    is referenced in source_id or chunk text. Use for GDPR/privacy compliance.
+    """
+    conn = self._connect()
+    with conn.cursor() as cur:
+      cur.execute(
+        """DELETE FROM chunks
+           WHERE owner_id = %s
+             AND (source_id ILIKE %s OR text ILIKE %s)""",
+        (owner_id, f"%{data_subject_id}%", f"%{data_subject_id}%")
+      )
+      deleted = cur.rowcount
+    conn.commit()
+    return deleted
+
+  def backup(self, path: str | Path) -> dict[str, Any]:
+    """Create a point-in-time backup of all chunks to a JSON file.
+
+    Returns metadata: {
+      'backup_path': path,
+      'chunk_count': int,
+      'owner_ids': [str],
+      'timestamp': isoformat,
+    }
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = self._connect()
+    backup_data = {
+      'chunks': [],
+      'metadata': {
+        'timestamp': datetime.utcnow().isoformat(),
+      }
+    }
+
+    with conn.cursor() as cur:
+      cur.execute("""
+        SELECT owner_id, chunk_id, text, embedding, source_id, embedder_id
+        FROM chunks
+        ORDER BY owner_id, chunk_id
+      """)
+      for row in cur.fetchall():
+        backup_data['chunks'].append({
+          'owner_id': row[0],
+          'chunk_id': row[1],
+          'text': row[2],
+          'embedding': row[3].tolist() if hasattr(row[3], 'tolist') else row[3],
+          'source_id': row[4],
+          'embedder_id': row[5],
+        })
+
+    backup_data['metadata']['chunk_count'] = len(backup_data['chunks'])
+
+    with open(path, 'w') as f:
+      json.dump(backup_data, f, indent=2)
+
+    owner_ids = set(c['owner_id'] for c in backup_data['chunks'])
+    return {
+      'backup_path': str(path),
+      'chunk_count': len(backup_data['chunks']),
+      'owner_ids': sorted(owner_ids),
+      'timestamp': backup_data['metadata']['timestamp'],
+    }
+
+  def restore(self, path: str | Path) -> dict[str, int]:
+    """Restore vector store from a backup file (clears existing data).
+
+    Returns: {'chunks_restored': int, 'owners_restored': int}
+    """
+    path = Path(path)
+    if not path.exists():
+      raise FileNotFoundError(f"Backup file not found: {path}")
+
+    with open(path) as f:
+      backup_data = json.load(f)
+
+    conn = self._connect()
+    owner_ids = set()
+
+    # Clear existing data
+    with conn.cursor() as cur:
+      cur.execute("TRUNCATE chunks CASCADE")
+
+    # Restore chunks
+    with conn.cursor() as cur:
+      for chunk in backup_data.get('chunks', []):
+        cur.execute("""
+          INSERT INTO chunks (owner_id, chunk_id, text, embedding, source_id, embedder_id)
+          VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+          chunk['owner_id'],
+          chunk['chunk_id'],
+          chunk['text'],
+          chunk['embedding'],
+          chunk.get('source_id', ''),
+          chunk.get('embedder_id', 'unknown'),
+        ))
+        owner_ids.add(chunk['owner_id'])
+
+    conn.commit()
+    return {
+      'chunks_restored': len(backup_data.get('chunks', [])),
+      'owners_restored': len(owner_ids),
+    }
+
+  def compact(self) -> dict[str, Any]:
+    """Run maintenance: VACUUM, ANALYZE, and update index statistics.
+
+    RAG-06: Weekly compaction removes dead tuples from deletions and
+    updates query planner statistics.
+
+    Returns: {'status': 'ok', 'chunk_count': int}
+    """
+    conn = self._connect()
+    with conn.cursor() as cur:
+      # VACUUM (remove dead tuples)
+      cur.execute("VACUUM ANALYZE chunks")
+      # Get final chunk count
+      cur.execute("SELECT COUNT(*) FROM chunks")
+      chunk_count = cur.fetchone()[0]
+    conn.commit()
+    return {
+      'status': 'ok',
+      'chunk_count': chunk_count,
+    }
 
   def close(self) -> None:
     if self._conn and not self._conn.closed:

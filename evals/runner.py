@@ -221,6 +221,16 @@ def run_calibration() -> dict[str, Any]:
   return agreement
 
 
+def golden_set_version() -> str:
+  """Return a stable version hash for the versioned golden set files."""
+  import hashlib
+  h = hashlib.sha256()
+  for name in sorted(DATASETS_DIR.glob("*.jsonl")):
+    h.update(name.name.encode())
+    h.update(name.read_bytes())
+  return h.hexdigest()[:12]
+
+
 def build_report(
   dataset_results: dict[str, list[dict[str, Any]]],
   tag: str,
@@ -233,6 +243,7 @@ def build_report(
     "meta": {
       "tag": tag,
       "git_sha": git_sha_full(),
+      "golden_set_version": golden_set_version(),
       "timestamp": datetime.now(timezone.utc).isoformat(),
       "elapsed_seconds": round(elapsed_s, 2),
     },
