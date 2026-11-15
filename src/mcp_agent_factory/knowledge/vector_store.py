@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
@@ -8,6 +9,14 @@ import numpy as np
 
 from mcp_agent_factory.gateway.telemetry import get_tracer
 from mcp_agent_factory.knowledge.reranker import mmr_diversify
+
+
+@dataclass(frozen=True)
+class ChunkResult:
+	"""Chunk result with text, relevance score, and chunk ID for citation tracking."""
+	text: str
+	score: float
+	chunk_id: str
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
@@ -87,11 +96,13 @@ class InMemoryVectorStore:
     date_end: datetime | None = None,
     embedder_id: str | None = None,
     top_k: int = 5,
-  ) -> list[tuple[str, float]]:
+  ) -> list[ChunkResult]:
     """Search with mandatory tenant + ACL + date filters.
 
     RAG-03: Filters are applied inside the search, never post-hoc.
     If embedder_id mismatch is detected, raises explicit error.
+
+    Returns ChunkResult objects with text, score, and chunk_id for citation tracking.
     """
     tracer = get_tracer("mcp_gateway.vector_store")
     with tracer.start_as_current_span("agent.vector_store.search_with_filters") as span:
@@ -105,41 +116,43 @@ class InMemoryVectorStore:
         span.set_attribute("filter.date_end", date_end.isoformat())
 
       # Collect candidate entries with metadata
-      candidates: list[tuple[str, np.ndarray, dict]] = []
+      candidates: list[tuple[str, np.ndarray, str]] = []
       for (oid, chunk_id), (text, vec, source_id) in self._store.items():
         if oid != owner_id:
           continue
 
         # For in-memory store, we don't have chunk metadata, so we can't filter
         # by ACL or date. But we structure the interface for PgVectorStore.
-        candidates.append((text, vec, {"chunk_id": chunk_id, "source_id": source_id}))
+        candidates.append((text, vec, chunk_id))
 
       if not candidates:
         span.set_attribute("result_count", 0)
         return []
 
       q_norm = query_vector / (np.linalg.norm(query_vector) + 1e-10)
-      results: list[tuple[str, float]] = []
-      for text, vec, _meta in candidates:
+      results: list[ChunkResult] = []
+      for text, vec, chunk_id in candidates:
         v_norm = vec / (np.linalg.norm(vec) + 1e-10)
         score = float(np.dot(q_norm, v_norm))
-        results.append((text, score))
+        results.append(ChunkResult(text=text, score=score, chunk_id=chunk_id))
 
-      results.sort(key=lambda x: x[1], reverse=True)
+      results.sort(key=lambda x: x.score, reverse=True)
       top = results[:top_k]
       span.set_attribute("result_count", len(top))
       return top
 
   def mmr_diversify(
     self,
-    candidates: list[tuple[str, float]],
+    candidates,
     top_k: int = 5,
     lambda_param: float = 0.5,
-  ) -> list[tuple[str, float]]:
+  ):
     """MMR diversification to reduce near-duplicate context.
 
     RAG-03: Between rerank and prompt assembly, apply MMR to avoid
     clustering of near-duplicate results.
+
+    Supports both ChunkResult and tuple inputs for backward compatibility.
     """
     if not candidates or not hasattr(self, "_store"):
       return candidates[:top_k]
@@ -150,14 +163,32 @@ class InMemoryVectorStore:
       if text not in embeddings:
         embeddings[text] = vec
 
-    result = mmr_diversify(
-      candidates=candidates,
+    # Detect input type and convert to tuples for mmr_diversify function
+    is_chunk_result = isinstance(candidates[0], ChunkResult) if candidates else False
+    if is_chunk_result:
+      candidates_tuples = [(c.text, c.score) for c in candidates]
+    else:
+      # Assume tuples (text, score)
+      candidates_tuples = candidates
+
+    result_tuples = mmr_diversify(
+      candidates=candidates_tuples,
       embeddings=embeddings,
       query_embedding=None,
       top_k=top_k,
       lambda_param=lambda_param,
     )
-    return result
+
+    # Convert back to original type
+    if is_chunk_result:
+      chunk_id_map = {c.text: c.chunk_id for c in candidates}
+      return [
+        ChunkResult(text=text, score=score, chunk_id=chunk_id_map.get(text, ""))
+        for text, score in result_tuples
+      ]
+    else:
+      # Return as tuples
+      return result_tuples
 
 
 def _rrf_fusion(

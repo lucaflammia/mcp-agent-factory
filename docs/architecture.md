@@ -273,6 +273,69 @@ results (top-5, diversity-aware)
 
 **Test coverage:** 59 tests in `tests/test_rag03_guarded_retrieval.py` covering isolation, validation, MMR, date filters, and end-to-end integration.
 
+## Knowledge Layer: RAG-04 Validated Generation with Citation Checks ✅
+
+Structured generation with mandatory citation validation — citation hallucinations are rejected or retried.
+
+```
+retrieved_chunks (from RAG-03)
+    │ (ChunkResult: text, score, chunk_id)
+    ▼
+[1] Format context with chunk ID tags
+    │ → [chunk-1] text 1
+    │ → [chunk-2] text 2
+    │ → [chunk-3] text 3
+    ▼
+[2] Assemble prompt with refusal clause
+    │ → "if context does not contain the answer, refuse"
+    │ → requires citations in JSON response
+    ▼
+[3] LLM generation (structured output)
+    │ → schema: {answer, cited_chunk_ids[], refused, refusal_reason}
+    ▼
+[4] Citation validation
+    │ → check: cited_chunk_ids ⊆ retrieved_chunk_ids
+    │ → if invalid: retry (attempt 1 → attempt 2)
+    │ → if still invalid: return refusal
+    ▼
+[5] Telemetry & feedback hook
+    │ → OTel span: generation.generate (provider, query_length, retrieved_count)
+    │ → Prometheus: citation_validation_failures_total, generation_retries_total, generation_refusals_total
+    ▼
+RagAnswer (validated)
+```
+
+**Provider-independent enforcement:**
+All LLM providers behind the unified router (Anthropic, OpenAI, Ollama, Bedrock) validate answers against the identical `RagAnswer` Pydantic schema. No provider-specific hacks.
+
+**Refusal semantics:**
+- Empty retrieval (score < 0.3) → immediate refusal (no generation attempt)
+- Validation failure on attempt 1 → retry once
+- Validation failure on attempt 2 → refusal with reason "Could not generate a reliable answer"
+- Explicit refusal by LLM (refused=True) → accepted as-is, no retry
+
+**OTel instrumentation:**
+- `generation.generate` (parent span) — attributes: `query_length`, `retrieved_count`, `provider`, `refused_reason`, `success`, `success_on_retry`
+- `generation.validate_answer` (child span) — attributes: `output_length`, `retrieved_count`, `retrieved_ids_count`, `is_valid`, `validation_error`, `cited_count`
+
+**Acceptance criteria verification:**
+1. ✅ AC1: Answer citing non-existent chunk ID is rejected — 6 tests cover valid/invalid citation scenarios
+2. ✅ AC2: Retry once on validation failure, then refusal — 3 tests verify retry logic and terminal refusal
+3. ✅ AC3: Empty retrieval results in refusal — `should_refuse(retrieved_chunks)` checks score and length
+4. ✅ AC4: Schema enforced identically across providers — single `RagAnswer` Pydantic model used by all
+5. ✅ AC5: Citation failures, retries, refusals counted — Prometheus counters with labels for reason/provider
+6. ✅ AC6: Unit tests cover valid answers, invalid citations, malformed output, refusal paths — 39 tests
+
+**Test coverage:** 39 tests in `tests/test_rag04_validated_generation.py` covering:
+- RagAnswer model validation
+- Citation validation (valid, invalid, multi-invalid, no citations)
+- Malformed JSON handling
+- Empty retrieval
+- Retry and refusal logic
+- Telemetry tracking
+- Provider-independent schema enforcement
+- Prompt template structure
+
 ## Async Fleet Runtime
 
 The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes. Two execution backends are supported, selected by the `STATE_MACHINE_ARN` environment variable.

@@ -82,6 +82,36 @@ results = handler.retrieve(
 
 **Test coverage:** 59 comprehensive tests covering cross-tenant isolation, tenant validation, embedder checking, MMR diversification, filter resolution, date filters, and OTel instrumentation.
 
+### RAG-04: Validated Generation with Citation Checks ✅
+
+Structured output enforcement and citation validation at the generation step — zero hallucinated citations.
+
+1. **Pydantic schema enforcement** — all LLM outputs validated against `RagAnswer` contract (answer, cited_chunk_ids, refused, refusal_reason)
+2. **Citation validation** — every cited chunk ID must exist in the retrieved set; invalid citations trigger retry or refusal
+3. **Retry on validation failure** — retries once if citations are invalid; returns refusal if second attempt also fails
+4. **Provider-independent** — identical schema and validation logic across Anthropic, OpenAI, Ollama, Bedrock
+5. **Refusal semantics** — explicit refusal when retrieval is empty or validation fails twice
+6. **Telemetry** — OTel spans and Prometheus counters for citation-validation failures, retries, and refusals
+
+**Generation handler signature:**
+```python
+handler = GenerationHandler()
+answer = await handler.generate(
+    query="What is machine learning?",
+    retrieved_chunks=[ChunkResult(text="...", score=0.95, chunk_id="chunk-1"), ...],
+    llm_call=async_llm_function,
+    provider="anthropic",  # for telemetry
+)
+# Returns RagAnswer(answer="...", cited_chunk_ids=["chunk-1"], refused=False)
+```
+
+**Prompt template enforces:**
+- Explicit refusal clause ("if context does not contain the answer, refuse")
+- Citation requirements (chunk IDs tagged in context)
+- JSON schema compliance
+
+**Test coverage:** 39 comprehensive tests covering valid answers, invalid citations, malformed JSON, empty retrieval, retry logic, refusal paths, and provider-independence.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |
