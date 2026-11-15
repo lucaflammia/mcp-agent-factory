@@ -430,7 +430,7 @@ class TestAC7ChunkerConfig:
         stats = await pipeline.ingest(adapter)
         assert stats["upserted"] > 0
 
-        for (owner_id, _), (text, _, _) in store._store.items():
+        for (owner_id, _, _), (text, _, _) in store._store.items():
             # We just verify at least one chunk was stored; metadata is in Chunk not in store
             break
 

@@ -6,7 +6,7 @@ from mcp_agent_factory.knowledge.generation import (
     RagAnswer,
     format_context,
 )
-from mcp_agent_factory.knowledge.ingest import IngestionWorker
+from mcp_agent_factory.knowledge.ingest import IdempotentIngestionPipeline, IngestionWorker
 from mcp_agent_factory.knowledge.query_handler import (
     DefaultFilterResolver,
     FilterResolver,
@@ -19,6 +19,7 @@ from mcp_agent_factory.knowledge.reranker import (
     Reranker,
     mmr_diversify,
 )
+from mcp_agent_factory.knowledge.source import SourceAdapter, SourceDocument
 from mcp_agent_factory.knowledge.tools import query_knowledge_base
 from mcp_agent_factory.knowledge.vector_store import (
     ChunkResult,
@@ -31,9 +32,10 @@ __all__ = [
     "Chunk", "chunk_text",
     "Embedder", "StubEmbedder", "LocalEmbedder",
     "GenerationHandler", "GenerationValidator", "RagAnswer", "format_context",
-    "IngestionWorker",
+    "IdempotentIngestionPipeline", "IngestionWorker",
     "QueryFilter", "FilterResolver", "DefaultFilterResolver", "GuardedQueryHandler",
     "Reranker", "NoOpReranker", "CrossEncoderReranker", "mmr_diversify",
+    "SourceAdapter", "SourceDocument",
     "query_knowledge_base",
     "ChunkResult", "VectorStore", "InMemoryVectorStore", "PgVectorStore",
 ]
