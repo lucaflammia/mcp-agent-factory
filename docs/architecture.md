@@ -336,6 +336,59 @@ All LLM providers behind the unified router (Anthropic, OpenAI, Ollama, Bedrock)
 - Provider-independent schema enforcement
 - Prompt template structure
 
+## Knowledge Layer: RAG-05 Embedder Versioning and Dual-Write Cutover ✅
+
+Safe upgrades between embedding models — multiple versions coexist without mixing at query time.
+
+```
+Ingestion (dual-write phase)
+    │
+    ├─► embedder_v1.embed(chunk) ──► upsert(owner_id, chunk_id, embedder_id="model@v1")
+    └─► embedder_v2.embed(chunk) ──► upsert(owner_id, chunk_id, embedder_id="model@v2")
+              │
+              └─ content_hash dedup: skip if (owner_id, chunk_id, embedder_id) already stored
+
+Query path
+    │
+    └─► search_with_filters(tenant, acl, date, embedder_id="model@v1")
+              │
+              ├─ if embedder_id matches stored vectors → return results
+              └─ if embedder_id absent in index → raise explicit "version mismatch" error
+```
+
+**Version isolation:** Every chunk stores `embedder_id` (model name + version) as part of the composite key `(owner_id, chunk_id, embedder_id)`. Queries declare their embedder version; the store filters strictly — a query for `model@v2` never touches `model@v1` vectors.
+
+**Cutover procedure:**
+1. Deploy new embedder; ingestion calls `dual_write()` to write both versions in parallel.
+2. Run `backfill()` over existing chunks — skips any `(owner_id, chunk_id, embedder_id)` triple already present.
+3. Evaluate the new version against the golden set (RAG-06); compare metrics to baseline.
+4. If parity or better, switch query context `embedder_id` to new version (config change only).
+5. Keep old version for a grace period, then delete.
+
+**Rollback:** Revert `embedder_id` in query configuration — no re-ingest required. Old vectors remain intact until explicitly deleted.
+
+**Key files:**
+- `src/mcp_agent_factory/knowledge/vector_store.py` — versioned key, `chunk_exists()`, mismatch error
+- `src/mcp_agent_factory/knowledge/ingest.py` — `dual_write()`, `backfill()` with content-hash dedup
+- `migrations/002_rag05_embedder_versioning.sql` — schema extension: `embedder_id`, `content_hash` columns
+- `docs/RAG/RAG-05-EMBEDDER-VERSIONING.md` — full procedure + quarterly review checklist
+
+**Acceptance criteria verification:**
+1. ✅ AC1: Two embedder versions coexist without mixing — composite key enforces version isolation; mismatch raises explicit error
+2. ✅ AC2: Cutover executes end-to-end on test corpus — `dual_write()` tested with concurrent version writes and query switching
+3. ✅ AC3: Rollback by configuration only — switching `embedder_id` in query context reverts without re-ingest
+4. ✅ AC4: Backfill skips existing `content_hash` — `chunk_exists(owner_id, chunk_id, embedder_id)` checked before re-embedding
+5. ✅ AC5: Procedure and checklist documented — `docs/RAG/RAG-05-EMBEDDER-VERSIONING.md` (procedure + quarterly review)
+
+**Test coverage:** 11 tests in `tests/test_rag05_embedder_versioning.py` covering:
+- Two versions stored independently, searches respect version
+- Explicit mismatch error when requested version absent
+- Cross-tenant isolation per version
+- Dual-write stores both versions; query switches cleanly
+- Golden set evaluation on new version
+- Rollback by config change
+- Backfill deduplication on content hash
+
 ## Async Fleet Runtime
 
 The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes. Two execution backends are supported, selected by the `STATE_MACHINE_ARN` environment variable.
