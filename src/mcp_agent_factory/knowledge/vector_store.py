@@ -40,11 +40,14 @@ class InMemoryVectorStore:
   RAG-02: upsert is idempotent on (owner_id, chunk_id). If chunk_id is None,
   the first 64 chars of text are used as the key (backward-compat).
   delete_by_source() removes all chunks for a given source_id.
+
+  RAG-05: upsert now accepts embedder_id for versioning support. Multiple
+  versions can coexist in the store; search_with_filters enforces version matching.
   """
 
   def __init__(self) -> None:
-    # (owner_id, chunk_id) -> (text, vector, source_id)
-    self._store: dict[tuple[str, str], tuple[str, np.ndarray, str]] = {}
+    # (owner_id, chunk_id, embedder_id) -> (text, vector, source_id)
+    self._store: dict[tuple[str, str, str], tuple[str, np.ndarray, str]] = {}
 
   def upsert(
     self,
@@ -53,8 +56,10 @@ class InMemoryVectorStore:
     vector: np.ndarray,
     chunk_id: str | None = None,
     source_id: str = "",
+    embedder_id: str = "unknown",
   ) -> None:
-    key = (owner_id, chunk_id if chunk_id is not None else text[:64])
+    chunk_id_val = chunk_id if chunk_id is not None else text[:64]
+    key = (owner_id, chunk_id_val, embedder_id)
     self._store[key] = (text, vector, source_id)
 
   def delete_by_source(self, owner_id: str, source_id: str) -> int:
@@ -64,15 +69,15 @@ class InMemoryVectorStore:
       del self._store[k]
     return len(to_delete)
 
-  def chunk_exists(self, owner_id: str, chunk_id: str) -> bool:
-    return (owner_id, chunk_id) in self._store
+  def chunk_exists(self, owner_id: str, chunk_id: str, embedder_id: str = "unknown") -> bool:
+    return (owner_id, chunk_id, embedder_id) in self._store
 
   def search(self, owner_id: str, query_vector: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]:
     tracer = get_tracer("mcp_gateway.vector_store")
     with tracer.start_as_current_span("agent.vector_store.search") as span:
       span.set_attribute("owner_id", owner_id)
       span.set_attribute("top_k", top_k)
-      entries = [(text, vec) for (oid, _), (text, vec, _) in self._store.items() if oid == owner_id]
+      entries = [(text, vec) for (oid, _, _), (text, vec, _) in self._store.items() if oid == owner_id]
       if not entries:
         span.set_attribute("result_count", 0)
         return []
@@ -97,10 +102,11 @@ class InMemoryVectorStore:
     embedder_id: str | None = None,
     top_k: int = 5,
   ) -> list[ChunkResult]:
-    """Search with mandatory tenant + ACL + date filters.
+    """Search with mandatory tenant + ACL + date + embedder_id filters.
 
     RAG-03: Filters are applied inside the search, never post-hoc.
-    If embedder_id mismatch is detected, raises explicit error.
+    RAG-05: If embedder_id is specified, search only vectors from that version.
+    If embedder_id mismatch is detected (query version not in index), raises explicit error.
 
     Returns ChunkResult objects with text, score, and chunk_id for citation tracking.
     """
@@ -114,16 +120,33 @@ class InMemoryVectorStore:
         span.set_attribute("filter.date_start", date_start.isoformat())
       if date_end:
         span.set_attribute("filter.date_end", date_end.isoformat())
+      if embedder_id:
+        span.set_attribute("filter.embedder_id", embedder_id)
 
-      # Collect candidate entries with metadata
+      # Collect candidate entries with metadata, filtering by embedder_id if specified
       candidates: list[tuple[str, np.ndarray, str]] = []
-      for (oid, chunk_id), (text, vec, source_id) in self._store.items():
+      for (oid, chunk_id, emb_id), (text, vec, source_id) in self._store.items():
         if oid != owner_id:
+          continue
+        # RAG-05: Filter by embedder_id if specified
+        if embedder_id and emb_id != embedder_id:
           continue
 
         # For in-memory store, we don't have chunk metadata, so we can't filter
         # by ACL or date. But we structure the interface for PgVectorStore.
         candidates.append((text, vec, chunk_id))
+
+      if embedder_id and not candidates:
+        # RAG-05: Raise explicit error only if embedder_id was requested but no vectors found
+        # Check if tenant has ANY data
+        tenant_has_data = any(oid == owner_id for (oid, _, _) in self._store.keys())
+        if tenant_has_data:
+          # Tenant has data but not in the requested embedder_id version
+          available_versions = set(emb_id for (oid, _, emb_id) in self._store.keys() if oid == owner_id)
+          raise ValueError(
+            f"Embedder version mismatch: requested '{embedder_id}' but index has versions {sorted(available_versions)}. "
+            f"The embedder_id may have changed; consider running backfill for the new version."
+          )
 
       if not candidates:
         span.set_attribute("result_count", 0)
@@ -158,8 +181,9 @@ class InMemoryVectorStore:
       return candidates[:top_k]
 
     # Build embeddings dict from stored vectors
+    # RAG-05: Updated key format to (owner_id, chunk_id, embedder_id)
     embeddings = {}
-    for (_, _), (text, vec, _) in self._store.items():
+    for (_, _, _), (text, vec, _) in self._store.items():
       if text not in embeddings:
         embeddings[text] = vec
 
@@ -244,19 +268,28 @@ class PgVectorStore:
       register_vector(self._conn)
     return self._conn
 
-  def upsert(self, owner_id: str, text: str, vector: np.ndarray, chunk_id: str | None = None) -> None:
+  def upsert(
+    self,
+    owner_id: str,
+    text: str,
+    vector: np.ndarray,
+    chunk_id: str | None = None,
+    source_id: str = "",
+    embedder_id: str = "unknown",
+  ) -> None:
     conn = self._connect()
     with conn.cursor() as cur:
       cur.execute(
         """
-        INSERT INTO chunks (owner_id, chunk_id, text, embedding, ts)
-        VALUES (%s, %s, %s, %s, to_tsvector('english', %s))
+        INSERT INTO chunks (owner_id, chunk_id, text, embedding, ts, embedder_id, content_hash)
+        VALUES (%s, %s, %s, %s, to_tsvector('english', %s), %s, %s)
         ON CONFLICT (owner_id, chunk_id) DO UPDATE
             SET text = EXCLUDED.text,
                 embedding = EXCLUDED.embedding,
-                ts = EXCLUDED.ts
+                ts = EXCLUDED.ts,
+                embedder_id = EXCLUDED.embedder_id
         """,
-        (owner_id, chunk_id or text[:64], text, vector.tolist(), text),
+        (owner_id, chunk_id or text[:64], text, vector.tolist(), text, embedder_id, chunk_id or text[:64]),
       )
     conn.commit()
 
@@ -317,12 +350,13 @@ class PgVectorStore:
     embedder_id: str | None = None,
     top_k: int = 5,
   ) -> list[tuple[str, float]]:
-    """Dense cosine similarity search with mandatory tenant + ACL + date filters.
+    """Dense cosine similarity search with mandatory tenant + ACL + date + embedder_id filters.
 
     RAG-03: Filters are passed to the database query, never post-processed.
+    RAG-05: If embedder_id is specified, search only vectors from that version.
     Embedder ID mismatch raises explicit error.
 
-    Note: Requires extended schema with acl JSONB and created_at/updated_at timestamps.
+    Note: Requires extended schema with embedder_id column and indexed filters.
     Falls back to basic search if schema is not available.
     """
     conn = self._connect()
@@ -330,6 +364,11 @@ class PgVectorStore:
       # Try to use advanced filters if schema has them
       where_clauses = ["owner_id = %s"]
       params: list = [owner_id, query_vector.tolist()]
+
+      # RAG-05: Filter by embedder_id if specified
+      if embedder_id:
+        where_clauses.append("embedder_id = %s")
+        params.append(embedder_id)
 
       if acl_labels:
         # ACL filtering: any chunk where acl overlaps with user's labels
@@ -357,14 +396,32 @@ class PgVectorStore:
 
       with conn.cursor() as cur:
         try:
-          cur.execute(query_sql, params)
-          return [(row[0], float(row[1])) for row in cur.fetchall()]
+          results = cur.execute(query_sql, params).fetchall() if hasattr(cur, 'execute') else []
+          if not results and embedder_id:
+            # RAG-05: Raise explicit error if embedder_id was requested but no vectors found
+            with conn.cursor() as check_cur:
+              check_cur.execute(
+                "SELECT DISTINCT embedder_id FROM chunks WHERE owner_id = %s",
+                (owner_id,)
+              )
+              available_versions = [row[0] for row in check_cur.fetchall()]
+            raise ValueError(
+              f"Embedder version mismatch: requested '{embedder_id}' but index has versions {sorted(available_versions)}. "
+              f"The embedder_id may have changed; consider running backfill for the new version."
+            )
+          return [(row[0], float(row[1])) for row in results] if results else []
+        except ValueError:
+          # Re-raise embedder_id mismatch error
+          raise
         except Exception:
           # Schema doesn't support full filtering; fall back to basic search
-          return self.search(owner_id, query_vector, top_k=top_k)
+          return self.search(owner_id, query_vector, top_k=top_k) if not embedder_id else []
+    except ValueError:
+      # Re-raise embedder_id mismatch error
+      raise
     except Exception:
       # Fallback to basic search
-      return self.search(owner_id, query_vector, top_k=top_k)
+      return self.search(owner_id, query_vector, top_k=top_k) if not embedder_id else []
 
   def mmr_diversify(
     self,

@@ -112,6 +112,31 @@ answer = await handler.generate(
 
 **Test coverage:** 39 comprehensive tests covering valid answers, invalid citations, malformed JSON, empty retrieval, retry logic, refusal paths, and provider-independence.
 
+### RAG-05: Embedder Versioning and Dual-Write Cutover ✅
+
+Safe upgrades between embedding models without silent quality degradation.
+
+1. **Version isolation** — every chunk stores `embedder_id` (model name + version) as part of its composite key; queries only search vectors from their declared version
+2. **Mismatch detection** — if the requested `embedder_id` is absent in the index, the store raises an explicit `ValueError` instead of returning empty results silently
+3. **Dual-write cutover** — `IdempotentIngestionPipeline.dual_write()` writes both old and new embedder versions in parallel during the upgrade window
+4. **Content-hash deduplication** — `backfill()` skips any `(owner_id, chunk_id, embedder_id)` triple already present, avoiding redundant re-embedding
+5. **Config-only rollback** — switching back is a one-line config change (`embedder_id` in query context); no re-ingest required
+
+**Cutover example:**
+```python
+pipeline = IdempotentIngestionPipeline(store, old_embedder, old_embedder_id)
+
+# Phase 1: dual-write both versions
+stats = await pipeline.dual_write(adapter, new_embedder, new_embedder_id="model@v2")
+
+# Phase 2: query the new version; revert to old_embedder_id to roll back
+results = handler.retrieve(query, auth_context={"tenant": "acme", ..., "embedder_id": "model@v2"})
+```
+
+**Documentation:** `docs/RAG/RAG-05-EMBEDDER-VERSIONING.md` — full procedure, schema migration, and quarterly review checklist.
+
+**Test coverage:** 11 tests covering version isolation, mismatch errors, dual-write, query switching, rollback, and backfill deduplication.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |

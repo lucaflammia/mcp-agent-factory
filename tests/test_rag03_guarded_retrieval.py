@@ -57,7 +57,7 @@ class TestCrossTenantIsolation:
         auth_context = {
             "tenant": "tenant-b",
             "acl": [],
-            "embedder_id": "StubEmbedder",
+            
         }
 
         results = handler.retrieve(
@@ -76,7 +76,7 @@ class TestCrossTenantIsolation:
         auth_context = {
             "tenant": "tenant-a",
             "acl": [],
-            "embedder_id": "StubEmbedder",
+            
         }
 
         results = handler.retrieve(
@@ -896,9 +896,9 @@ class TestInMemoryVectorStoreSearchWithFiltersWithParams:
         assert isinstance(results, list)
 
     def test_search_with_filters_with_embedder_id(self, store, embedder):
-        """search_with_filters should accept embedder_id parameter."""
+        """search_with_filters should accept embedder_id parameter and enforce version matching."""
         v = embedder.embed("data")
-        store.upsert("tenant", "data", v)
+        store.upsert("tenant", "data", v, embedder_id="test-embedder@v1")
 
         results = store.search_with_filters(
             owner_id="tenant",
@@ -907,15 +907,16 @@ class TestInMemoryVectorStoreSearchWithFiltersWithParams:
             top_k=5,
         )
 
-        # Should work (in-memory store ignores embedder_id but accepts parameter)
+        # RAG-05: Should work with matching embedder_id
         assert isinstance(results, list)
+        assert len(results) > 0
 
     def test_search_with_filters_all_params(self, store, embedder):
-        """search_with_filters should work with all parameters."""
+        """search_with_filters should work with all parameters including embedder_id."""
         from datetime import datetime, timezone
 
         v = embedder.embed("data")
-        store.upsert("tenant", "data", v)
+        store.upsert("tenant", "data", v, embedder_id="model@v1")
 
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
         end = datetime(2024, 12, 31, tzinfo=timezone.utc)
@@ -930,7 +931,9 @@ class TestInMemoryVectorStoreSearchWithFiltersWithParams:
             top_k=5,
         )
 
+        # RAG-05: should work with matching embedder_id
         assert isinstance(results, list)
+        assert len(results) > 0
 
 
 class TestVectorStoreProtocol:
