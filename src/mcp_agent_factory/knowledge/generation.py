@@ -42,9 +42,14 @@ try:
 		["provider"],
 	)
 	_generation_refusals = _get_or_create_counter(
-		"rag_generation_refusals_total",
+		"rag_generation_refusal_total",
 		"Total refusals returned after validation failure or empty retrieval",
 		["reason"],
+	)
+	_generation_total = _get_or_create_counter(
+		"rag_generation_total",
+		"Total generation requests",
+		["provider"],
 	)
 except ImportError:
 	class _NoOp:
@@ -57,6 +62,7 @@ except ImportError:
 	_citation_validation_failures = _NoOp()
 	_generation_retries = _NoOp()
 	_generation_refusals = _NoOp()
+	_generation_total = _NoOp()
 
 
 class RagAnswer(BaseModel):
@@ -314,6 +320,7 @@ class GenerationHandler:
 			span.set_attribute("query_length", len(query))
 			span.set_attribute("retrieved_count", len(retrieved_chunks))
 			span.set_attribute("provider", provider)
+			_generation_total.labels(provider=provider).inc()
 
 			# Check if retrieval is empty or poor
 			if self._validator.should_refuse(retrieved_chunks):

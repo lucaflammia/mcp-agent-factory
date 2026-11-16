@@ -20,6 +20,29 @@ import numpy as np
 from mcp_agent_factory.gateway.telemetry import get_tracer
 from mcp_agent_factory.knowledge.vector_store import ChunkResult
 
+try:
+    from prometheus_client import REGISTRY, Counter, Gauge
+
+    def _get_or_create(cls, name, doc, labelnames=()):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return cls(name, doc, labelnames)
+
+    _query_total = _get_or_create(Counter, "rag_query_total", "Total RAG queries", ["tenant"])
+    _query_empty = _get_or_create(Counter, "rag_query_empty_results_total", "RAG queries returning empty results", ["tenant"])
+    _score_gap = _get_or_create(Gauge, "rag_retrieval_score_gap", "Gap between top-1 and top-2 retrieval scores", ["tenant"])
+    _chunk_count = _get_or_create(Gauge, "rag_index_chunk_count", "Total chunks in the vector index")
+except ImportError:
+    class _NoOp:
+        def labels(self, **kw): return self
+        def inc(self, v=1): pass
+        def set(self, v): pass
+
+    _query_total = _NoOp()
+    _query_empty = _NoOp()
+    _score_gap = _NoOp()
+    _chunk_count = _NoOp()
+
 
 @dataclass
 class QueryFilter:
@@ -105,6 +128,18 @@ class GuardedQueryHandler:
         self._embedder = embedder
         self._resolver = filter_resolver or DefaultFilterResolver()
         self._tracer = get_tracer("mcp_gateway.query_handler")
+        self._update_chunk_count_gauge()
+
+    def _update_chunk_count_gauge(self) -> None:
+        try:
+            status = self._store.status() if hasattr(self._store, "status") else {}
+            count = status.get("chunk_count")
+            if count is None and hasattr(self._store, "_store"):
+                count = len(self._store._store)
+            if count is not None:
+                _chunk_count.set(count)
+        except Exception:
+            pass
 
     def retrieve(
         self,
@@ -182,4 +217,15 @@ class GuardedQueryHandler:
                 mmr_span.set_attribute("mmr.result_count", len(results))
 
             span.set_attribute("final.result_count", len(results))
+
+            tenant = filter_obj.tenant
+            _query_total.labels(tenant=tenant).inc()
+            if not results:
+                _query_empty.labels(tenant=tenant).inc()
+            elif len(results) >= 2:
+                gap = results[0].score - results[1].score
+                _score_gap.labels(tenant=tenant).set(gap)
+
+            self._update_chunk_count_gauge()
+
             return results

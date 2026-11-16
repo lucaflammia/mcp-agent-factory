@@ -89,6 +89,28 @@ class InMemoryVectorStore:
       del self._store[k]
     return len(to_delete)
 
+  async def delete_by_source_id(self, source_id: str, owner_id: str = "default") -> int:
+    """Async convenience method: delete by source_id with default owner.
+
+    Args:
+      source_id: Source identifier (e.g. filename)
+      owner_id: Owner/tenant (defaults to 'default')
+
+    Returns: Number of chunks deleted
+    """
+    return await asyncio.to_thread(self.delete_by_source, owner_id, source_id)
+
+  async def delete_by_data_subject_id(self, data_subject_id: str, owner_id: str = "default") -> int:
+    """Async convenience method: delete by data subject with default owner.
+
+    Args:
+      data_subject_id: Data subject identifier (e.g. user email)
+      owner_id: Owner/tenant (defaults to 'default')
+
+    Returns: Number of chunks deleted
+    """
+    return await asyncio.to_thread(self.delete_by_data_subject, owner_id, data_subject_id)
+
   def backup(self, path: str | Path) -> dict[str, Any]:
     """Create a point-in-time backup of the vector store.
 
@@ -202,6 +224,23 @@ class InMemoryVectorStore:
       span.set_attribute("result_count", len(top))
       return top
 
+  def search_text_with_source(self, owner_id: str, query: str, source_id: str, top_k: int = 50) -> list[tuple[str, float]]:
+    """Text-based search filtered by owner_id and source_id. RAG-06: RTBF verification.
+
+    For in-memory store, performs simple substring matching on text and source_id.
+    Useful for verifying RTBF deletion without needing an embedding vector.
+    """
+    query_lower = query.lower()
+    results: list[tuple[str, float]] = []
+    for (oid, _, _), (text, _, sid) in self._store.items():
+      if oid == owner_id and sid == source_id:
+        # Simple substring match scoring: count of query words found
+        score = sum(1 for word in query_lower.split() if word in text.lower())
+        if score > 0:
+          results.append((text, float(score)))
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results[:top_k]
+
   def search_with_filters(
     self,
     owner_id: str,
@@ -210,13 +249,15 @@ class InMemoryVectorStore:
     date_start: datetime | None = None,
     date_end: datetime | None = None,
     embedder_id: str | None = None,
+    source_id: str | None = None,
     top_k: int = 5,
   ) -> list[ChunkResult]:
-    """Search with mandatory tenant + ACL + date + embedder_id filters.
+    """Search with mandatory tenant + ACL + date + embedder_id + source_id filters.
 
     RAG-03: Filters are applied inside the search, never post-hoc.
     RAG-05: If embedder_id is specified, search only vectors from that version.
     If embedder_id mismatch is detected (query version not in index), raises explicit error.
+    RAG-06: source_id filter for verifying RTBF deletion.
 
     Returns ChunkResult objects with text, score, and chunk_id for citation tracking.
     """
@@ -232,14 +273,19 @@ class InMemoryVectorStore:
         span.set_attribute("filter.date_end", date_end.isoformat())
       if embedder_id:
         span.set_attribute("filter.embedder_id", embedder_id)
+      if source_id:
+        span.set_attribute("filter.source_id", source_id)
 
       # Collect candidate entries with metadata, filtering by embedder_id if specified
       candidates: list[tuple[str, np.ndarray, str]] = []
-      for (oid, chunk_id, emb_id), (text, vec, source_id) in self._store.items():
+      for (oid, chunk_id, emb_id), (text, vec, sid) in self._store.items():
         if oid != owner_id:
           continue
         # RAG-05: Filter by embedder_id if specified
         if embedder_id and emb_id != embedder_id:
+          continue
+        # RAG-06: Filter by source_id if specified
+        if source_id and sid != source_id:
           continue
 
         # For in-memory store, we don't have chunk metadata, so we can't filter
@@ -403,21 +449,48 @@ class PgVectorStore:
       )
     conn.commit()
 
-  def search(self, owner_id: str, query_vector: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]:
-    """Dense cosine similarity search, filtered by owner_id."""
-    conn = self._connect()
-    with conn.cursor() as cur:
-      cur.execute(
-        """
-        SELECT text, 1 - (embedding <=> %s::vector) AS score
-        FROM chunks
-        WHERE owner_id = %s
-        ORDER BY embedding <=> %s::vector
-        LIMIT %s
-        """,
-        (query_vector.tolist(), owner_id, query_vector.tolist(), top_k),
-      )
-      return [(row[0], float(row[1])) for row in cur.fetchall()]
+  async def search(
+    self,
+    owner_id_or_query,
+    query_vector: np.ndarray | None = None,
+    top_k: int = 5,
+    *,
+    filters: dict | None = None,
+  ) -> list[tuple[str, float]]:
+    """Search chunks. Two calling conventions:
+
+    Low-level (vector): search(owner_id, query_vector, top_k)
+    High-level (text):  search(query_text, filters={'source_id': ...}, top_k=N)
+    """
+    if isinstance(owner_id_or_query, str) and (query_vector is None or isinstance(query_vector, dict)):
+      # High-level text API: search(query, filters={...})
+      query = owner_id_or_query
+      if query_vector is not None and filters is None:
+        filters = query_vector  # positional dict passed as second arg
+      source_id = (filters or {}).get("source_id")
+      owner_id = (filters or {}).get("owner_id", "default")
+      if source_id:
+        return await asyncio.to_thread(self.search_text_with_source, owner_id, query, source_id, top_k)
+      return await asyncio.to_thread(self.search_text, owner_id, query, top_k)
+    # Low-level vector API: search(owner_id, query_vector, top_k)
+    owner_id = owner_id_or_query
+
+    def _search_vector():
+      conn = self._connect()
+      with conn.cursor() as cur:
+        cur.execute(
+          """
+          SELECT text, 1 - (embedding <=> %s::vector) AS score
+          FROM chunks
+          WHERE owner_id = %s
+          ORDER BY embedding <=> %s::vector
+          LIMIT %s
+          """,
+          (query_vector.tolist(), owner_id, query_vector.tolist(), top_k),
+        )
+        return [(row[0], float(row[1])) for row in cur.fetchall()]
+
+    return await asyncio.to_thread(_search_vector)
 
   def search_text(self, owner_id: str, query: str, top_k: int = 50) -> list[tuple[str, float]]:
     """Full-text (BM25-like) search using Postgres tsvector, filtered by owner_id."""
@@ -436,7 +509,49 @@ class PgVectorStore:
       )
       return [(row[0], float(row[1])) for row in cur.fetchall()]
 
-  def search_hybrid(
+  def search_text_with_source(self, owner_id: str, query: str, source_id: str, top_k: int = 50) -> list[tuple[str, float]]:
+    """Full-text search filtered by owner_id and source_id. RAG-06: RTBF verification.
+
+    Useful for verifying RTBF deletion without needing an embedding vector.
+    """
+    conn = self._connect()
+    with conn.cursor() as cur:
+      cur.execute(
+        """
+        SELECT text, ts_rank_cd(ts, plainto_tsquery('english', %s)) AS score
+        FROM chunks
+        WHERE owner_id = %s
+          AND source_id = %s
+          AND ts @@ plainto_tsquery('english', %s)
+        ORDER BY score DESC
+        LIMIT %s
+        """,
+        (query, owner_id, source_id, query, top_k),
+      )
+      return [(row[0], float(row[1])) for row in cur.fetchall()]
+
+  async def search_text_and_source(
+    self,
+    query: str,
+    source_id: str,
+    owner_id: str = "default",
+    top_k: int = 50,
+  ) -> list[tuple[str, float]]:
+    """Async text search filtered by source_id. Convenience for RTBF verification and text queries.
+
+    Args:
+      query: Text search query
+      source_id: Source identifier to filter by (e.g. filename)
+      owner_id: Owner/tenant (defaults to 'default')
+      top_k: Maximum results to return
+
+    Returns: List of (text, score) tuples
+
+    RAG-06: Use for post-deletion verification — demonstrates the source has been forgotten.
+    """
+    return await asyncio.to_thread(self.search_text_with_source, owner_id, query, source_id, top_k)
+
+  async def search_hybrid(
     self,
     owner_id: str,
     query: str,
@@ -446,8 +561,8 @@ class PgVectorStore:
     rrf_k: int = 60,
   ) -> list[tuple[str, float]]:
     """Hybrid dense + full-text search with Reciprocal Rank Fusion."""
-    dense = self.search(owner_id, query_vector, top_k=dense_k)
-    text = self.search_text(owner_id, query, top_k=dense_k)
+    dense = await self.search(owner_id, query_vector, top_k=dense_k)
+    text = await asyncio.to_thread(self.search_text, owner_id, query, dense_k)
     return _rrf_fusion(dense, text, top_k=top_k, k=rrf_k)
 
   def search_with_filters(
@@ -458,13 +573,15 @@ class PgVectorStore:
     date_start: datetime | None = None,
     date_end: datetime | None = None,
     embedder_id: str | None = None,
+    source_id: str | None = None,
     top_k: int = 5,
   ) -> list[tuple[str, float]]:
-    """Dense cosine similarity search with mandatory tenant + ACL + date + embedder_id filters.
+    """Dense cosine similarity search with mandatory tenant + ACL + date + embedder_id + source_id filters.
 
     RAG-03: Filters are passed to the database query, never post-processed.
     RAG-05: If embedder_id is specified, search only vectors from that version.
     Embedder ID mismatch raises explicit error.
+    RAG-06: source_id filter for verifying RTBF deletion.
 
     Note: Requires extended schema with embedder_id column and indexed filters.
     Falls back to basic search if schema is not available.
@@ -479,6 +596,11 @@ class PgVectorStore:
       if embedder_id:
         where_clauses.append("embedder_id = %s")
         params.append(embedder_id)
+
+      # RAG-06: Filter by source_id if specified
+      if source_id:
+        where_clauses.append("source_id = %s")
+        params.append(source_id)
 
       if acl_labels:
         # ACL filtering: any chunk where acl overlaps with user's labels
@@ -524,14 +646,30 @@ class PgVectorStore:
           # Re-raise embedder_id mismatch error
           raise
         except Exception:
-          # Schema doesn't support full filtering; fall back to basic search
-          return self.search(owner_id, query_vector, top_k=top_k) if not embedder_id else []
+          # Schema doesn't support full filtering; fall back to basic vector search
+          if embedder_id:
+            return []
+          with conn.cursor() as fb_cur:
+            fb_cur.execute(
+              """SELECT text, 1 - (embedding <=> %s::vector) AS score
+                 FROM chunks WHERE owner_id = %s
+                 ORDER BY embedding <=> %s::vector LIMIT %s""",
+              (query_vector.tolist(), owner_id, query_vector.tolist(), top_k),
+            )
+            return [(row[0], float(row[1])) for row in fb_cur.fetchall()]
     except ValueError:
-      # Re-raise embedder_id mismatch error
       raise
     except Exception:
-      # Fallback to basic search
-      return self.search(owner_id, query_vector, top_k=top_k) if not embedder_id else []
+      if embedder_id:
+        return []
+      with conn.cursor() as fb_cur:
+        fb_cur.execute(
+          """SELECT text, 1 - (embedding <=> %s::vector) AS score
+             FROM chunks WHERE owner_id = %s
+             ORDER BY embedding <=> %s::vector LIMIT %s""",
+          (query_vector.tolist(), owner_id, query_vector.tolist(), top_k),
+        )
+        return [(row[0], float(row[1])) for row in fb_cur.fetchall()]
 
   def mmr_diversify(
     self,
@@ -603,6 +741,28 @@ class PgVectorStore:
       deleted = cur.rowcount
     conn.commit()
     return deleted
+
+  async def delete_by_source_id(self, source_id: str, owner_id: str = "default") -> int:
+    """Async convenience method: delete by source_id with default owner.
+
+    Args:
+      source_id: Source identifier (e.g. filename)
+      owner_id: Owner/tenant (defaults to 'default')
+
+    Returns: Number of chunks deleted
+    """
+    return await asyncio.to_thread(self.delete_by_source, owner_id, source_id)
+
+  async def delete_by_data_subject_id(self, data_subject_id: str, owner_id: str = "default") -> int:
+    """Async convenience method: delete by data subject with default owner.
+
+    Args:
+      data_subject_id: Data subject identifier (e.g. user email)
+      owner_id: Owner/tenant (defaults to 'default')
+
+    Returns: Number of chunks deleted
+    """
+    return await asyncio.to_thread(self.delete_by_data_subject, owner_id, data_subject_id)
 
   async def backup(self, path: str | Path) -> dict[str, Any]:
     """Create a point-in-time backup of all chunks to a JSON file.
@@ -734,7 +894,7 @@ class PgVectorStore:
 
     return await asyncio.to_thread(_do_restore)
 
-  def compact(self) -> dict[str, Any]:
+  async def compact(self) -> dict[str, Any]:
     """Run maintenance: VACUUM, ANALYZE, and update index statistics.
 
     RAG-06: Weekly compaction removes dead tuples from deletions and
@@ -742,18 +902,31 @@ class PgVectorStore:
 
     Returns: {'status': 'ok', 'chunk_count': int}
     """
-    conn = self._connect()
-    with conn.cursor() as cur:
-      # VACUUM (remove dead tuples)
-      cur.execute("VACUUM ANALYZE chunks")
-      # Get final chunk count
-      cur.execute("SELECT COUNT(*) FROM chunks")
-      chunk_count = cur.fetchone()[0]
-    conn.commit()
+    def _do_compact():
+      import psycopg
+      # VACUUM must run outside any transaction block — use a fresh autocommit connection
+      with psycopg.connect(self._dsn, autocommit=True) as conn:
+        with conn.cursor() as cur:
+          cur.execute("VACUUM ANALYZE chunks")
+      # Get final chunk count in a normal connection
+      conn2 = self._connect()
+      with conn2.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM chunks")
+        return cur.fetchone()[0]
+
+    chunk_count = await asyncio.to_thread(_do_compact)
     return {
       'status': 'ok',
       'chunk_count': chunk_count,
     }
+
+  def status(self) -> dict[str, Any]:
+    """Return current chunk count synchronously for metrics."""
+    conn = self._connect()
+    with conn.cursor() as cur:
+      cur.execute("SELECT COUNT(*) FROM chunks")
+      count = cur.fetchone()[0]
+    return {'status': 'ok', 'chunk_count': count}
 
   def close(self) -> None:
     if self._conn and not self._conn.closed:

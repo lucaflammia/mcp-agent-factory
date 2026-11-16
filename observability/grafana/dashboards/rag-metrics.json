@@ -1,5 +1,5 @@
 {
-  "title": "RAG Pipeline — Metrics & Quality Gates",
+  "title": "RAG Pipeline \u2014 Metrics & Quality Gates",
   "uid": "rag-metrics",
   "schemaVersion": 38,
   "version": 1,
@@ -14,28 +14,29 @@
         "name": "tenant_id",
         "type": "query",
         "datasource": "Prometheus",
-        "definition": "label_values(rag_retrieval_recall_1, owner_id)",
+        "definition": "label_values(rag_generation_total, job)",
         "allValue": null,
-        "includeAll": false
+        "includeAll": false,
+        "query": "label_values(rag_generation_total, job)"
       }
     ]
   },
   "panels": [
     {
       "id": 1,
-      "title": "Retrieval Recall@1 (Top-1 Score Distribution)",
-      "type": "histogram",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "title": "Retrieval Recall@1",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "histogram_quantile(0.99, sum(rate(rag_retrieval_recall_1_bucket{owner_id=~\"$tenant_id\"}[5m])) by (le))",
-          "legendFormat": "P99"
-        },
-        {
-          "datasource": "Prometheus",
-          "expr": "histogram_quantile(0.50, sum(rate(rag_retrieval_recall_1_bucket{owner_id=~\"$tenant_id\"}[5m])) by (le))",
-          "legendFormat": "P50"
+          "expr": "rag_retrieval_recall_1",
+          "legendFormat": "Recall@1"
         }
       ]
     },
@@ -43,11 +44,16 @@
       "id": 2,
       "title": "Retrieval Score Gap (p1 - p2)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "avg(rag_retrieval_score_gap{owner_id=~\"$tenant_id\"}) by (owner_id)",
+          "expr": "avg(rag_retrieval_mrr{job=\"rag_eval\"})",
           "legendFormat": "{{owner_id}}"
         }
       ],
@@ -60,11 +66,16 @@
       "id": 3,
       "title": "Empty Result Rate (%)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "100 * sum(rate(rag_query_empty_results_total{owner_id=~\"$tenant_id\"}[5m])) by (owner_id) / sum(rate(rag_query_total{owner_id=~\"$tenant_id\"}[5m])) by (owner_id)",
+          "expr": "100 * sum(increase(rag_generation_refusal_total{reason=\"empty_retrieval\"}[5m])) / sum(increase(rag_generation_total[5m]))",
           "legendFormat": "{{owner_id}}"
         }
       ],
@@ -77,21 +88,41 @@
       "id": 4,
       "title": "Refusal Rate (%)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "100 * sum(rate(rag_generation_refusal_total{owner_id=~\"$tenant_id\"}[5m])) by (owner_id) / sum(rate(rag_generation_total{owner_id=~\"$tenant_id\"}[5m])) by (owner_id)",
-          "legendFormat": "{{owner_id}}"
+          "expr": "100 * sum(increase(rag_generation_refusal_total[5m])) / sum(increase(rag_generation_total[5m]))",
+          "legendFormat": "{{provider}}"
         }
       ],
       "alert": {
         "conditions": [
           {
-            "evaluator": { "type": "gt", "params": [0.3] },
-            "operator": { "type": "and" },
-            "query": { "params": ["A", "1m", "now"] },
-            "reducer": { "type": "last" },
+            "evaluator": {
+              "type": "gt",
+              "params": [
+                0.3
+              ]
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "A",
+                "1m",
+                "now"
+              ]
+            },
+            "reducer": {
+              "type": "last"
+            },
             "type": "query"
           }
         ],
@@ -108,11 +139,16 @@
       "id": 5,
       "title": "MRR (Mean Reciprocal Rank)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "avg(rag_retrieval_mrr{owner_id=~\"$tenant_id\"}) by (owner_id)",
+          "expr": "avg(rag_retrieval_mrr{job=\"rag_eval\"})",
           "legendFormat": "{{owner_id}}"
         }
       ]
@@ -121,11 +157,16 @@
       "id": 6,
       "title": "nDCG@10",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "avg(rag_retrieval_ndcg_10{owner_id=~\"$tenant_id\"}) by (owner_id)",
+          "expr": "avg(rag_retrieval_ndcg_10{job=\"rag_eval\"})",
           "legendFormat": "{{owner_id}}"
         }
       ]
@@ -134,7 +175,12 @@
       "id": 7,
       "title": "Eval Golden Set Version",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -147,7 +193,12 @@
       "id": 8,
       "title": "Last Eval Run",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 24 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -160,7 +211,12 @@
       "id": 9,
       "title": "Baseline Pass Rate (%) vs Current",
       "type": "graph",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -181,15 +237,50 @@
     {
       "id": 10,
       "title": "Index Size & Chunk Count",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "rag_index_chunk_count{owner_id=~\"$tenant_id\"}",
-          "legendFormat": "Chunks {{owner_id}}"
+          "expr": "rag_index_chunk_count",
+          "legendFormat": "Chunk Count",
+          "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "blue" }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
     }
   ]
 }

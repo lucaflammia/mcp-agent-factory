@@ -33,7 +33,7 @@ from typing import Any
 
 import httpx
 from authlib.jose import OctKey
-from fastapi import Depends, FastAPI, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse as _JSONResponse
 from pydantic import BaseModel, ValidationError
 from sse_starlette.sse import EventSourceResponse
@@ -51,6 +51,8 @@ from mcp_agent_factory.knowledge import (
     StubEmbedder,
     query_knowledge_base,
 )
+from mcp_agent_factory.knowledge.generation import GenerationHandler
+from mcp_agent_factory.knowledge.query_handler import GuardedQueryHandler, DefaultFilterResolver
 from mcp_agent_factory.kv.store import RedisKVStore
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
@@ -179,6 +181,15 @@ async def _gateway_lifespan(app: FastAPI):
 	set_fleet_redis(_redis_client, enabled=_jobs_enabled)
 	if _has_redis:
 		await start_fleet_workers()
+	# Populate chunk-count gauge — runs inside lifespan so DB is confirmed ready.
+	try:
+		from mcp_agent_factory.knowledge.query_handler import _chunk_count as _cg
+		if hasattr(_vector_store, "status"):
+			_cg.set(_vector_store.status().get("chunk_count", 0))
+		elif hasattr(_vector_store, "_store"):
+			_cg.set(len(_vector_store._store))
+	except Exception as _exc:
+		logger.warning('{"event":"chunk_gauge_init_failed","detail":"%s"}', _exc)
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
 	if _has_redis:
@@ -485,6 +496,59 @@ class SamplingBody(BaseModel):
 @gateway_app.post("/sampling", response_model=SamplingResult)
 async def sampling_endpoint(body: SamplingBody) -> SamplingResult:
 	return await sampling_handler.handle(body.prompt)
+
+
+class QueryBody(BaseModel):
+	question: str
+	tenant: str
+	top_k: int = 5
+
+
+class QueryResponse(BaseModel):
+	answer: str
+	refused: bool
+	refusal_reason: str | None = None
+	citations: list[str] = []
+
+
+@gateway_app.post("/query", response_model=QueryResponse)
+async def query_endpoint(body: QueryBody) -> QueryResponse:
+	"""RAG query endpoint — retrieves chunks then generates a cited answer."""
+	if _vector_store is None or _embedder is None:
+		raise HTTPException(status_code=503, detail="Vector store or embedder not initialised")
+	vector_store = _vector_store
+	embedder = _embedder
+
+	handler = GuardedQueryHandler(
+		vector_store=vector_store,
+		embedder=embedder,
+		filter_resolver=DefaultFilterResolver(),
+	)
+	auth_context = {"tenant": body.tenant, "acl": [], "embedder_id": None}
+	try:
+		chunks = handler.retrieve(query_text=body.question, auth_context=auth_context, top_k=body.top_k)
+	except Exception as exc:
+		logger.warning('{"event":"rag_retrieval_error","detail":"%s"}', exc)
+		chunks = []
+
+	gen = GenerationHandler()
+
+	async def _llm_call(prompt: str) -> str:  # noqa: RUF029
+		# No LLM configured — signal empty retrieval path
+		return ""
+
+	answer = await gen.generate(
+		query=body.question,
+		retrieved_chunks=chunks,
+		llm_call=_llm_call,
+		provider="internal",
+	)
+	return QueryResponse(
+		answer=answer.answer,
+		refused=answer.refused,
+		refusal_reason=answer.refusal_reason,
+		citations=answer.cited_chunk_ids,
+	)
 
 
 # ---------------------------------------------------------------------------
