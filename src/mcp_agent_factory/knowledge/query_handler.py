@@ -21,27 +21,38 @@ from mcp_agent_factory.gateway.telemetry import get_tracer
 from mcp_agent_factory.knowledge.vector_store import ChunkResult
 
 try:
-    from prometheus_client import REGISTRY, Counter, Gauge
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 
-    def _get_or_create(cls, name, doc, labelnames=()):
+    def _get_or_create(cls, name, doc, labelnames=(), **kwargs):
         if name in REGISTRY._names_to_collectors:
             return REGISTRY._names_to_collectors[name]
-        return cls(name, doc, labelnames)
+        return cls(name, doc, labelnames, **kwargs)
 
     _query_total = _get_or_create(Counter, "rag_query_total", "Total RAG queries", ["tenant"])
     _query_empty = _get_or_create(Counter, "rag_query_empty_results_total", "RAG queries returning empty results", ["tenant"])
     _score_gap = _get_or_create(Gauge, "rag_retrieval_score_gap", "Gap between top-1 and top-2 retrieval scores", ["tenant"])
     _chunk_count = _get_or_create(Gauge, "rag_index_chunk_count", "Total chunks in the vector index")
+    _retrieval_score = _get_or_create(
+        Histogram,
+        "rag_retrieval_score",
+        "Similarity scores of retrieved chunks",
+        ["tenant", "embedder_id"],
+        buckets=[0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0],
+    )
+    _top1_score = _get_or_create(Gauge, "rag_top1_score", "Similarity score of the top-1 retrieved chunk", ["tenant"])
 except ImportError:
     class _NoOp:
         def labels(self, **kw): return self
         def inc(self, v=1): pass
         def set(self, v): pass
+        def observe(self, v): pass
 
     _query_total = _NoOp()
     _query_empty = _NoOp()
     _score_gap = _NoOp()
     _chunk_count = _NoOp()
+    _retrieval_score = _NoOp()
+    _top1_score = _NoOp()
 
 
 @dataclass
@@ -219,12 +230,21 @@ class GuardedQueryHandler:
             span.set_attribute("final.result_count", len(results))
 
             tenant = filter_obj.tenant
+            embedder_id = filter_obj.embedder_id or "default"
             _query_total.labels(tenant=tenant).inc()
             if not results:
                 _query_empty.labels(tenant=tenant).inc()
-            elif len(results) >= 2:
-                gap = results[0].score - results[1].score
-                _score_gap.labels(tenant=tenant).set(gap)
+            else:
+                # results may be ChunkResult objects or (text, score) tuples (fallback path)
+                def _score(r):
+                    return r.score if hasattr(r, "score") else r[1]
+
+                _top1_score.labels(tenant=tenant).set(_score(results[0]))
+                for chunk in results:
+                    _retrieval_score.labels(tenant=tenant, embedder_id=embedder_id).observe(_score(chunk))
+                if len(results) >= 2:
+                    gap = _score(results[0]) - _score(results[1])
+                    _score_gap.labels(tenant=tenant).set(gap)
 
             self._update_chunk_count_gauge()
 

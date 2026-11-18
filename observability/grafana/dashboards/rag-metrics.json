@@ -281,6 +281,137 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 11,
+      "title": "Similarity Score Distribution",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(increase(rag_retrieval_score_bucket[5m])) by (le)",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "bucketSize": "auto",
+        "fillOpacity": 80,
+        "gradientMode": "none",
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "title": "Top-1 Similarity Score Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rag_top1_score",
+          "legendFormat": "{{tenant}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom", "calcs": [] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "spanNulls": false
+          },
+          "min": 0,
+          "max": 1,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "title": "Score Heatmap (percentile × time)",
+      "type": "heatmap",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(increase(rag_retrieval_score_bucket[5m])) by (le)",
+          "legendFormat": "{{le}}",
+          "refId": "A",
+          "format": "heatmap"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "yAxis": { "unit": "short", "decimals": 2 },
+        "color": { "scheme": "Spectral", "fill": "dark-orange", "scale": "linear", "steps": 64 },
+        "legend": { "show": true }
+      },
+      "fieldConfig": {
+        "defaults": { "custom": { "scaleDistribution": { "type": "linear" }, "hideFrom": { "tooltip": false, "viz": false, "legend": false } } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "title": "Vector Cluster View (2D UMAP)",
+      "type": "yesoreyeram-infinity-datasource",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 48 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://gateway:8000/rag/visualize?q=test&tenant=default&k=10",
+          "url_options": { "method": "GET", "data": "" },
+          "root_selector": "",
+          "columns": [],
+          "filters": [],
+          "format": "table",
+          "parser": "backend",
+          "computed_columns": []
+        }
+      ],
+      "options": {},
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "hideFrom": { "tooltip": false, "viz": false, "legend": false }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "label" },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          }
+        ]
+      },
+      "description": "2D UMAP projection of query (highlighted) vs top-k results vs background chunks. Requires Infinity datasource plugin and a seeded index. Change the 'q' param in the target URL to match your query."
     }
   ]
 }

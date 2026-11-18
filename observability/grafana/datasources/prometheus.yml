@@ -7,3 +7,9 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
+
+  - name: infinity
+    type: yesoreyeram-infinity-datasource
+    uid: infinity
+    access: proxy
+    editable: false

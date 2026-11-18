@@ -552,6 +552,62 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 
 
 # ---------------------------------------------------------------------------
+# RAG vector visualization — UMAP 2D projection endpoint (RAG-07)
+# ---------------------------------------------------------------------------
+
+@gateway_app.get("/rag/visualize")
+async def rag_visualize(
+    q: str = Query(..., description="Query text to project"),
+    tenant: str = Query("default", description="Tenant filter"),
+    k: int = Query(10, ge=1, le=50, description="Top-k results to include"),
+) -> _JSONResponse:
+    """Return 2D UMAP projections of query + top-k results + background sample.
+
+    Used by the Grafana Infinity datasource scatter panel.
+    """
+    if _vector_store is None or _embedder is None:
+        raise HTTPException(status_code=503, detail="Vector store or embedder not initialised")
+
+    from mcp_agent_factory.knowledge.visualize import project  # noqa: PLC0415
+
+    query_vector = _embedder.embed(q)
+
+    handler = GuardedQueryHandler(
+        vector_store=_vector_store,
+        embedder=_embedder,
+        filter_resolver=DefaultFilterResolver(),
+    )
+    auth_context = {"tenant": tenant, "acl": [], "embedder_id": None}
+    try:
+        top_k_results = handler.retrieve(query_text=q, auth_context=auth_context, top_k=k)
+    except Exception as exc:
+        logger.warning('{"event":"rag_visualize_retrieve_error","detail":"%s"}', exc)
+        top_k_results = []
+
+    # Background sample: up to 50 random chunks from the same tenant
+    background: list = []
+    if hasattr(_vector_store, "sample"):
+        try:
+            background = _vector_store.sample(owner_id=tenant, n=50)
+        except Exception:
+            pass
+    # Exclude chunks already in top_k results
+    result_ids = {r.chunk_id for r in top_k_results}
+    background = [b for b in background if b.chunk_id not in result_ids][:50]
+
+    if not top_k_results and not background:
+        return _JSONResponse({"query": None, "results": [], "background": [], "error": "no_data"})
+
+    result = project(
+        query_text=q,
+        query_vector=query_vector,
+        top_k_results=top_k_results,
+        background_chunks=background,
+    )
+    return _JSONResponse(result.to_dict())
+
+
+# ---------------------------------------------------------------------------
 # SSE session store — maps session_id → asyncio.Queue for response push-back
 # ---------------------------------------------------------------------------
 _sse_sessions: dict[str, asyncio.Queue] = {}
