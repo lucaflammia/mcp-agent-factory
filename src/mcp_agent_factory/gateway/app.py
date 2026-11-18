@@ -52,7 +52,7 @@ from mcp_agent_factory.knowledge import (
     query_knowledge_base,
 )
 from mcp_agent_factory.knowledge.generation import GenerationHandler
-from mcp_agent_factory.knowledge.query_handler import GuardedQueryHandler, DefaultFilterResolver
+from mcp_agent_factory.knowledge.query_handler import DefaultFilterResolver, GuardedQueryHandler
 from mcp_agent_factory.kv.store import RedisKVStore
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
