@@ -143,7 +143,10 @@ services:
   # MCP API Gateway
   # After code changes, rebuild before starting: docker compose --profile full up --build -d
   gateway:
-    build: .
+    build:
+      context: .
+      args:
+        EXTRAS: infra,otel,pg,ml
     profiles: [full]
     command: ["python", "-m", "uvicorn", "mcp_agent_factory.gateway.app:gateway_app", "--host", "0.0.0.0", "--port", "8000"]
     environment:

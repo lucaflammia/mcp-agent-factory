@@ -290,7 +290,7 @@
     {
       "id": 11,
       "title": "Similarity Score Distribution",
-      "type": "histogram",
+      "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -300,15 +300,33 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(increase(rag_retrieval_score_bucket[5m])) by (le)",
-          "legendFormat": "{{le}}",
+          "expr": "histogram_quantile(0.50, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.75, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p75",
+          "refId": "B"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.90, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p90",
+          "refId": "C"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "D"
         }
       ],
       "options": {
-        "bucketSize": "auto",
-        "fillOpacity": 80,
-        "gradientMode": "none",
+        "tooltip": {
+          "mode": "multi"
+        },
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
@@ -317,6 +335,9 @@
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
           "color": {
             "mode": "palette-classic"
           }

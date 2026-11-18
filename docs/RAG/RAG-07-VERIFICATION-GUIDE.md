@@ -198,13 +198,13 @@ Expected log line: `Plugin registered: yesoreyeram-infinity-datasource`.
 
 ### Panel 1 — Similarity Score Distribution
 
-**What it shows:** histogram of cosine similarity scores across all retrieved chunks, bucketed from 0.5–1.0.
+**What it shows:** cosine similarity score percentiles (p50, p75, p90, p95) over time as a time series. This shows how the distribution of retrieval scores shifts with each query batch.
 
 **How to trigger data:**
 ```bash
 # Run a few queries so Prometheus has histogram observations
 for q in "revenue Q3" "net income" "operating margin" "cash flow"; do
-  curl -s -X POST http://localhost:8000/rag/query \
+  curl -s -X POST http://localhost:8000/query \
     -H 'Content-Type: application/json' \
     -d "{\"question\": \"$q\", \"tenant\": \"default\"}" > /dev/null
 done
@@ -213,8 +213,11 @@ done
 **What to verify:**
 1. Open `http://localhost:3000/d/rag-metrics` → **Similarity Score Distribution** panel.
 2. Set time range to **Last 5 minutes**.
-3. Bars should appear in the 0.7–0.9 bucket range for typical document queries.
-4. Run `curl -s http://localhost:9090/api/v1/query?query=rag_retrieval_score_bucket | python -m json.tool | head -30` — confirm non-zero counts in multiple buckets.
+3. Four lines (p50, p75, p90, p95) should appear with values between 0 and 1.
+4. Confirm the underlying histogram has data:
+   ```bash
+   curl -s 'http://localhost:9090/api/v1/query?query=rag_retrieval_score_bucket' | python3 -m json.tool | head -30
+   ```
 
 ---
 
@@ -242,7 +245,7 @@ done
 **How to trigger data:** generate ~20 queries to accumulate enough histogram data points:
 ```bash
 for i in $(seq 1 20); do
-  curl -s -X POST http://localhost:8000/rag/query \
+  curl -s -X POST http://localhost:8000/query \
     -H 'Content-Type: application/json' \
     -d "{\"question\": \"test query $i\", \"tenant\": \"default\"}" > /dev/null
 done
@@ -262,7 +265,13 @@ done
 
 **What it shows:** 2D scatter plot of the query vector (highlighted) alongside its top-k retrieved chunks and a random background sample, projected with UMAP.
 
-**Prerequisites:** the index must have at least 4 chunks (UMAP requires >3 points). Ingest the sample PDF first if needed:
+**Prerequisites:**
+1. The gateway image must include ML extras (`sentence-transformers`, `umap-learn`). Rebuild if needed:
+   ```bash
+   docker compose --profile full build gateway
+   docker compose --profile full up -d gateway
+   ```
+2. The index must have at least 4 chunks (UMAP requires >3 points). Ingest the sample PDF first if needed:
 ```bash
 python -m mcp_agent_factory.knowledge.ingest \
   --source data/samples/finance_q3_2024.pdf \
