@@ -560,6 +560,7 @@ async def rag_visualize(
     q: str = Query(..., description="Query text to project"),
     tenant: str = Query("default", description="Tenant filter"),
     k: int = Query(10, ge=1, le=50, description="Top-k results to include"),
+    flat: int = Query(0, description="Set to 1 to return {points:[...]} flat array for Grafana Infinity"),
 ) -> _JSONResponse:
     """Return 2D UMAP projections of query + top-k results + background sample.
 
@@ -604,7 +605,7 @@ async def rag_visualize(
         top_k_results=top_k_results,
         background_chunks=background,
     )
-    return _JSONResponse(result.to_dict())
+    return _JSONResponse(result.to_flat() if flat else result.to_dict())
 
 
 # ---------------------------------------------------------------------------

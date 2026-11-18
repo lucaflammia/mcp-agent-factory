@@ -254,7 +254,9 @@
       ],
       "options": {
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -274,7 +276,10 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "value": null, "color": "blue" }
+              {
+                "value": null,
+                "color": "blue"
+              }
             ]
           },
           "unit": "short"
@@ -286,7 +291,12 @@
       "id": 11,
       "title": "Similarity Score Distribution",
       "type": "histogram",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -299,10 +309,18 @@
         "bucketSize": "auto",
         "fillOpacity": 80,
         "gradientMode": "none",
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
       },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" } },
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
         "overrides": []
       }
     },
@@ -310,7 +328,12 @@
       "id": 12,
       "title": "Top-1 Similarity Score Over Time",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -320,12 +343,22 @@
         }
       ],
       "options": {
-        "tooltip": { "mode": "single", "sort": "none" },
-        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom", "calcs": [] }
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "linear",
@@ -344,9 +377,14 @@
     },
     {
       "id": 13,
-      "title": "Score Heatmap (percentile × time)",
+      "title": "Score Heatmap (percentile \u00d7 time)",
       "type": "heatmap",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -358,20 +396,46 @@
       ],
       "options": {
         "calculate": false,
-        "yAxis": { "unit": "short", "decimals": 2 },
-        "color": { "scheme": "Spectral", "fill": "dark-orange", "scale": "linear", "steps": 64 },
-        "legend": { "show": true }
+        "yAxis": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "color": {
+          "scheme": "Spectral",
+          "fill": "dark-orange",
+          "scale": "linear",
+          "steps": 64
+        },
+        "legend": {
+          "show": true
+        }
       },
       "fieldConfig": {
-        "defaults": { "custom": { "scaleDistribution": { "type": "linear" }, "hideFrom": { "tooltip": false, "viz": false, "legend": false } } },
+        "defaults": {
+          "custom": {
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          }
+        },
         "overrides": []
       }
     },
     {
       "id": 14,
       "title": "Vector Cluster View (2D UMAP)",
-      "type": "yesoreyeram-infinity-datasource",
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 48 },
+      "type": "xychart",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "infinity"
@@ -381,35 +445,70 @@
           "refId": "A",
           "type": "json",
           "source": "url",
-          "url": "http://gateway:8000/rag/visualize?q=test&tenant=default&k=10",
-          "url_options": { "method": "GET", "data": "" },
-          "root_selector": "",
-          "columns": [],
+          "url": "http://gateway:8000/rag/visualize?q=test&tenant=default&k=10&flat=1",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "points",
+          "columns": [
+            {
+              "selector": "x",
+              "text": "x",
+              "type": "number"
+            },
+            {
+              "selector": "y",
+              "text": "y",
+              "type": "number"
+            },
+            {
+              "selector": "label",
+              "text": "label",
+              "type": "string"
+            },
+            {
+              "selector": "score",
+              "text": "score",
+              "type": "number"
+            },
+            {
+              "selector": "kind",
+              "text": "kind",
+              "type": "string"
+            }
+          ],
           "filters": [],
           "format": "table",
           "parser": "backend",
           "computed_columns": []
         }
       ],
-      "options": {},
+      "options": {
+        "seriesMapping": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "dims": {
+          "x": "x",
+          "y": "y",
+          "frame": 0
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "hideFrom": { "tooltip": false, "viz": false, "legend": false }
+            "pointSize": {
+              "fixed": 8
+            },
+            "show": "points"
           }
         },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "label" },
-            "properties": [
-              {
-                "id": "custom.displayMode",
-                "value": "color-background"
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "description": "2D UMAP projection of query (highlighted) vs top-k results vs background chunks. Requires Infinity datasource plugin and a seeded index. Change the 'q' param in the target URL to match your query."
     }

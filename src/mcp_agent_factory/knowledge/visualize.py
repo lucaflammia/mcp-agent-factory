@@ -22,6 +22,7 @@ class ProjectedPoint:
     y: float
     label: str
     score: float | None
+    kind: str = "background"  # "query" | "result" | "background"
     preview: str = ""
 
 
@@ -33,13 +34,20 @@ class VisualizeResult:
 
     def to_dict(self) -> dict[str, Any]:
         def _pt(p: ProjectedPoint) -> dict:
-            return {"x": p.x, "y": p.y, "label": p.label, "score": p.score, "preview": p.preview}
+            return {"x": p.x, "y": p.y, "label": p.label, "score": p.score, "kind": p.kind, "preview": p.preview}
 
         return {
             "query": _pt(self.query),
             "results": [_pt(r) for r in self.results],
             "background": [_pt(b) for b in self.background],
         }
+
+    def to_flat(self) -> dict[str, Any]:
+        """Return {points: [...]} — a single flat array for Grafana Infinity table parsing."""
+        def _pt(p: ProjectedPoint) -> dict:
+            return {"x": p.x, "y": p.y, "label": p.label, "score": p.score, "kind": p.kind, "preview": p.preview}
+
+        return {"points": [_pt(self.query)] + [_pt(r) for r in self.results] + [_pt(b) for b in self.background]}
 
 
 def _try_import_umap():
@@ -79,7 +87,7 @@ def project(
 
     coords = coords.tolist()
 
-    q_pt = ProjectedPoint(x=coords[0][0], y=coords[0][1], label="query", score=None, preview=query_text[:120])
+    q_pt = ProjectedPoint(x=coords[0][0], y=coords[0][1], label="query", score=None, kind="query", preview=query_text[:120])
 
     result_pts = []
     for i, chunk in enumerate(top_k_results, start=1):
@@ -88,6 +96,7 @@ def project(
             y=coords[i][1],
             label=f"doc:{chunk.chunk_id}",
             score=round(float(chunk.score), 4),
+            kind="result",
             preview=chunk.text[:120] if hasattr(chunk, "text") else "",
         ))
 
@@ -99,6 +108,7 @@ def project(
             y=coords[bg_offset + i][1],
             label=f"bg:{chunk.chunk_id}",
             score=None,
+            kind="background",
             preview=chunk.text[:80] if hasattr(chunk, "text") else "",
         ))
 
