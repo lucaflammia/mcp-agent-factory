@@ -592,6 +592,17 @@ async def rag_visualize(
             background = _vector_store.sample(owner_id=tenant, n=50)
         except Exception:
             pass
+    # Normalize results — retrieve() may return ChunkResult objects or (text, score) tuples
+    from mcp_agent_factory.knowledge.vector_store import ChunkResult  # noqa: PLC0415
+
+    def _to_chunk_result(r, idx: int) -> "ChunkResult":
+        if isinstance(r, ChunkResult):
+            return r
+        text, score = r[0], r[1]
+        return ChunkResult(text=text, score=float(score), chunk_id=f"chunk-{idx}")
+
+    top_k_results = [_to_chunk_result(r, i) for i, r in enumerate(top_k_results)]
+
     # Exclude chunks already in top_k results
     result_ids = {r.chunk_id for r in top_k_results}
     background = [b for b in background if b.chunk_id not in result_ids][:50]
@@ -599,11 +610,17 @@ async def rag_visualize(
     if not top_k_results and not background:
         return _JSONResponse({"query": None, "results": [], "background": [], "error": "no_data"})
 
+    # Pre-compute embeddings for result texts so visualize.py doesn't need .vector
+    result_vectors = [_embedder.embed(r.text).tolist() for r in top_k_results]
+    background_vectors = [_embedder.embed(b.text).tolist() if hasattr(b, "text") else [] for b in background]
+
     result = project(
         query_text=q,
         query_vector=query_vector,
         top_k_results=top_k_results,
         background_chunks=background,
+        result_vectors=result_vectors,
+        background_vectors=background_vectors,
     )
     return _JSONResponse(result.to_flat() if flat else result.to_dict())
 

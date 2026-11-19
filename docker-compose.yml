@@ -146,7 +146,7 @@ services:
     build:
       context: .
       args:
-        EXTRAS: infra,otel,pg,ml
+        EXTRAS: infra,otel,pgvector,ml
     profiles: [full]
     command: ["python", "-m", "uvicorn", "mcp_agent_factory.gateway.app:gateway_app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
@@ -299,7 +299,7 @@ services:
 
   # Grafana — dashboards
   grafana:
-    image: grafana/grafana:10.4.2
+    image: grafana/grafana:11.6.11
     profiles: [full]
     depends_on:
       prometheus:

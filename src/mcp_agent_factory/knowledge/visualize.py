@@ -63,16 +63,32 @@ def project(
     query_vector: list[float],
     top_k_results: list[Any],  # list[ChunkResult]
     background_chunks: list[Any],  # list[ChunkResult] — already sampled by caller
+    result_vectors: list[list[float]] | None = None,  # pre-computed embeddings for top_k_results
+    background_vectors: list[list[float]] | None = None,  # pre-computed embeddings for background_chunks
     random_state: int = 42,
 ) -> VisualizeResult:
     """Run UMAP on query + results + background, return 2D projections.
 
     Falls back to PCA (via numpy SVD) when umap-learn is not installed so the
     endpoint still works without the optional dependency.
+
+    result_vectors and background_vectors are pre-computed embeddings. If not
+    provided, .vector attribute is read from each chunk (legacy path).
     """
     UMAP = _try_import_umap()
 
-    all_vectors = [query_vector] + [r.vector for r in top_k_results] + [b.vector for b in background_chunks]
+    def _vec(chunk: Any, precomputed: list[float] | None) -> list[float]:
+        if precomputed is not None:
+            return precomputed
+        return chunk.vector  # legacy: chunk carries its own vector
+
+    rv = result_vectors or [None] * len(top_k_results)
+    bv = background_vectors or [None] * len(background_chunks)
+    all_vectors = (
+        [query_vector]
+        + [_vec(r, v) for r, v in zip(top_k_results, rv)]
+        + [_vec(b, v) for b, v in zip(background_chunks, bv)]
+    )
     matrix = np.array(all_vectors, dtype=np.float32)
 
     n = len(matrix)

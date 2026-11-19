@@ -129,10 +129,13 @@ import os
 store = PgVectorStore(os.environ['DATABASE_URL'])
 
 async def drill():
-    path = await store.backup('/tmp/rag-backup-drill.sql')
-    print(f'Backup written to {path}')
-    await store.restore(path)
-    print('Restore complete')
+    import time
+    meta = await store.backup('/tmp/rag-backup-drill.sql')
+    print(f'Backup written to {meta[\"backup_path\"]} ({meta[\"chunk_count\"]} chunks)')
+    t0 = time.time()
+    result = await store.restore(meta)
+    elapsed = time.time() - t0
+    print(f'Restore complete: {result[\"chunks_restored\"]} chunks in {elapsed:.2f}s')
 
 asyncio.run(drill())
 "
@@ -186,23 +189,31 @@ print('Compaction complete')
 
 ```bash
 docker compose --profile full up -d
-# If Grafana was already running without the Infinity plugin, force a restart:
-docker compose restart grafana
-# Wait ~30 s for the plugin to download, then verify:
-docker compose logs grafana | grep -i "infinity\|plugin"
 ```
 
-Expected log line: `Plugin registered: yesoreyeram-infinity-datasource`.
+Open `http://localhost:3000/d/rag-metrics` (login: admin / admin).
 
 ---
 
-### Panel 1 — Similarity Score Distribution
+### Dashboard overview
 
-**What it shows:** cosine similarity score percentiles (p50, p75, p90, p95) over time as a time series. This shows how the distribution of retrieval scores shifts with each query batch.
+The **RAG Pipeline — Metrics & Quality Gates** dashboard has five panels, each answering one plain question:
 
-**How to trigger data:**
+| Panel | Type | Question it answers | Good / Bad signal |
+|---|---|---|---|
+| **Chunks in Index** | Time series | Is there data in the index, and is it growing? | Green line = data present; red = 0 chunks (nothing to search) |
+| **Empty Result Rate** | Time series | Are queries consistently returning results? | Green <10 %; Yellow 10–25 %; Red >25 % |
+| **Refusal Rate** | Time series | Is the model refusing to answer over time? | Green <10 %; Yellow 10–30 %; Red >30 % |
+| **Similarity Score Distribution** | Time series | Is retrieval finding relevant chunks? | p50 above 0.5 = good coverage; p50 below 0.3 = coverage gap |
+| **Best Match Score Per Query** | Time series | How good was the last query? | Above 0.7 = strong match; below 0.4 = off-topic or missing data |
+
+---
+
+### How to trigger data
+
+Run a few semantically relevant queries (the index holds financial data):
+
 ```bash
-# Run a few queries so Prometheus has histogram observations
 for q in "revenue Q3" "net income" "operating margin" "cash flow"; do
   curl -s -X POST http://localhost:8000/query \
     -H 'Content-Type: application/json' \
@@ -210,117 +221,100 @@ for q in "revenue Q3" "net income" "operating margin" "cash flow"; do
 done
 ```
 
-**What to verify:**
-1. Open `http://localhost:3000/d/rag-metrics` → **Similarity Score Distribution** panel.
-2. Set time range to **Last 5 minutes**.
-3. Four lines (p50, p75, p90, p95) should appear with values between 0 and 1.
-4. Confirm the underlying histogram has data:
-   ```bash
-   curl -s 'http://localhost:9090/api/v1/query?query=rag_retrieval_score_bucket' | python3 -m json.tool | head -30
-   ```
+Prometheus scrapes every 15 s, so panels update within ~30 s of the queries.
 
 ---
 
-### Panel 2 — Top-1 Similarity Score Over Time
+### Panel 1 — Chunks in Index (time series)
 
-**What it shows:** the cosine similarity of the highest-ranked chunk for each query, plotted as a time series.
-
-**How to trigger data:** same queries as Panel 1 (the gauge updates on every retrieval).
+Shows the total chunk count over time — useful for confirming ingestion happened and spotting unexpected drops.
 
 **What to verify:**
-1. **Top-1 Similarity Score Over Time** panel shows a line with values between 0 and 1.
-2. Confirm the gauge is live:
-   ```bash
-   curl -s http://localhost:8000/metrics | grep rag_top1_score
-   # Expected: rag_top1_score{tenant="default"} 0.8x
-   ```
-3. Each new query shifts the gauge — run one more query and watch the value update within the 15 s Prometheus scrape interval.
-
----
-
-### Panel 3 — Score Heatmap (percentile × time)
-
-**What it shows:** bucket distribution over time as a heatmap — darker cells indicate more chunks scoring in that similarity band.
-
-**How to trigger data:** generate ~20 queries to accumulate enough histogram data points:
 ```bash
-for i in $(seq 1 20); do
-  curl -s -X POST http://localhost:8000/query \
-    -H 'Content-Type: application/json' \
-    -d "{\"question\": \"test query $i\", \"tenant\": \"default\"}" > /dev/null
-done
+curl -s http://localhost:8000/metrics | grep rag_index_chunk_count
+# Expected: rag_index_chunk_count 4  (or however many chunks were ingested)
 ```
 
-**What to verify:**
-1. **Score Heatmap** panel — set time range to **Last 15 minutes**.
-2. Colored bands should appear in the 0.6–0.9 similarity range.
-3. If the panel shows "No data", check Prometheus is scraping the gateway:
-   ```bash
-   curl -s 'http://localhost:9090/api/v1/targets' | python -m json.tool | grep -A5 '"gateway"'
-   ```
-
----
-
-### Panel 4 — Vector Cluster View (2D UMAP)
-
-**What it shows:** 2D scatter plot of the query vector (highlighted) alongside its top-k retrieved chunks and a random background sample, projected with UMAP.
-
-**Prerequisites:**
-1. The gateway image must include ML extras (`sentence-transformers`, `umap-learn`). Rebuild if needed:
-   ```bash
-   docker compose --profile full build gateway
-   docker compose --profile full up -d gateway
-   ```
-2. The index must have at least 4 chunks (UMAP requires >3 points). Ingest the sample PDF first if needed:
+If the line stays at 0, ingest the sample document first:
 ```bash
 python -m mcp_agent_factory.knowledge.ingest \
   --source data/samples/finance_q3_2024.pdf \
   --tenant default
 ```
 
-**Verify the endpoint directly:**
+---
+
+### Panel 2 — Empty Result Rate (time series)
+
+Shows how the fraction of no-result queries evolves over time. A spike here means new query types aren't covered by the index.
+
+**What to verify:**
 ```bash
-curl -s "http://localhost:8000/rag/visualize?q=revenue&tenant=default&k=5&flat=1" | python -m json.tool | head -40
+curl -s http://localhost:8000/metrics | grep rag_empty_results_total
 ```
 
-Expected shape:
-```json
-{
-  "points": [
-    {"x": 0.42, "y": -0.18, "label": "query",    "score": null, "kind": "query",      "preview": "revenue"},
-    {"x": 0.51, "y": -0.11, "label": "doc:abc",   "score": 0.91, "kind": "result",     "preview": "..."},
-    {"x": -0.3, "y": 0.72,  "label": "bg:xyz",    "score": null, "kind": "background", "preview": "..."}
-  ]
-}
-```
-
-**Verify in Grafana:**
-1. **Vector Cluster View (2D UMAP)** panel → set time range to **Now**.
-2. The Infinity datasource calls `http://gateway:8000/rag/visualize?q=test&tenant=default&k=10&flat=1`.
-3. A table of x/y/label/score/kind columns should render.
-4. To change the query term, edit the panel → Targets → URL, change `q=test` to your query, then **Apply**.
-
-**Plugin not found error:** if the panel shows "Panel plugin not found: yesoreyeram-infinity-datasource":
-```bash
-# Restart Grafana to force plugin download
-docker compose restart grafana
-# Wait 30s then reload the browser
-```
-The `GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource` env var in `docker-compose.yml` triggers the download at container startup. The plugin is free and open-source (no account required).
+A non-zero value means some queries returned no chunks. Expected to be low for financial domain queries against the sample index.
 
 ---
 
-### Alert simulation
+### Panel 3 — Refusal Rate (time series)
 
+Shows the fraction of queries the model refused to answer over time. A rising trend after ingesting new content suggests the new chunks score below the similarity threshold.
+
+**What to verify:**
 ```bash
-# Trigger a burst of refusals by querying out-of-scope questions in a loop
-for i in $(seq 1 20); do
+curl -s http://localhost:8000/metrics | grep rag_refusals_total
+```
+
+Refusals occur when the best matching chunk scores below the minimum threshold (0.3). Out-of-scope queries like "weather forecast" will be refused.
+
+**Simulate refusals to test alerting:**
+```bash
+for i in $(seq 1 10); do
   curl -s -X POST http://localhost:8000/query \
     -H 'Content-Type: application/json' \
-    -d '{"question": "out-of-scope '"$i"'", "tenant": "test"}' > /dev/null
+    -d "{\"question\": \"out-of-scope $i\", \"tenant\": \"default\"}" > /dev/null
 done
-# Check Prometheus alert manager for RAG refusal spike alert firing
+# Check if the RagRefusalSpike alert is firing
 curl -s http://localhost:9090/api/v1/alerts | python -m json.tool | grep -A3 "refusal"
+```
+
+---
+
+### Panel 4 — Similarity Score Distribution
+
+**What it shows:** p50, p75, p90, p95 percentile lines over time. A healthy index keeps p50 above 0.5 for domain-relevant queries.
+
+**What to verify:**
+```bash
+curl -s 'http://localhost:9090/api/v1/query?query=rag_retrieval_score_bucket' \
+  | python3 -m json.tool | head -30
+```
+
+If the panel shows "No data", confirm Prometheus is scraping the gateway:
+```bash
+curl -s 'http://localhost:9090/api/v1/targets' | python -m json.tool | grep -A5 '"gateway"'
+```
+
+The target health must be `"health": "up"`.
+
+---
+
+### Panel 5 — Best Match Score Per Query
+
+**What it shows:** the cosine similarity of the top-ranked chunk for the most recent query, as a live gauge.
+
+**What to verify:**
+```bash
+curl -s http://localhost:8000/metrics | grep rag_top1_score
+# Expected: rag_top1_score{tenant="default"} 0.7x  (for a financial query)
+```
+
+Run one more query and confirm the value updates within 15 s:
+```bash
+curl -s -X POST http://localhost:8000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "EBITDA margin", "tenant": "default"}' | python -m json.tool
 ```
 
 ---

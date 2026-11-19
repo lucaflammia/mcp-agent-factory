@@ -13,3 +13,7 @@ datasources:
     uid: infinity
     access: proxy
     editable: false
+    jsonData:
+      allowedHosts:
+        - "http://gateway:8000"
+        - "gateway:8000"

@@ -281,6 +281,7 @@ class IdempotentIngestionPipeline:
 
                 # Idempotency check
                 if hasattr(self._store, "chunk_exists") and self._store.chunk_exists(tenant, content_hash, self._embedder_id):
+                    logger.info(f"Skipping chunk {content_hash}: content_hash already exists")
                     skipped += 1
                     continue
 
