@@ -192,8 +192,8 @@ def test_query_knowledge_base_exception_propagates():
 
 def test_query_knowledge_base_fallback_tracer(monkeypatch):
 	"""When opentelemetry is absent the fallback tracer is used (no crash)."""
-	import sys
 	import importlib
+	import sys
 
 	otel_modules = {k: v for k, v in sys.modules.items() if k.startswith("opentelemetry")}
 	for k in otel_modules:
