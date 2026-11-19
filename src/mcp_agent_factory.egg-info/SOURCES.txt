@@ -65,7 +65,6 @@ src/mcp_agent_factory/knowledge/reranker.py
 src/mcp_agent_factory/knowledge/source.py
 src/mcp_agent_factory/knowledge/tools.py
 src/mcp_agent_factory/knowledge/vector_store.py
-src/mcp_agent_factory/knowledge/visualize.py
 src/mcp_agent_factory/kv/__init__.py
 src/mcp_agent_factory/kv/store.py
 src/mcp_agent_factory/messaging/__init__.py
