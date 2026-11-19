@@ -31,7 +31,6 @@ boto3>=1.34
 
 [ml]
 sentence-transformers>=2.2
-umap-learn>=0.5
 
 [optimizer]
 dspy-ai>=2.5
