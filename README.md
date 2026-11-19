@@ -155,31 +155,20 @@ Operational confidence layer: versioned golden-set CI gate, observability dashbo
 
 ### RAG-07: Vector Visualization Dashboard ✅
 
-Extends the existing Grafana + Prometheus stack with similarity-score visibility and a 2D UMAP cluster view. No new AWS services or paid dependencies.
+Extends the existing Grafana + Prometheus stack with similarity-score visibility. No new AWS services or paid dependencies.
 
-**What's added:**
+**Five dashboard panels** at `http://localhost:3000/d/rag-metrics`:
 
-1. **`rag_retrieval_score` histogram** — per-query similarity scores pushed to Prometheus at retrieval time, labelled by tenant and embedder version
-2. **`rag_top1_score` gauge** — top-1 similarity score per tenant, visible over time
-3. **`/rag/visualize` endpoint** — `GET /rag/visualize?q=<query>&tenant=<tenant>&k=10` runs UMAP (or PCA fallback) on query + top-k + background sample and returns 2D JSON coordinates for the Grafana scatter panel
-4. **Four new Grafana panels** in `observability/grafana/dashboards/rag-metrics.json`:
-   - Similarity Score Distribution (histogram)
-   - Top-1 Score Over Time (time series)
-   - Score Heatmap rank × time (heatmap)
-   - Vector Cluster View 2D UMAP (Infinity datasource scatter)
-5. **Infinity datasource plugin** (`yesoreyeram-infinity-datasource`) auto-installed in Grafana via `GF_INSTALL_PLUGINS`
+1. **Chunks in Index** — `rag_index_chunk_count` gauge, updated at startup and each query
+2. **Empty Result Rate** — ratio of queries returning no results
+3. **Refusal Rate** — ratio of queries triggering a refusal
+4. **Similarity Score Distribution Over Time** — per-query score histogram pushed to Prometheus
+5. **Best Match Score Per Query** — `rag_top1_score` gauge per tenant over time
 
 **Setup:**
 
 ```bash
-# Install umap-learn (CPU-only, no GPU required)
-pip install "mcp-agent-factory[ml]"
-
-# Restart Grafana to pick up the Infinity plugin (first run downloads it)
-docker compose --profile full up -d grafana
-
-# Verify the endpoint
-curl "http://localhost:8000/rag/visualize?q=machine+learning&tenant=default&k=5"
+docker compose --profile full up -d
 ```
 
 **Documentation:** `RAG-07-vector-visualization-dashboard.md` — full implementation spec.
