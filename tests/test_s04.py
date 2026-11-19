@@ -145,3 +145,67 @@ def test_cross_tenant_isolation_via_gateway(monkeypatch):
 	assert resp.status_code == 200
 	text = resp.json()["result"]["content"][0]["text"]
 	assert text == "[]"
+
+
+# ---------------------------------------------------------------------------
+# Coverage: hybrid search, exception path, fallback tracer
+# ---------------------------------------------------------------------------
+
+def test_query_knowledge_base_hybrid_search():
+	"""use_hybrid=True routes through search_hybrid when the store exposes it."""
+	store, embedder = _populated_store()
+
+	calls = []
+
+	def _search_hybrid(owner_id, query, vector, top_k):
+		calls.append((owner_id, query, top_k))
+		return store.search(owner_id, vector, top_k=top_k)
+
+	store.search_hybrid = _search_hybrid
+	result = query_knowledge_base("climate", "alice", store, embedder, use_hybrid=True)
+	assert len(calls) == 1
+	assert calls[0][0] == "alice"
+	assert len(result) > 0
+
+
+def test_query_knowledge_base_hybrid_fallback_when_no_method():
+	"""use_hybrid=True but store lacks search_hybrid — falls back to dense search."""
+	store, embedder = _populated_store()
+	if hasattr(store, "search_hybrid"):
+		delattr(store, "search_hybrid")
+	result = query_knowledge_base("climate", "alice", store, embedder, use_hybrid=True)
+	assert isinstance(result, list)
+
+
+def test_query_knowledge_base_exception_propagates():
+	"""Exceptions from embed() propagate out of query_knowledge_base."""
+	embedder = StubEmbedder()
+	store = InMemoryVectorStore()
+
+	def _bad_embed(text):
+		raise ValueError("embed failed")
+
+	embedder.embed = _bad_embed
+	with pytest.raises(ValueError, match="embed failed"):
+		query_knowledge_base("anything", "alice", store, embedder)
+
+
+def test_query_knowledge_base_fallback_tracer(monkeypatch):
+	"""When opentelemetry is absent the fallback tracer is used (no crash)."""
+	import sys
+	import importlib
+
+	otel_modules = {k: v for k, v in sys.modules.items() if k.startswith("opentelemetry")}
+	for k in otel_modules:
+		sys.modules[k] = None  # type: ignore[assignment]
+
+	try:
+		import mcp_agent_factory.knowledge.tools as tools_mod
+		importlib.reload(tools_mod)
+		store, embedder = _populated_store()
+		result = tools_mod.query_knowledge_base("climate", "alice", store, embedder)
+		assert isinstance(result, list)
+	finally:
+		for k in otel_modules:
+			sys.modules[k] = otel_modules[k]
+		importlib.reload(tools_mod)
