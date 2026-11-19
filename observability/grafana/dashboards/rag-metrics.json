@@ -74,7 +74,7 @@
     {
       "id": 3,
       "title": "Empty Result Rate",
-      "description": "Percentage of queries where the vector search returned no results over time. High values mean the index lacks coverage for the topics users are asking about.",
+      "description": "Percentage of queries refused specifically because the vector search returned no results above the score threshold (reason=empty_retrieval). High values mean the index lacks coverage. With the stub LLM this equals Refusal Rate \u2014 they diverge once a real LLM is wired in.",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -140,7 +140,7 @@
     {
       "id": 4,
       "title": "Refusal Rate",
-      "description": "Percentage of queries the LLM refused to answer over time (e.g. low confidence, no grounding). High values indicate either bad retrieval quality or a strict safety threshold.",
+      "description": "Percentage of ALL refused queries over time, across all refusal reasons (empty_retrieval + validation_failure + future reasons). With the stub LLM this equals Empty Result Rate \u2014 they diverge once a real LLM is wired in and occasionally fails JSON validation.",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -151,7 +151,7 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "100 * sum(increase(rag_generation_refusal_total[5m])) / sum(increase(rag_generation_total[5m]))",
+          "expr": "100 * (sum(increase(rag_generation_refusal_total[5m])) or on() vector(0)) / (sum(increase(rag_generation_total[5m])) or on() vector(1))",
           "legendFormat": "Refusal %",
           "refId": "A"
         }

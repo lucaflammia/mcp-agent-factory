@@ -534,8 +534,29 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 	gen = GenerationHandler()
 
 	async def _llm_call(prompt: str) -> str:  # noqa: RUF029
-		# No LLM configured — signal empty retrieval path
-		return ""
+		# No LLM configured — synthesise a minimal valid answer from retrieved chunks.
+		import json as _json
+		_MIN_SCORE = 0.3
+		if not chunks:
+			return '{"answer":"","cited_chunk_ids":[],"refused":true,"refusal_reason":"No relevant information found."}'
+		top = chunks[0]
+		# Extract score — tuples are (text, score), objects may have .score
+		if isinstance(top, tuple):
+			score = top[1] if len(top) > 1 else 0.0
+			text = top[0]
+			chunk_id = "chunk-1"
+		else:
+			score = getattr(top, "score", 1.0)
+			text = getattr(top, "text", str(top))
+			chunk_id = getattr(top, "chunk_id", "chunk-1")
+		if score < _MIN_SCORE:
+			return '{"answer":"","cited_chunk_ids":[],"refused":true,"refusal_reason":"No relevant information found."}'
+		return _json.dumps({
+			"answer": text[:500],
+			"cited_chunk_ids": [chunk_id],
+			"refused": False,
+			"refusal_reason": None,
+		})
 
 	answer = await gen.generate(
 		query=body.question,

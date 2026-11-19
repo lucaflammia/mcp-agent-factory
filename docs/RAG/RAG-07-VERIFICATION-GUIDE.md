@@ -202,8 +202,8 @@ The **RAG Pipeline — Metrics & Quality Gates** dashboard has five panels, each
 | Panel | Type | Question it answers | Good / Bad signal |
 |---|---|---|---|
 | **Chunks in Index** | Time series | Is there data in the index, and is it growing? | Green line = data present; red = 0 chunks (nothing to search) |
-| **Empty Result Rate** | Time series | Are queries consistently returning results? | Green <10 %; Yellow 10–25 %; Red >25 % |
-| **Refusal Rate** | Time series | Is the model refusing to answer over time? | Green <10 %; Yellow 10–30 %; Red >30 % |
+| **Empty Result Rate** | Time series | Are queries consistently returning results? (retrieval layer only) | Green <10 %; Yellow 10–25 %; Red >25 % |
+| **Refusal Rate** | Time series | Is the generation pipeline refusing over time? (retrieval + LLM validation) | Green <10 %; Yellow 10–30 %; Red >30 %; tracks same as Empty Result Rate with stub LLM — diverges once real LLM is configured |
 | **Similarity Score Distribution** | Time series | Is retrieval finding relevant chunks? | p50 above 0.5 = good coverage; p50 below 0.3 = coverage gap |
 | **Best Match Score Per Query** | Time series | How good was the last query? | Above 0.7 = strong match; below 0.4 = off-topic or missing data |
 
@@ -246,7 +246,9 @@ python -m mcp_agent_factory.knowledge.ingest \
 
 ### Panel 2 — Empty Result Rate (time series)
 
-Shows how the fraction of no-result queries evolves over time. A spike here means new query types aren't covered by the index.
+Shows the fraction of queries where retrieval returned **no chunks at all** (`reason="empty_retrieval"`). A spike here means new query types aren't covered by the index.
+
+> **Note — same curve as Refusal Rate with the stub LLM:** Without a real LLM configured, every refusal has `reason="empty_retrieval"`, so both panels track identically. They diverge once a real LLM is wired in: LLM calls that fail JSON schema validation increment `reason="validation_failure"` on the Refusal Rate panel only, while this panel stays low if retrieval itself is working. Use Empty Result Rate to diagnose the retrieval layer; use Refusal Rate to diagnose the full generation pipeline.
 
 **What to verify:**
 ```bash
@@ -267,6 +269,42 @@ curl -s http://localhost:8000/metrics | grep rag_refusals_total
 ```
 
 Refusals occur when the best matching chunk scores below the minimum threshold (0.3). Out-of-scope queries like "weather forecast" will be refused.
+
+**Simulate an accepted query (non-refusal):**
+
+A query whose top-ranked chunk scores above the threshold produces a full LLM answer with citations. Use a question that maps directly to indexed content:
+
+```bash
+curl -s -X POST http://localhost:8000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "What was the net income in Q3 2024?", "tenant": "default"}' \
+  | python -m json.tool
+```
+
+Expected shape — `answer` is populated, `citations` is a non-empty array of chunk IDs, `refused` is `false`, and `refusal_reason` is `null`:
+
+```json
+{
+    "answer": "Q3 2024 Financial Report - Confidential\nExecutive Summary\nTotal revenue for Q3 2024 reached USD 52.4 million, representing a 14% year-over-year growth. EBITDA margin\nimproved to 19.2% from 16.8% in Q3 2023. Net income was USD 8.1 million.",
+    "refused": false,
+    "refusal_reason": null,
+    "citations": [
+        "chunk-1"
+    ]
+}
+```
+
+> **Note:** Without a real LLM configured, the gateway returns the raw text of the top-ranked chunk as the answer. With an LLM, `answer` will be a synthesised natural-language response grounded in the retrieved chunks.
+
+After this call, check that `rag_refusals_total` did **not** increment while `rag_retrieval_score_bucket` updated:
+
+```bash
+curl -s http://localhost:8000/metrics | grep -E 'rag_refusals_total|rag_top1_score'
+# rag_top1_score{tenant="default"} 0.69
+# rag_refusals_total{tenant="default"} 0  (unchanged from before)
+```
+
+This confirms the refusal rate stays below 100% when the index contains relevant content.
 
 **Simulate refusals to test alerting:**
 ```bash
