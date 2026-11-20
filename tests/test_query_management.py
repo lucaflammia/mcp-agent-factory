@@ -1,6 +1,8 @@
 """Tests for query management — rate limiting, quotas, and audit logging."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from mcp_agent_factory.gateway.query_management import QueryManager, RateLimitConfig
 
 
