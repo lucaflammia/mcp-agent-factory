@@ -138,6 +138,8 @@ tests/test_rag03_guarded_retrieval.py
 tests/test_rag04_validated_generation.py
 tests/test_rag05_embedder_versioning.py
 tests/test_rag06_operations.py
+tests/test_rag07_coverage.py
+tests/test_rag07_patch_coverage.py
 tests/test_react_loop.py
 tests/test_reranker.py
 tests/test_s04.py
