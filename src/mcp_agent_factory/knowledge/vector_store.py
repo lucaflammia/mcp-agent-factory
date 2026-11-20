@@ -412,16 +412,19 @@ class PgVectorStore:
     self._conn = None
 
   def _connect(self):
+    try:
+      import psycopg
+      from pgvector.psycopg import register_vector
+    except ImportError as exc:
+      raise RuntimeError(
+        "psycopg and pgvector are required: pip install 'psycopg[binary]' pgvector"
+      ) from exc
     if self._conn is None or self._conn.closed:
-      try:
-        import psycopg
-        from pgvector.psycopg import register_vector
-      except ImportError as exc:
-        raise RuntimeError(
-          "psycopg and pgvector are required: pip install 'psycopg[binary]' pgvector"
-        ) from exc
       self._conn = psycopg.connect(self._dsn)
       register_vector(self._conn)
+    elif getattr(getattr(psycopg, "pq", None), "TransactionStatus", None) is not None and self._conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
+      # Aborted transaction — roll back so the connection is usable again
+      self._conn.rollback()
     return self._conn
 
   def upsert(
@@ -647,6 +650,7 @@ class PgVectorStore:
           raise
         except Exception:
           # Schema doesn't support full filtering; fall back to basic vector search
+          conn.rollback()
           if embedder_id:
             return []
           with conn.cursor() as fb_cur:
@@ -660,6 +664,7 @@ class PgVectorStore:
     except ValueError:
       raise
     except Exception:
+      conn.rollback()
       if embedder_id:
         return []
       with conn.cursor() as fb_cur:
@@ -775,10 +780,13 @@ class PgVectorStore:
     }
     """
     def _do_backup():
+      import psycopg as _psycopg
+      from pgvector.psycopg import register_vector as _reg
       path_obj = Path(path)
       path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-      conn = self._connect()
+      conn = _psycopg.connect(self._dsn)
+      _reg(conn)
       backup_data = {
         'chunks': [],
         'metadata': {
@@ -827,6 +835,7 @@ class PgVectorStore:
       with open(path_obj, 'w') as f:
         json.dump(backup_data, f, indent=2)
 
+      conn.close()
       owner_ids = set(c['owner_id'] for c in backup_data['chunks'])
       return {
         'backup_path': str(path_obj),
@@ -861,24 +870,39 @@ class PgVectorStore:
       with open(path_obj) as f:
         backup_data = json.load(f)
 
-      conn = self._connect()
+      # Close any cached connection to avoid lock contention
+      if self._conn and not self._conn.closed:
+        try:
+          self._conn.close()
+        except Exception:
+          pass
+        self._conn = None
+
+      import psycopg as _psycopg
+      from pgvector.psycopg import register_vector as _reg
+      conn = _psycopg.connect(self._dsn)
+      _reg(conn)
       owner_ids = set()
 
-      # Clear existing data
+      # Clear existing data (DELETE instead of TRUNCATE to avoid ACCESS EXCLUSIVE lock
+      # contention with other connections e.g. the gateway)
       with conn.cursor() as cur:
-        cur.execute("TRUNCATE chunks CASCADE")
+        cur.execute("DELETE FROM chunks")
 
       # Restore chunks
       with conn.cursor() as cur:
         for chunk in backup_data.get('chunks', []):
+          emb = chunk['embedding']
+          if isinstance(emb, list):
+            emb = '[' + ','.join(str(v) for v in emb) + ']'
           cur.execute("""
             INSERT INTO chunks (owner_id, chunk_id, text, embedding, ts, source_id, embedder_id, content_hash)
-            VALUES (%s, %s, %s, %s, to_tsvector('english', %s), %s, %s, %s)
+            VALUES (%s, %s, %s, %s::vector, to_tsvector('english', %s), %s, %s, %s)
           """, (
             chunk['owner_id'],
             chunk['chunk_id'],
             chunk['text'],
-            chunk['embedding'],
+            emb,
             chunk['text'],
             chunk.get('source_id', ''),
             chunk.get('embedder_id', 'unknown'),
@@ -887,6 +911,7 @@ class PgVectorStore:
           owner_ids.add(chunk['owner_id'])
 
       conn.commit()
+      conn.close()
       return {
         'chunks_restored': len(backup_data.get('chunks', [])),
         'owners_restored': len(owner_ids),
@@ -919,6 +944,16 @@ class PgVectorStore:
       'status': 'ok',
       'chunk_count': chunk_count,
     }
+
+  def chunk_exists(self, owner_id: str, chunk_id: str, embedder_id: str = "unknown") -> bool:
+    """Check if a chunk with the given owner_id, chunk_id, and embedder_id exists."""
+    conn = self._connect()
+    with conn.cursor() as cur:
+      cur.execute(
+        "SELECT 1 FROM chunks WHERE owner_id = %s AND chunk_id = %s AND embedder_id = %s LIMIT 1",
+        (owner_id, chunk_id, embedder_id)
+      )
+      return cur.fetchone() is not None
 
   def status(self) -> dict[str, Any]:
     """Return current chunk count synchronously for metrics."""

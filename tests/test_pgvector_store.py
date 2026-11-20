@@ -165,9 +165,9 @@ class TestPgVectorStoreOperations:
       result = await store.restore(backup_path)
       assert result['chunks_restored'] == 1
       assert result['owners_restored'] == 1
-      # Verify TRUNCATE was called
+      # Verify DELETE was called (not TRUNCATE, to avoid lock contention)
       sql_calls = [c[0][0] for c in cur.execute.call_args_list]
-      assert any('TRUNCATE' in str(sql) for sql in sql_calls)
+      assert any('DELETE' in str(sql) for sql in sql_calls)
       # Verify INSERT was called
       assert any('INSERT' in str(sql) for sql in sql_calls)
 

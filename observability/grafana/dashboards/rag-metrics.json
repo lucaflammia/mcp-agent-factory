@@ -2,282 +2,355 @@
   "title": "RAG Pipeline \u2014 Metrics & Quality Gates",
   "uid": "rag-metrics",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 4,
   "refresh": "30s",
   "time": {
     "from": "now-24h",
     "to": "now"
   },
-  "templating": {
-    "list": [
-      {
-        "name": "tenant_id",
-        "type": "query",
-        "datasource": "Prometheus",
-        "definition": "label_values(rag_generation_total, job)",
-        "allValue": null,
-        "includeAll": false,
-        "query": "label_values(rag_generation_total, job)"
-      }
-    ]
-  },
   "panels": [
     {
-      "id": 1,
-      "title": "Retrieval Recall@1",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "rag_retrieval_recall_1",
-          "legendFormat": "Recall@1"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "Retrieval Score Gap (p1 - p2)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "avg(rag_retrieval_mrr{job=\"rag_eval\"})",
-          "legendFormat": "{{owner_id}}"
-        }
-      ],
-      "alert": {
-        "message": "Score gap < 0.1 indicates weak disambiguation",
-        "alertThreshold": 0.1
-      }
-    },
-    {
-      "id": 3,
-      "title": "Empty Result Rate (%)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "100 * sum(increase(rag_generation_refusal_total{reason=\"empty_retrieval\"}[5m])) / sum(increase(rag_generation_total[5m]))",
-          "legendFormat": "{{owner_id}}"
-        }
-      ],
-      "alert": {
-        "message": "Empty results > 10% indicates coverage gap",
-        "alertThreshold": 10
-      }
-    },
-    {
-      "id": 4,
-      "title": "Refusal Rate (%)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "100 * sum(increase(rag_generation_refusal_total[5m])) / sum(increase(rag_generation_total[5m]))",
-          "legendFormat": "{{provider}}"
-        }
-      ],
-      "alert": {
-        "conditions": [
-          {
-            "evaluator": {
-              "type": "gt",
-              "params": [
-                0.3
-              ]
-            },
-            "operator": {
-              "type": "and"
-            },
-            "query": {
-              "params": [
-                "A",
-                "1m",
-                "now"
-              ]
-            },
-            "reducer": {
-              "type": "last"
-            },
-            "type": "query"
-          }
-        ],
-        "frequency": "5m",
-        "handler": 1,
-        "message": "Refusal rate > 30% indicates possible data loss or access restriction",
-        "name": "RAG refusal spike alert",
-        "noDataState": "no_data",
-        "for": "5m",
-        "executionErrorState": "alerting"
-      }
-    },
-    {
-      "id": 5,
-      "title": "MRR (Mean Reciprocal Rank)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "avg(rag_retrieval_mrr{job=\"rag_eval\"})",
-          "legendFormat": "{{owner_id}}"
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "title": "nDCG@10",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "avg(rag_retrieval_ndcg_10{job=\"rag_eval\"})",
-          "legendFormat": "{{owner_id}}"
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "title": "Eval Golden Set Version",
-      "type": "stat",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 24
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "rag_eval_golden_set_version",
-          "legendFormat": "Golden set version"
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "title": "Last Eval Run",
-      "type": "stat",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 24
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "time() - rag_eval_last_run_timestamp_seconds",
-          "legendFormat": "Seconds ago"
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "title": "Baseline Pass Rate (%) vs Current",
-      "type": "graph",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 28
-      },
-      "targets": [
-        {
-          "datasource": "Prometheus",
-          "expr": "rag_eval_baseline_pass_rate * 100",
-          "legendFormat": "Baseline"
-        },
-        {
-          "datasource": "Prometheus",
-          "expr": "rag_eval_current_pass_rate * 100",
-          "legendFormat": "Current"
-        }
-      ],
-      "alert": {
-        "message": "Pass rate regression > 5%",
-        "alertThreshold": -5
-      }
-    },
-    {
       "id": 10,
-      "title": "Index Size & Chunk Count",
-      "type": "stat",
+      "title": "Chunks in Index",
+      "description": "Total number of document chunks stored in the vector index over time. A value of 0 means no documents have been ingested yet.",
+      "type": "timeseries",
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 28
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 0
       },
       "targets": [
         {
           "datasource": "Prometheus",
           "expr": "rag_index_chunk_count",
-          "legendFormat": "Chunk Count",
+          "legendFormat": "Chunks",
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "tooltip": {
+          "mode": "single"
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
           "min": 0,
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "spanNulls": true
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "value": null, "color": "blue" }
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
             ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Empty Result Rate",
+      "description": "Percentage of queries refused specifically because the vector search returned no results above the score threshold (reason=empty_retrieval). High values mean the index lacks coverage. With the stub LLM this equals Refusal Rate \u2014 they diverge once a real LLM is wired in.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "100 * (sum(increase(rag_generation_refusal_total{reason=\"empty_retrieval\"}[5m])) or on() vector(0)) / (sum(increase(rag_generation_total[5m])) or on() vector(1))",
+          "legendFormat": "Empty %",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "spanNulls": true
           },
-          "unit": "short"
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 10,
+                "color": "yellow"
+              },
+              {
+                "value": 25,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Refusal Rate",
+      "description": "Percentage of ALL refused queries over time, across all refusal reasons (empty_retrieval + validation_failure + future reasons). With the stub LLM this equals Empty Result Rate \u2014 they diverge once a real LLM is wired in and occasionally fails JSON validation.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "100 * (sum(increase(rag_generation_refusal_total[5m])) or on() vector(0)) / (sum(increase(rag_generation_total[5m])) or on() vector(1))",
+          "legendFormat": "Refusal %",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 10,
+                "color": "yellow"
+              },
+              {
+                "value": 30,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "title": "Similarity Score Distribution Over Time",
+      "description": "Percentiles of the similarity score for the top retrieved chunk. p50 = median query quality. If p50 drops below 0.4 the index likely has poor coverage. If p95 stays near 1.0 the embedder is working well.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p50 (median)",
+          "refId": "A"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.75, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p75",
+          "refId": "B"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.90, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p90",
+          "refId": "C"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(rag_retrieval_score_bucket[5m])) by (le))",
+          "legendFormat": "p95 (top queries)",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 0.4,
+                "color": "yellow"
+              },
+              {
+                "value": 0.7,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "title": "Best Match Score Per Query",
+      "description": "The similarity score of the single best chunk retrieved per query. A score above 0.7 means the system found a highly relevant chunk. Below 0.4 likely means the query is outside the indexed knowledge.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rag_top1_score",
+          "legendFormat": "{{tenant}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "spanNulls": false
+          },
+          "min": 0,
+          "max": 1,
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 0.4,
+                "color": "yellow"
+              },
+              {
+                "value": 0.7,
+                "color": "green"
+              }
+            ]
+          }
         },
         "overrides": []
       }

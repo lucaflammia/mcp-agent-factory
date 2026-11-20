@@ -394,7 +394,8 @@ def run_eval(
 
 def _push_eval_metrics_to_gateway(report: dict) -> None:
   """Push eval metrics to Prometheus pushgateway if available."""
-  pushgateway_url = "http://localhost:9091"
+  import os
+  pushgateway_url = os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://localhost:9091")
   try:
     from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
   except ImportError:

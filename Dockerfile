@@ -6,14 +6,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project metadata first so the dep-install layer is cached
+# Copy only project metadata first so the heavy dep-install layer is cached
+# independently of source changes. This layer is invalidated only when
+# pyproject.toml or README.md changes, not on every code edit.
+ARG EXTRAS=infra,otel,pgvector
 COPY pyproject.toml README.md ./
-COPY src ./src
-
-# Install core + streaming infra deps; skip ML extras (sentence-transformers / torch)
-# because the embedder uses a lazy import — health checks and most tools work without it.
-# Add ML extras to the image with: docker build --build-arg EXTRAS=infra,ml
-ARG EXTRAS=infra,otel,pg
+# Stub src so editable install resolves package metadata
+RUN mkdir -p src/mcp_agent_factory && touch src/mcp_agent_factory/__init__.py
 RUN pip install --no-cache-dir -e ".[${EXTRAS}]" && \
     pip install --no-cache-dir \
         fastapi \
@@ -26,6 +25,9 @@ RUN pip install --no-cache-dir -e ".[${EXTRAS}]" && \
         python-dotenv \
         anyio \
         numpy
+
+# Copy actual source last — only this layer re-runs on code changes
+COPY src ./src
 
 EXPOSE 8000 8001
 

@@ -267,9 +267,12 @@ class GenerationValidator:
 
 		# Check if top result has very low score (e.g., < 0.3)
 		top_chunk = retrieved_chunks[0]
-		if hasattr(top_chunk, "score"):
-			if top_chunk.score < 0.3:
-				return True
+		if isinstance(top_chunk, tuple):
+			score = top_chunk[1] if len(top_chunk) > 1 else 0.0
+		else:
+			score = getattr(top_chunk, "score", 1.0)
+		if score < 0.3:
+			return True
 
 		return False
 

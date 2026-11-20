@@ -153,6 +153,26 @@ Operational confidence layer: versioned golden-set CI gate, observability dashbo
 
 **Test coverage:** 29 tests covering backup/restore, deletion, compaction, search filters, MMR diversification, and connection management.
 
+### RAG-07: Vector Visualization Dashboard ✅
+
+Extends the existing Grafana + Prometheus stack with similarity-score visibility. No new AWS services or paid dependencies.
+
+**Five dashboard panels** at `http://localhost:3000/d/rag-metrics`:
+
+1. **Chunks in Index** — `rag_index_chunk_count` gauge, updated at startup and each query
+2. **Empty Result Rate** — ratio of queries returning no results
+3. **Refusal Rate** — ratio of queries triggering a refusal
+4. **Similarity Score Distribution Over Time** — per-query score histogram pushed to Prometheus
+5. **Best Match Score Per Query** — `rag_top1_score` gauge per tenant over time
+
+**Setup:**
+
+```bash
+docker compose --profile full up -d
+```
+
+**Documentation:** `RAG-07-vector-visualization-dashboard.md` — full implementation spec.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |
