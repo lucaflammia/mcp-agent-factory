@@ -41,32 +41,139 @@ docker compose --profile full up
 python -m mcp_agent_factory.gateway.run
 ```
 
-### Step 3: Verify It's Working
+### Step 2b: Get a JWT for Admin Endpoints
+
+Admin endpoints (`/admin/quota/*`, `/admin/quotas`) require a Bearer token with the `tools:orchestrate` scope signed with `JWT_SECRET`.
+
+**Option A — Dev mode (local only)**
+
+Set `MCP_DEV_MODE=1` in `.env`. Auth checks are bypassed; pass any placeholder:
 
 ```bash
-# Normal query (should succeed)
-curl -X POST http://localhost:8000/query \
+export TOKEN="dev"
+```
+
+**Option B — Self-sign with Python (no auth server needed)**
+
+Requires `authlib` (already a project dependency).
+
+> **Important:** The gateway validates tokens with the `JWT_SECRET` it loaded at startup, and requires `aud: "mcp-server"`. Use the same secret value the running gateway has — not necessarily what's in your shell.
+
+```bash
+# Get the secret the running gateway loaded (Docker Compose)
+export JWT_SECRET="$(docker compose --profile full exec gateway printenv JWT_SECRET)"
+
+# Or from .env directly (only works if gateway started with the same file)
+export JWT_SECRET="$(grep '^JWT_SECRET=' .env | cut -d= -f2)"
+```
+
+Then mint the token:
+
+```python
+# mint_token.py
+import os, time
+from authlib.jose import jwt, OctKey
+
+secret = os.environ["JWT_SECRET"]
+key = OctKey.import_key(secret.encode())
+
+claims = {
+    "sub": "admin",
+    "aud": "mcp-server",                   # required by resource.py
+    "scope": "tools:orchestrate tools:call",
+    "iat": int(time.time()),
+    "exp": int(time.time()) + 3600,
+}
+token = jwt.encode({"alg": "HS256"}, claims, key)
+print(token.decode())
+```
+
+```bash
+export TOKEN="$(python mint_token.py)"
+echo $TOKEN   # should be a non-empty JWT string
+```
+
+Use `$TOKEN` as the Bearer value in all admin `curl` commands below.
+
+---
+
+### Step 3: Verify It's Working
+
+Run the full verification suite (all checks must pass before this feature is considered deployed):
+
+```bash
+# 1. Unit tests — 9 must pass
+pytest tests/test_query_management.py -v
+# Expected output: 9 passed, 0 failed
+
+# 2. QueryManager class exists and is importable
+python -c "from mcp_agent_factory.gateway.query_management import QueryManager; print('OK')"
+# Expected: OK
+
+# 3. Normal query succeeds (200)
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{
-    "question": "What is the Q3 revenue?",
-    "tenant": "demo-tenant",
-    "top_k": 5
-  }'
+  -d '{"question":"What is the Q3 revenue?","tenant":"demo-tenant","top_k":5}'
+# Expected: 200
 
-# Response: 200 OK with answer
+# 4. Stats endpoint returns aggregated data
+curl -s http://localhost:8000/query/stats/demo-tenant | python -m json.tool
+# Expected: JSON with keys total_queries, refusal_rate, avg_retrieval_latency_ms,
+#           avg_generation_latency_ms, avg_top_score
 
-# View stats for the tenant
-curl http://localhost:8000/query/stats/demo-tenant
+# 5. Rate limit enforced — burst exhausted triggers 429 with Retry-After
+# Uses a fresh tenant + low per-request quota so the test is deterministic.
+# First lower the QPS via admin, then fire 60 rapid requests.
+python - <<'EOF'
+import requests, sys, time
+BASE = "http://localhost:8000"
+import os
+TOKEN = os.environ.get("TOKEN", "")
 
-# Response: 
-# {
-#   "tenant": "demo-tenant",
-#   "total_queries": 1,
-#   "refusal_rate": 0.0,
-#   "avg_retrieval_latency_ms": 85.3,
-#   "avg_generation_latency_ms": 42.1,
-#   "avg_top_score": 0.95
-# }
+# Lower rate to 1 QPS / burst 3 on a throwaway tenant so we exhaust quickly
+r = requests.post(
+    f"{BASE}/admin/quota/rl-verify-tenant",
+    json={"tokens_per_second": 1.0},
+    headers={"Authorization": f"Bearer {TOKEN}"},
+)
+if r.status_code not in (200, 404):
+    print(f"WARNING: could not lower rate ({r.status_code}) — test may be slow")
+
+PAYLOAD = {"question": "ping", "tenant": "ratelimit-test", "top_k": 1}
+# burst=20 at 10 QPS; 60 back-to-back requests will exhaust the bucket
+statuses = []
+for _ in range(60):
+    statuses.append(requests.post(f"{BASE}/query", json=PAYLOAD).status_code)
+
+if 429 in statuses:
+    print(f"PASS — 429 seen (first at index {statuses.index(429)})")
+    for r in (requests.post(f"{BASE}/query", json=PAYLOAD) for _ in range(60)):
+        if r.status_code == 429:
+            print(f"Retry-After header: {r.headers.get('Retry-After')}")
+            break
+else:
+    print("FAIL — no 429 seen after 60 requests"); sys.exit(1)
+EOF
+
+# 6. Quota endpoint returns current config
+curl -s http://localhost:8000/admin/quotas \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+# Expected: JSON with daily_quota, hourly_quota, tokens_per_second, burst_size
+
+# 7. Admin quota update accepted (200)
+curl -s -o /dev/null -w "%{http_code}" \
+  -X POST http://localhost:8000/admin/quota/demo-tenant \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"daily_limit":500000,"hourly_limit":50000,"tokens_per_second":50.0}'
+# Expected: 200
+
+# 8. .env.example contains all config keys
+grep -E "RATE_LIMIT_QPS|RATE_LIMIT_BURST|QUOTA_DAILY|QUOTA_HOURLY" .env.example
+# Expected: 4 matching lines
+
+# 9. docs/QUERY_MANAGEMENT.md exists and is non-empty
+test -s docs/QUERY_MANAGEMENT.md && echo "PASS" || echo "FAIL — file missing or empty"
 ```
 
 ## Understanding Rate Limits
@@ -168,7 +275,7 @@ curl http://localhost:8000/query/stats/demo-tenant | jq .refusal_rate
 
 ```bash
 curl -X GET http://localhost:8000/admin/quotas \
-  -H "Authorization: Bearer <YOUR_JWT_TOKEN>"
+  -H "Authorization: Bearer $TOKEN"
 
 # Response:
 # {
@@ -183,7 +290,7 @@ curl -X GET http://localhost:8000/admin/quotas \
 
 ```bash
 curl -X POST http://localhost:8000/admin/quota/vip-customer \
-  -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "daily_limit": 500000,
@@ -350,11 +457,110 @@ Alert if rate(http_errors{status="429"}[1m]) > 0.1
 
 ## Next Steps
 
-- [ ] Read full API docs: `docs/QUERY_MANAGEMENT.md`
-- [ ] Run tests: `pytest tests/test_query_management.py -v`
-- [ ] Set up monitoring: Configure Grafana queries above
-- [ ] Scale: Tune RATE_LIMIT_QPS based on cluster capacity
-- [ ] Export: Set up daily exports of query stats to data warehouse
+### Immediate (after enabling query management)
+
+1. **Verify tests pass**
+   ```bash
+   pytest tests/test_query_management.py -v
+   # Expected: 9 passed
+   ```
+
+2. **Read full API reference**
+   See `docs/QUERY_MANAGEMENT.md` for endpoint schemas, error codes, and Redis key layout.
+
+3. **Set up Grafana alerting**
+
+   Open Grafana at `http://localhost:3000` (default user/password: `admin/admin`).
+
+   Import the RAG metrics dashboard:
+   ```bash
+   # Dashboard JSON is at:
+   observability/grafana/dashboards/rag-metrics.json
+   # In Grafana UI: Dashboards → Import → Upload JSON file
+   ```
+
+   Then add three alert rules (Alerting → Alert rules → New alert rule):
+
+   **Alert 1 — High refusal rate**
+   ```promql
+   # Query A
+   100 * increase(rag_generation_refusal_total[5m]) / increase(rag_generation_total[5m])
+   # Condition: IS ABOVE 20   |   For: 5m
+   ```
+
+   **Alert 2 — Low relevance score**
+   ```bash
+   # Grafana can't alert directly on /query/stats; poll it with a cron script instead:
+   # cron: */10 * * * * python check_scores.py
+   import requests, sys
+   stats = requests.get("http://localhost:8000/query/stats/demo-tenant").json()
+   if stats["avg_top_score"] < 0.7:
+       print(f"ALERT: avg_top_score={stats['avg_top_score']}")
+       sys.exit(1)
+   ```
+
+   **Alert 3 — 429 spike**
+   ```promql
+   # Query A
+   rate(http_requests_total{status="429"}[1m])
+   # Condition: IS ABOVE 0.1   |   For: 1m
+   ```
+
+4. **Tune limits for your load**
+
+   After 24–48h of traffic, check the peak observed QPS:
+   ```bash
+   # Check how many queries a tenant made
+   curl -s http://localhost:8000/query/stats/demo-tenant | python -m json.tool
+   ```
+
+   Then set `RATE_LIMIT_QPS` to 80% of observed peak and apply immediately (no restart needed):
+   ```bash
+   curl -X POST http://localhost:8000/admin/quota/demo-tenant \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"tokens_per_second": 8.0}'
+   # Persist by updating RATE_LIMIT_QPS in .env
+   ```
+
+5. **Set up daily stats export**
+
+   Audit logs expire after 24h. Save `export_stats.py` and register the cron:
+   ```python
+   # export_stats.py
+   import requests, json, datetime, pathlib
+
+   GATEWAY = "http://localhost:8000"
+   TENANTS = ["tenant-a", "tenant-b"]   # adjust as needed
+   OUT_DIR = pathlib.Path("stats")
+   OUT_DIR.mkdir(exist_ok=True)
+
+   for t in TENANTS:
+       stats = requests.get(f"{GATEWAY}/query/stats/{t}").json()
+       stats["exported_at"] = datetime.datetime.utcnow().isoformat()
+       out = OUT_DIR / f"{t}-{datetime.date.today()}.json"
+       out.write_text(json.dumps(stats, indent=2))
+       print(f"Exported {t} → {out}")
+   ```
+
+   Register the cron (runs at 23:00 UTC, before the 24h TTL expires):
+   ```bash
+   crontab -e
+   # Add:
+   0 23 * * * cd /path/to/mcp-agent-factory && python export_stats.py >> logs/export_stats.log 2>&1
+   ```
+
+### Upcoming (RAG-09)
+
+RAG-09 addresses the three known limitations of this release:
+
+| Limitation | RAG-09 Solution |
+|---|---|
+| Audit logs expire after 24h | PostgreSQL async batch writer — durable audit history with `/query/audit/{tenant}` export endpoint |
+| Quotas reset at UTC midnight only | Per-tenant timezone support — quota windows aligned to tenant's local calendar day |
+| All queries cost 1 token | Cost function based on `top_k`, latency, retries, and refusal rate — cost-aware rate limiter |
+
+Track progress: `RAG-09-QUERY-MANAGEMENT-ENHANCEMENTS.md` at the project root.
 
 ---
 
