@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sys
+import time
 import uuid
 
 from dotenv import load_dotenv
@@ -61,6 +62,7 @@ from mcp_agent_factory.server_http import TOOLS, MCPRequest, MCPResponse
 from mcp_agent_factory.session.manager import RedisSessionManager
 
 from .fleet import fleet_router, set_fleet_redis, start_fleet_workers, stop_fleet_workers
+from .query_management import QueryManager, RateLimitConfig
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
@@ -220,15 +222,28 @@ _vector_store = _make_vector_store()
 _embedder: LocalEmbedder = LocalEmbedder()
 _event_log = _make_event_log()
 
-# KV topics: comma-separated KV_TOPICS env var, defaults to "default"
+# KV topics: comma-separated KV_TOPICS env var, defaults to "default", always includes "audit"
 _kv_topics: list[str] = [
     t.strip() for t in os.getenv("KV_TOPICS", "default").split(",") if t.strip()
 ]
+if "audit" not in _kv_topics:
+    _kv_topics.append("audit")
 _kv_store: RedisKVStore = RedisKVStore(_redis_client, topics=_kv_topics)
 
 _unified_router: UnifiedRouter = UnifiedRouter(
     handlers=[AnthropicHandler(), OllamaHandler()],
     event_log=_event_log,
+)
+
+_query_manager: QueryManager = QueryManager(
+    kv_store=_kv_store,
+    redis_client=_redis_client,
+    config=RateLimitConfig(
+        tokens_per_second=float(os.getenv("RATE_LIMIT_QPS", "10.0")),
+        burst_size=int(os.getenv("RATE_LIMIT_BURST", "20")),
+        daily_quota=int(os.getenv("QUOTA_DAILY", "100000")),
+        hourly_quota=int(os.getenv("QUOTA_HOURLY", "10000")),
+    ),
 )
 
 _service_layer: InternalServiceLayer = InternalServiceLayer(
@@ -513,7 +528,27 @@ class QueryResponse(BaseModel):
 
 @gateway_app.post("/query", response_model=QueryResponse)
 async def query_endpoint(body: QueryBody) -> QueryResponse:
-	"""RAG query endpoint — retrieves chunks then generates a cited answer."""
+	"""RAG query endpoint — retrieves chunks then generates a cited answer.
+
+	Enforces rate limiting and quotas, then logs to audit trail.
+	"""
+	# Rate limit check
+	rate_limit = await _query_manager.check_rate_limit(body.tenant)
+	if not rate_limit["allowed"]:
+		raise HTTPException(
+			status_code=429,
+			detail=f"Rate limit exceeded. Retry after {rate_limit['retry_after_seconds']:.1f}s",
+			headers={"Retry-After": str(int(rate_limit["retry_after_seconds"]))},
+		)
+
+	# Daily quota check
+	quota = await _query_manager.check_quota(body.tenant, quota_type="daily")
+	if not quota["allowed"]:
+		raise HTTPException(
+			status_code=429,
+			detail=f"Daily quota exceeded ({quota['used']}/{quota['limit']}). Resets in {quota['reset_in_seconds']:.0f}s",
+		)
+
 	if _vector_store is None or _embedder is None:
 		raise HTTPException(status_code=503, detail="Vector store or embedder not initialised")
 	vector_store = _vector_store
@@ -525,11 +560,15 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 		filter_resolver=DefaultFilterResolver(),
 	)
 	auth_context = {"tenant": body.tenant, "acl": [], "embedder_id": None}
+
+	# Measure retrieval latency
+	retrieval_start = time.time()
 	try:
 		chunks = handler.retrieve(query_text=body.question, auth_context=auth_context, top_k=body.top_k)
 	except Exception as exc:
 		logger.warning('{"event":"rag_retrieval_error","detail":"%s"}', exc)
 		chunks = []
+	retrieval_latency = (time.time() - retrieval_start) * 1000  # ms
 
 	gen = GenerationHandler()
 
@@ -558,18 +597,99 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 			"refusal_reason": None,
 		})
 
+	# Measure generation latency
+	generation_start = time.time()
 	answer = await gen.generate(
 		query=body.question,
 		retrieved_chunks=chunks,
 		llm_call=_llm_call,
 		provider="internal",
 	)
+	generation_latency = (time.time() - generation_start) * 1000  # ms
+
+	# Extract top score for logging
+	top_score = None
+	if chunks:
+		top = chunks[0]
+		if isinstance(top, tuple):
+			top_score = top[1] if len(top) > 1 else None
+		else:
+			top_score = getattr(top, "score", None)
+
+	# Log to audit trail
+	await _query_manager.log_query(
+		tenant=body.tenant,
+		question=body.question,
+		top_k=body.top_k,
+		result_count=len(chunks),
+		top_score=top_score,
+		refused=answer.refused,
+		refusal_reason=answer.refusal_reason,
+		retrieval_latency_ms=retrieval_latency,
+		generation_latency_ms=generation_latency,
+	)
+
 	return QueryResponse(
 		answer=answer.answer,
 		refused=answer.refused,
 		refusal_reason=answer.refusal_reason,
 		citations=answer.cited_chunk_ids,
 	)
+
+
+# ---------------------------------------------------------------------------
+# Query Management Endpoints — monitoring and quota administration
+# ---------------------------------------------------------------------------
+
+
+@gateway_app.get("/query/stats/{tenant}")
+async def get_query_stats(tenant: str) -> dict:
+	"""Get aggregated query stats for a tenant (last 24h)."""
+	stats = await _query_manager.get_tenant_stats(tenant)
+	return stats
+
+
+class QuotaUpdate(BaseModel):
+	"""Update quota for a tenant."""
+
+	daily_limit: int | None = None
+	hourly_limit: int | None = None
+	tokens_per_second: float | None = None
+
+
+@gateway_app.post("/admin/quota/{tenant}")
+async def update_quota(
+	tenant: str,
+	update: QuotaUpdate,
+	_claims: dict | None = Depends(make_verify_token("tools:orchestrate", optional=False)),
+) -> dict:
+	"""Update rate limiting and quota for a tenant (requires tools:orchestrate scope)."""
+	if update.daily_limit is not None:
+		_query_manager.config.daily_quota = update.daily_limit
+	if update.hourly_limit is not None:
+		_query_manager.config.hourly_quota = update.hourly_limit
+	if update.tokens_per_second is not None:
+		_query_manager.config.tokens_per_second = update.tokens_per_second
+
+	return {
+		"tenant": tenant,
+		"daily_quota": _query_manager.config.daily_quota,
+		"hourly_quota": _query_manager.config.hourly_quota,
+		"tokens_per_second": _query_manager.config.tokens_per_second,
+	}
+
+
+@gateway_app.get("/admin/quotas")
+async def list_quotas(
+	_claims: dict | None = Depends(make_verify_token("tools:orchestrate", optional=False)),
+) -> dict:
+	"""List current rate limiting and quota configuration (requires tools:orchestrate scope)."""
+	return {
+		"daily_quota": _query_manager.config.daily_quota,
+		"hourly_quota": _query_manager.config.hourly_quota,
+		"tokens_per_second": _query_manager.config.tokens_per_second,
+		"burst_size": _query_manager.config.burst_size,
+	}
 
 
 # ---------------------------------------------------------------------------

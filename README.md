@@ -173,6 +173,38 @@ docker compose --profile full up -d
 
 **Documentation:** `RAG-07-vector-visualization-dashboard.md` — full implementation spec.
 
+### RAG-08: Query Management — Rate Limiting, Quotas, and Audit Logging ✅
+
+Adds per-tenant controls and visibility to the RAG `/query` endpoint. No new AWS services required.
+
+**Three layers of control:**
+
+| Layer | Mechanism | Enforced |
+|-------|-----------|----------|
+| Rate limit | Token bucket per tenant | Before retrieval |
+| Quota | Daily + hourly counters (UTC) | Before retrieval |
+| Audit log | Full query metadata → Redis (24h TTL) | After generation |
+
+**New endpoints:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /query/stats/{tenant}` | Aggregated 24h stats (queries, refusal rate, latencies, top score) |
+| `POST /admin/quota/{tenant}` | Update rate limit / quota limits at runtime (no redeploy) |
+| `GET /admin/quotas` | List all current per-tenant quota configs |
+
+**Configuration** (`.env`):
+```bash
+RATE_LIMIT_QPS=10.0      # tokens/second refill rate
+RATE_LIMIT_BURST=20      # burst capacity
+QUOTA_DAILY=100000       # queries per UTC day per tenant
+QUOTA_HOURLY=10000       # queries per UTC hour per tenant
+```
+
+**Known limitations (addressed in RAG-09):** burst state is in-memory (resets on Redis disconnect), quota windows are UTC-only, audit TTL is 24h, all queries count as 1 token regardless of cost.
+
+**Documentation:** [`docs/QUERY_MANAGEMENT.md`](docs/QUERY_MANAGEMENT.md) — API reference, configuration, and quickstart.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |
@@ -594,6 +626,7 @@ for full test evidence.
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review
+- [Query Management](docs/QUERY_MANAGEMENT.md) — rate limiting, quotas, and audit logging for the RAG gateway
 - [Hermes MCP Server Config](examples/hermes-mcp-server.json) — INT-01 auth modes, scoping, known deviations
 
 ## License
