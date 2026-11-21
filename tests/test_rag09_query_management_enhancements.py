@@ -568,6 +568,64 @@ class TestAuditWriterLifecycle:
         await w.enqueue(_make_entry())
         await w.stop()  # should not raise
 
+    @pytest.mark.asyncio
+    async def test_stop_cancels_running_task(self, mock_pg_pool):
+        """Stop cancels the background flush loop task (covers lines 218-223)."""
+        conn = mock_pg_pool.acquire.return_value.__aenter__.return_value
+        conn.executemany = AsyncMock()
+        w = AsyncAuditWriter(mock_pg_pool, flush_interval=999.0)
+        w.start()
+        assert w._task is not None
+        await w.enqueue(_make_entry())
+        await w.stop()
+        assert w._task.cancelled() or w._task.done()
+
+    @pytest.mark.asyncio
+    async def test_flush_loop_runs_at_least_once(self, mock_pg_pool):
+        """Flush loop executes at least one iteration (covers lines 232-235)."""
+        conn = mock_pg_pool.acquire.return_value.__aenter__.return_value
+        conn.executemany = AsyncMock()
+        w = AsyncAuditWriter(mock_pg_pool, flush_interval=0.01)
+        await w.enqueue(_make_entry())
+        w.start()
+        await asyncio.sleep(0.05)
+        await w.stop()
+        assert conn.executemany.call_count >= 1
+
+
+class TestLoadValidTimezones:
+    def test_fallback_on_import_error(self):
+        """_load_valid_timezones falls back to {UTC} when zoneinfo unavailable."""
+        import mcp_agent_factory.gateway.query_management as qm
+        original = qm.VALID_TIMEZONES
+        try:
+            qm.VALID_TIMEZONES = frozenset()
+            with patch.dict("sys.modules", {"zoneinfo": None}):
+                result = qm._load_valid_timezones()
+            assert "UTC" in result
+        finally:
+            qm.VALID_TIMEZONES = original
+
+    def test_returns_cached_on_second_call(self):
+        """Second call returns cached frozenset without re-importing."""
+        import mcp_agent_factory.gateway.query_management as qm
+        first = qm._load_valid_timezones()
+        second = qm._load_valid_timezones()
+        assert first is second
+
+
+class TestQueryManagerStartStop:
+    @pytest.mark.asyncio
+    async def test_start_and_stop_delegate_to_pg_writer(self, query_manager):
+        """QueryManager.start() and stop() delegate to the internal writer."""
+        query_manager._pg_writer = MagicMock()
+        query_manager._pg_writer.start = MagicMock()
+        query_manager._pg_writer.stop = AsyncMock()
+        query_manager.start()
+        query_manager._pg_writer.start.assert_called_once()
+        await query_manager.stop()
+        query_manager._pg_writer.stop.assert_awaited_once()
+
 
 # ===========================================================================
 # S2 — Timezone-Aware Quotas
