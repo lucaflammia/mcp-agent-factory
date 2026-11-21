@@ -222,11 +222,11 @@ rate(http_requests_total{status="429"}[5m])
 # RAG-08 original tests (9 tests)
 python -m pytest tests/test_query_management.py -v
 
-# RAG-09 enhancement tests (113 tests)
-python -m pytest tests/test_rag09_query_management_enhancements.py -v
+# RAG-09 enhancement tests (367 tests across 4 files)
+python -m pytest tests/test_rag09*.py -v
 
-# Both
-python -m pytest tests/test_query_management.py tests/test_rag09_query_management_enhancements.py -v
+# All query management tests
+python -m pytest tests/test_query_management.py tests/test_rag09*.py -v
 ```
 
 ---
