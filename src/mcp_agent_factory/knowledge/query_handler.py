@@ -40,6 +40,12 @@ try:
         buckets=[0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0],
     )
     _top1_score = _get_or_create(Gauge, "rag_top1_score", "Similarity score of the top-1 retrieved chunk", ["tenant"])
+    _query_cost_histogram = _get_or_create(
+        Histogram,
+        "rag_query_cost_tokens",
+        "Variable query cost in tokens (RAG-09 S3)",
+        buckets=[0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+    )
 except ImportError:
     class _NoOp:
         def labels(self, **kw): return self
@@ -53,6 +59,7 @@ except ImportError:
     _chunk_count = _NoOp()
     _retrieval_score = _NoOp()
     _top1_score = _NoOp()
+    _query_cost_histogram = _NoOp()
 
 
 @dataclass

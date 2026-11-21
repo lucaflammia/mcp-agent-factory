@@ -201,9 +201,63 @@ QUOTA_DAILY=100000       # queries per UTC day per tenant
 QUOTA_HOURLY=10000       # queries per UTC hour per tenant
 ```
 
-**Known limitations (addressed in RAG-09):** burst state is in-memory (resets on Redis disconnect), quota windows are UTC-only, audit TTL is 24h, all queries count as 1 token regardless of cost.
-
 **Documentation:** [`docs/QUERY_MANAGEMENT.md`](docs/QUERY_MANAGEMENT.md) — API reference, configuration, and quickstart.
+
+---
+
+### RAG-09: Query Management Enhancements — PostgreSQL Persistence, Timezone Support, Cost-Based Limiting ✅
+
+Three production blockers from RAG-08 addressed, enabling multi-tenant SaaS deployments.
+
+**S1 — PostgreSQL Durable Audit Log**
+
+Audit entries are written to a partitioned PostgreSQL table via an async batch writer. No query latency impact (p99 < 100ms). Graceful fallback to Redis-only if PostgreSQL is unavailable.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /query/audit/{tenant}?start=YYYY-MM-DD&end=YYYY-MM-DD&fmt=json\|csv` | Export durable audit logs for compliance, billing, or trend analysis |
+
+Migration: `migrations/004_audit_log_partition.sql`
+
+**S2 — Timezone-Aware Quota Windows**
+
+Each tenant can have an independent timezone. Quota windows reset at 00:00 local time, not UTC. DST transitions handled correctly.
+
+```bash
+POST /admin/quota/acme-corp
+{ "timezone": "America/New_York" }
+# → quota now resets at 00:00 EST/EDT, not 00:00 UTC
+```
+
+Invalid timezone strings return `400` immediately. Default: UTC (backward-compatible).
+
+**S3 — Cost-Based Rate Limiting**
+
+Queries deduct variable tokens from the rate-limit bucket based on compute cost:
+
+```
+cost = 1.0 + (top_k-1)×0.1 + (latency_ms/100)×0.1 + 0.5×refused + retries×0.25
+```
+
+A query whose cost exceeds remaining tokens returns 429 with `Retry-After = cost/QPS`. All weights are tunable via env vars. Stats endpoint returns `cost_p50` and `cost_p99`.
+
+Prometheus metric: `rag_query_cost_tokens` (histogram with cost buckets).
+
+**Configuration** (`.env`):
+```bash
+# PostgreSQL durable audit
+PG_DSN=postgresql://user:pass@host/db
+AUDIT_FLUSH_INTERVAL=10.0
+AUDIT_MAX_BUFFER=1000
+
+# Cost weights
+COST_TOP_K_PER_UNIT=0.1
+COST_LATENCY_MS_PER_100=0.1
+COST_REFUSAL_PENALTY=0.5
+COST_RETRY_PENALTY=0.25
+```
+
+**Documentation:** [`docs/QUERY_MANAGEMENT.md`](docs/QUERY_MANAGEMENT.md) — full API reference, cost function, timezone setup, and troubleshooting.
 
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
@@ -626,7 +680,7 @@ for full test evidence.
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review
-- [Query Management](docs/QUERY_MANAGEMENT.md) — rate limiting, quotas, and audit logging for the RAG gateway
+- [Query Management](docs/QUERY_MANAGEMENT.md) — rate limiting, quotas, timezone-aware windows, cost-based limiting, and durable audit logs
 - [Hermes MCP Server Config](examples/hermes-mcp-server.json) — INT-01 auth modes, scoping, known deviations
 
 ## License
