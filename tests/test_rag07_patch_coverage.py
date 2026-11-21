@@ -318,6 +318,7 @@ class TestQueryEndpoint:
                 return np.array([1.0, 0.0, 0.0])
 
         import fakeredis.aioredis as _fakeredis
+
         from mcp_agent_factory.gateway.query_management import QueryManager, RateLimitConfig
         from mcp_agent_factory.kv.store import RedisKVStore
 
