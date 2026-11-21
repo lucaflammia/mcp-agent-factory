@@ -1,0 +1,39 @@
+groups:
+  - name: rag_alerts
+    rules:
+      - alert: RagRefusalSpike
+        expr: |
+          (
+            sum(increase(rag_generation_refusal_total[5m]))
+            /
+            (sum(increase(rag_generation_total[5m])) > 0)
+          ) > 0.5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG refusal rate spike"
+          description: "Refusal rate is {{ $value | humanizePercentage }} over last 5 minutes"
+
+      - alert: RagHighEmptyResultRate
+        expr: |
+          (
+            sum by (tenant) (increase(rag_query_empty_results_total[5m]))
+            /
+            (sum by (tenant) (increase(rag_query_total[5m])) > 0)
+          ) > 0.3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High empty-result rate for tenant {{ $labels.tenant }}"
+          description: "{{ $value | humanizePercentage }} of queries return no results for tenant={{ $labels.tenant }}"
+
+      - alert: RagEvalPassRateDrop
+        expr: rag_eval_current_pass_rate < rag_eval_baseline_pass_rate * 0.9
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RAG eval pass rate dropped below 90% of baseline"
+          description: "Current={{ $value }}, baseline={{ $labels.baseline }}"

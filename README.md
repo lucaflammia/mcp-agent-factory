@@ -58,6 +58,153 @@ PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 
 ## RAG Pipeline
 
+### RAG-03: Guarded Retrieval ✅
+
+Tenant isolation is enforced at the query handler layer, not post-hoc. All queries must include:
+
+1. **Resolved tenant from auth context** — missing tenant raises `ValueError`
+2. **Mandatory filters passed to ANN** — tenant, ACL, date filters applied inside the search
+3. **Embedder version verification** — query embedder_id passed to vector store; mismatch raises error
+4. **Cross-encoder reranking** — top-100 ANN → rerank to 10 → MMR to 5 (configurable)
+5. **OTel observability** — spans cover filter resolution, ANN search, reranking, and MMR diversification
+
+**Query handler signature:**
+```python
+handler = GuardedQueryHandler(vector_store, embedder, filter_resolver)
+results = handler.retrieve(
+    query_text="...",
+    auth_context={"tenant": "acme", "acl": ["admin"], "embedder_id": "all-MiniLM-L6-v2@v1"},
+    top_k=5,
+    rerank_k=10,  # intermediate count after reranking
+    mmr_k=5,      # final count after MMR diversification
+)
+```
+
+**Test coverage:** 59 comprehensive tests covering cross-tenant isolation, tenant validation, embedder checking, MMR diversification, filter resolution, date filters, and OTel instrumentation.
+
+### RAG-04: Validated Generation with Citation Checks ✅
+
+Structured output enforcement and citation validation at the generation step — zero hallucinated citations.
+
+1. **Pydantic schema enforcement** — all LLM outputs validated against `RagAnswer` contract (answer, cited_chunk_ids, refused, refusal_reason)
+2. **Citation validation** — every cited chunk ID must exist in the retrieved set; invalid citations trigger retry or refusal
+3. **Retry on validation failure** — retries once if citations are invalid; returns refusal if second attempt also fails
+4. **Provider-independent** — identical schema and validation logic across Anthropic, OpenAI, Ollama, Bedrock
+5. **Refusal semantics** — explicit refusal when retrieval is empty or validation fails twice
+6. **Telemetry** — OTel spans and Prometheus counters for citation-validation failures, retries, and refusals
+
+**Generation handler signature:**
+```python
+handler = GenerationHandler()
+answer = await handler.generate(
+    query="What is machine learning?",
+    retrieved_chunks=[ChunkResult(text="...", score=0.95, chunk_id="chunk-1"), ...],
+    llm_call=async_llm_function,
+    provider="anthropic",  # for telemetry
+)
+# Returns RagAnswer(answer="...", cited_chunk_ids=["chunk-1"], refused=False)
+```
+
+**Prompt template enforces:**
+- Explicit refusal clause ("if context does not contain the answer, refuse")
+- Citation requirements (chunk IDs tagged in context)
+- JSON schema compliance
+
+**Test coverage:** 39 comprehensive tests covering valid answers, invalid citations, malformed JSON, empty retrieval, retry logic, refusal paths, and provider-independence.
+
+### RAG-05: Embedder Versioning and Dual-Write Cutover ✅
+
+Safe upgrades between embedding models without silent quality degradation.
+
+1. **Version isolation** — every chunk stores `embedder_id` (model name + version) as part of its composite key; queries only search vectors from their declared version
+2. **Mismatch detection** — if the requested `embedder_id` is absent in the index, the store raises an explicit `ValueError` instead of returning empty results silently
+3. **Dual-write cutover** — `IdempotentIngestionPipeline.dual_write()` writes both old and new embedder versions in parallel during the upgrade window
+4. **Content-hash deduplication** — `backfill()` skips any `(owner_id, chunk_id, embedder_id)` triple already present, avoiding redundant re-embedding
+5. **Config-only rollback** — switching back is a one-line config change (`embedder_id` in query context); no re-ingest required
+
+**Cutover example:**
+```python
+pipeline = IdempotentIngestionPipeline(store, old_embedder, old_embedder_id)
+
+# Phase 1: dual-write both versions
+stats = await pipeline.dual_write(adapter, new_embedder, new_embedder_id="model@v2")
+
+# Phase 2: query the new version; revert to old_embedder_id to roll back
+results = handler.retrieve(query, auth_context={"tenant": "acme", ..., "embedder_id": "model@v2"})
+```
+
+**Documentation:** `docs/RAG/RAG-05-EMBEDDER-VERSIONING.md` — full procedure, schema migration, and quarterly review checklist.
+
+**Test coverage:** 11 tests covering version isolation, mismatch errors, dual-write, query switching, rollback, and backfill deduplication.
+
+### RAG-06: Evaluation Gates and Operations ✅
+
+Operational confidence layer: versioned golden-set CI gate, observability dashboards, and runbook-backed operations procedures.
+
+1. **Golden-set eval gate** — `evals/datasets/{rag_qa,extraction,refusal}.jsonl` are versioned in the repo; every eval run records `golden_set_version` (SHA-256 of dataset files), `git_sha`, and Wilson CI bounds in `evals/results/<tag>.json`
+2. **Nightly CI regression gate** — `.github/workflows/ci.yml` runs evals on every push *and* nightly at 02:00 UTC; fails if pass rate regresses beyond 5% against `evals/results/baseline.json`
+3. **Retrieval + generation metrics reported separately** — `evals/metrics/` splits retrieval recall/MRR/nDCG from generation groundedness/refusal
+4. **Grafana dashboards** — `observability/grafana/dashboards/rag-metrics.json` shows top-1 score distribution, score gap, empty-result rate, refusal rate, and baseline comparison; alerts fire on refusal-rate spike
+5. **Backup/restore** — `PgVectorStore.backup()` / `.restore()` with documented drill; restore time recorded
+6. **Right to be forgotten** — `PgVectorStore.delete_by_data_subject()` removes all chunks by data subject; `delete_by_source_id()` removes by source; follow-up query verifies content is gone
+7. **Weekly compaction** — `PgVectorStore.compact()` scheduled every Monday 02:00 UTC; documented in runbook
+
+**Documentation:** `docs/RAG/RAG-06-EVALUATION-GATES-AND-OPERATIONS.md` — eval gate setup, dashboard guide, and operations runbook.
+
+**Test coverage:** 29 tests covering backup/restore, deletion, compaction, search filters, MMR diversification, and connection management.
+
+### RAG-07: Vector Visualization Dashboard ✅
+
+Extends the existing Grafana + Prometheus stack with similarity-score visibility. No new AWS services or paid dependencies.
+
+**Five dashboard panels** at `http://localhost:3000/d/rag-metrics`:
+
+1. **Chunks in Index** — `rag_index_chunk_count` gauge, updated at startup and each query
+2. **Empty Result Rate** — ratio of queries returning no results
+3. **Refusal Rate** — ratio of queries triggering a refusal
+4. **Similarity Score Distribution Over Time** — per-query score histogram pushed to Prometheus
+5. **Best Match Score Per Query** — `rag_top1_score` gauge per tenant over time
+
+**Setup:**
+
+```bash
+docker compose --profile full up -d
+```
+
+**Documentation:** `RAG-07-vector-visualization-dashboard.md` — full implementation spec.
+
+### RAG-08: Query Management — Rate Limiting, Quotas, and Audit Logging ✅
+
+Adds per-tenant controls and visibility to the RAG `/query` endpoint. No new AWS services required.
+
+**Three layers of control:**
+
+| Layer | Mechanism | Enforced |
+|-------|-----------|----------|
+| Rate limit | Token bucket per tenant | Before retrieval |
+| Quota | Daily + hourly counters (UTC) | Before retrieval |
+| Audit log | Full query metadata → Redis (24h TTL) | After generation |
+
+**New endpoints:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /query/stats/{tenant}` | Aggregated 24h stats (queries, refusal rate, latencies, top score) |
+| `POST /admin/quota/{tenant}` | Update rate limit / quota limits at runtime (no redeploy) |
+| `GET /admin/quotas` | List all current per-tenant quota configs |
+
+**Configuration** (`.env`):
+```bash
+RATE_LIMIT_QPS=10.0      # tokens/second refill rate
+RATE_LIMIT_BURST=20      # burst capacity
+QUOTA_DAILY=100000       # queries per UTC day per tenant
+QUOTA_HOURLY=10000       # queries per UTC hour per tenant
+```
+
+**Known limitations (addressed in RAG-09):** burst state is in-memory (resets on Redis disconnect), quota windows are UTC-only, audit TTL is 24h, all queries count as 1 token regardless of cost.
+
+**Documentation:** [`docs/QUERY_MANAGEMENT.md`](docs/QUERY_MANAGEMENT.md) — API reference, configuration, and quickstart.
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |
@@ -479,6 +626,7 @@ for full test evidence.
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review
+- [Query Management](docs/QUERY_MANAGEMENT.md) — rate limiting, quotas, and audit logging for the RAG gateway
 - [Hermes MCP Server Config](examples/hermes-mcp-server.json) — INT-01 auth modes, scoping, known deviations
 
 ## License

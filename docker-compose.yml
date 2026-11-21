@@ -143,10 +143,14 @@ services:
   # MCP API Gateway
   # After code changes, rebuild before starting: docker compose --profile full up --build -d
   gateway:
-    build: .
+    build:
+      context: .
+      args:
+        EXTRAS: infra,otel,pgvector,ml
     profiles: [full]
     command: ["python", "-m", "uvicorn", "mcp_agent_factory.gateway.app:gateway_app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
+      DATABASE_URL: postgresql://mcp:${PGVECTOR_PASSWORD:-mcp-dev-password}@pgvector:5432/knowledge
       REDIS_URL: redis://redis:6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
@@ -182,6 +186,8 @@ services:
       kafka:
         condition: service_healthy
       otel-collector:
+        condition: service_healthy
+      pgvector:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -267,6 +273,7 @@ services:
     profiles: [full]
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/rag_alerts.yml:/etc/prometheus/rag_alerts.yml:ro
     ports:
       - "9090:9090"
     healthcheck:
@@ -292,7 +299,7 @@ services:
 
   # Grafana — dashboards
   grafana:
-    image: grafana/grafana:10.4.2
+    image: grafana/grafana:11.6.11
     profiles: [full]
     depends_on:
       prometheus:
