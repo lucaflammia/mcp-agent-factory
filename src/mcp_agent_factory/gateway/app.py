@@ -25,6 +25,7 @@ import os
 import sys
 import time
 import uuid
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -62,7 +63,13 @@ from mcp_agent_factory.server_http import TOOLS, MCPRequest, MCPResponse
 from mcp_agent_factory.session.manager import RedisSessionManager
 
 from .fleet import fleet_router, set_fleet_redis, start_fleet_workers, stop_fleet_workers
-from .query_management import QueryManager, RateLimitConfig
+from .query_management import (
+    QueryManager,
+    RateLimitConfig,
+    TenantConfig,
+    calculate_query_cost,
+    is_valid_timezone,
+)
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
@@ -192,12 +199,16 @@ async def _gateway_lifespan(app: FastAPI):
 			_cg.set(len(_vector_store._store))
 	except Exception as _exc:
 		logger.warning('{"event":"chunk_gauge_init_failed","detail":"%s"}', _exc)
+	# Start async audit writer (RAG-09 S1)
+	_query_manager.start()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
 	if _has_redis:
 		await stop_fleet_workers()
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "stop"):
 		await _event_log.stop()
+	# Flush remaining audit entries (RAG-09 S1)
+	await _query_manager.stop()
 	logger.debug(json.dumps({"event": "shutdown"}))
 
 
@@ -243,7 +254,13 @@ _query_manager: QueryManager = QueryManager(
         burst_size=int(os.getenv("RATE_LIMIT_BURST", "20")),
         daily_quota=int(os.getenv("QUOTA_DAILY", "100000")),
         hourly_quota=int(os.getenv("QUOTA_HOURLY", "10000")),
+        cost_top_k_per_unit=float(os.getenv("COST_TOP_K_PER_UNIT", "0.1")),
+        cost_latency_ms_per_100=float(os.getenv("COST_LATENCY_MS_PER_100", "0.1")),
+        cost_refusal_penalty=float(os.getenv("COST_REFUSAL_PENALTY", "0.5")),
+        cost_retry_penalty=float(os.getenv("COST_RETRY_PENALTY", "0.25")),
     ),
+    audit_flush_interval=float(os.getenv("AUDIT_FLUSH_INTERVAL", "10.0")),
+    audit_max_buffer=int(os.getenv("AUDIT_MAX_BUFFER", "1000")),
 )
 
 _service_layer: InternalServiceLayer = InternalServiceLayer(
@@ -532,8 +549,17 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 
 	Enforces rate limiting and quotas, then logs to audit trail.
 	"""
-	# Rate limit check
-	rate_limit = await _query_manager.check_rate_limit(body.tenant)
+	# Pre-compute estimated cost from top_k (retrieval latency not yet known)
+	# Full cost is recalculated after retrieval and used for the audit log.
+	_estimated_cost = calculate_query_cost(
+		top_k=body.top_k,
+		retrieval_ms=0.0,  # unknown pre-retrieval
+		refused=False,
+		cfg=_query_manager.config,
+	)
+
+	# Rate limit check (deducts estimated cost — RAG-09 S3)
+	rate_limit = await _query_manager.check_rate_limit(body.tenant, cost=_estimated_cost)
 	if not rate_limit["allowed"]:
 		raise HTTPException(
 			status_code=429,
@@ -616,6 +642,21 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 		else:
 			top_score = getattr(top, "score", None)
 
+	# Calculate actual query cost post-retrieval (RAG-09 S3)
+	actual_cost = calculate_query_cost(
+		top_k=body.top_k,
+		retrieval_ms=retrieval_latency,
+		refused=answer.refused,
+		cfg=_query_manager.config,
+	)
+
+	# Prometheus cost histogram (RAG-09 S3)
+	try:
+		from mcp_agent_factory.knowledge.query_handler import _query_cost_histogram as _qch
+		_qch.observe(actual_cost)
+	except Exception:
+		pass
+
 	# Log to audit trail
 	await _query_manager.log_query(
 		tenant=body.tenant,
@@ -627,6 +668,7 @@ async def query_endpoint(body: QueryBody) -> QueryResponse:
 		refusal_reason=answer.refusal_reason,
 		retrieval_latency_ms=retrieval_latency,
 		generation_latency_ms=generation_latency,
+		cost_tokens=actual_cost,
 	)
 
 	return QueryResponse(
@@ -650,11 +692,12 @@ async def get_query_stats(tenant: str) -> dict:
 
 
 class QuotaUpdate(BaseModel):
-	"""Update quota for a tenant."""
+	"""Update quota for a tenant (RAG-08 + RAG-09 S2 timezone field)."""
 
 	daily_limit: int | None = None
 	hourly_limit: int | None = None
 	tokens_per_second: float | None = None
+	timezone: str | None = None  # RAG-09 S2
 
 
 @gateway_app.post("/admin/quota/{tenant}")
@@ -663,19 +706,42 @@ async def update_quota(
 	update: QuotaUpdate,
 	_claims: dict | None = Depends(make_verify_token("tools:orchestrate", optional=False)),
 ) -> dict:
-	"""Update rate limiting and quota for a tenant (requires tools:orchestrate scope)."""
-	if update.daily_limit is not None:
-		_query_manager.config.daily_quota = update.daily_limit
-	if update.hourly_limit is not None:
-		_query_manager.config.hourly_quota = update.hourly_limit
-	if update.tokens_per_second is not None:
-		_query_manager.config.tokens_per_second = update.tokens_per_second
+	"""Update rate limiting, quota, and timezone for a tenant (requires tools:orchestrate scope)."""
+	# RAG-09 S2: validate and store timezone
+	if update.timezone is not None:
+		if not is_valid_timezone(update.timezone):
+			raise HTTPException(status_code=400, detail=f"Invalid timezone: {update.timezone!r}")
+		cfg = _query_manager.get_tenant_config(tenant)
+		cfg = TenantConfig(
+			tenant=tenant,
+			timezone=update.timezone,
+			daily_quota=update.daily_limit or cfg.daily_quota,
+			hourly_quota=update.hourly_limit or cfg.hourly_quota,
+			tokens_per_second=update.tokens_per_second or cfg.tokens_per_second,
+			burst_size=cfg.burst_size,
+		)
+		_query_manager.set_tenant_config(cfg)
+	else:
+		if update.daily_limit is not None:
+			_query_manager.config.daily_quota = update.daily_limit
+		if update.hourly_limit is not None:
+			_query_manager.config.hourly_quota = update.hourly_limit
+		if update.tokens_per_second is not None:
+			_query_manager.config.tokens_per_second = update.tokens_per_second
+
+	tz = _query_manager.get_tenant_config(tenant).timezone
+	# Calculate reset time for display
+	from .query_management import _quota_reset_seconds
+	reset_in = _quota_reset_seconds("daily", tz)
+	hours_until_reset = round(reset_in / 3600, 1)
 
 	return {
 		"tenant": tenant,
 		"daily_quota": _query_manager.config.daily_quota,
 		"hourly_quota": _query_manager.config.hourly_quota,
 		"tokens_per_second": _query_manager.config.tokens_per_second,
+		"timezone": tz,
+		"resets_in_hours": hours_until_reset,
 	}
 
 
@@ -684,12 +750,55 @@ async def list_quotas(
 	_claims: dict | None = Depends(make_verify_token("tools:orchestrate", optional=False)),
 ) -> dict:
 	"""List current rate limiting and quota configuration (requires tools:orchestrate scope)."""
+	from .query_management import _quota_reset_seconds
+	tenants_info = {}
+	for tenant, cfg in _query_manager._tenant_configs.items():
+		reset_in = _quota_reset_seconds("daily", cfg.timezone)
+		tenants_info[tenant] = {
+			"timezone": cfg.timezone,
+			"daily_quota": cfg.daily_quota,
+			"hourly_quota": cfg.hourly_quota,
+			"resets_in_hours": round(reset_in / 3600, 1),
+		}
 	return {
-		"daily_quota": _query_manager.config.daily_quota,
-		"hourly_quota": _query_manager.config.hourly_quota,
-		"tokens_per_second": _query_manager.config.tokens_per_second,
-		"burst_size": _query_manager.config.burst_size,
+		"default": {
+			"daily_quota": _query_manager.config.daily_quota,
+			"hourly_quota": _query_manager.config.hourly_quota,
+			"tokens_per_second": _query_manager.config.tokens_per_second,
+			"burst_size": _query_manager.config.burst_size,
+		},
+		"tenants": tenants_info,
 	}
+
+
+@gateway_app.get("/query/audit/{tenant}")
+async def export_audit_log(
+	tenant: str,
+	start: str = Query(..., description="Start date YYYY-MM-DD"),
+	end: str = Query(..., description="End date YYYY-MM-DD (exclusive)"),
+	fmt: str = Query("json", description="Export format: json or csv"),
+) -> Any:
+	"""Export durable audit logs from PostgreSQL for a date range (RAG-09 S1).
+
+	Requires bearer token with tools:orchestrate scope.
+	"""
+	from datetime import timezone as _tz
+
+	try:  # noqa: SIM105
+		start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+		end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+	except ValueError as exc:
+		raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}") from exc
+
+	if fmt not in ("json", "csv"):
+		raise HTTPException(status_code=400, detail="fmt must be 'json' or 'csv'")
+
+	data = await _query_manager.export_audit(tenant, start_dt, end_dt, fmt=fmt)  # type: ignore[arg-type]
+
+	if fmt == "csv":
+		from fastapi.responses import PlainTextResponse
+		return PlainTextResponse(content=data, media_type="text/csv")
+	return _JSONResponse(content=json.loads(data))
 
 
 # ---------------------------------------------------------------------------

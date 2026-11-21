@@ -317,11 +317,25 @@ class TestQueryEndpoint:
             def embed(self, text):
                 return np.array([1.0, 0.0, 0.0])
 
+        import fakeredis.aioredis as _fakeredis
+
+        from mcp_agent_factory.gateway.query_management import QueryManager, RateLimitConfig
+        from mcp_agent_factory.kv.store import RedisKVStore
+
         old_vs = app_mod._vector_store
         old_emb = app_mod._embedder
+        old_qm = app_mod._query_manager
         try:
             app_mod._vector_store = store
             app_mod._embedder = FakeEmbedder()
+            # Fresh fakeredis + QueryManager so the new TestClient's event loop
+            # doesn't reuse a Redis connection bound to a previous (closed) loop.
+            fresh_redis = _fakeredis.FakeRedis()
+            app_mod._query_manager = QueryManager(
+                kv_store=RedisKVStore(fresh_redis, topics=[]),
+                redis_client=fresh_redis,
+                config=RateLimitConfig(),
+            )
             client = TestClient(app_mod.gateway_app, raise_server_exceptions=False)
             resp = client.post("/query", json={"question": "net income", "tenant": "t"})
             assert resp.status_code == 200
@@ -330,6 +344,7 @@ class TestQueryEndpoint:
         finally:
             app_mod._vector_store = old_vs
             app_mod._embedder = old_emb
+            app_mod._query_manager = old_qm
 
 
 # ---------------------------------------------------------------------------
