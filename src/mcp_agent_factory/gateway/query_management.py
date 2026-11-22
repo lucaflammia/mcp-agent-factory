@@ -258,7 +258,7 @@ class AsyncAuditWriter:
                             e.tenant, e.question, e.top_k, e.result_count,
                             e.top_score, e.refused, e.refusal_reason,
                             e.retrieval_ms, e.generation_ms, e.cost_tokens,
-                            e.timestamp,
+                            datetime.fromisoformat(e.timestamp),
                         )
                         for e in entries
                     ],
@@ -500,7 +500,8 @@ class QueryManager:
         Returns the audit entry ID.
         """
         entry_id = f"{tenant}:{int(time.time() * 1000)}"
-        ts = datetime.now(tz=timezone.utc).isoformat()
+        ts_dt = datetime.now(tz=timezone.utc)
+        ts = ts_dt.isoformat()
         entry = AuditEntry(
             entry_id=entry_id,
             tenant=tenant,

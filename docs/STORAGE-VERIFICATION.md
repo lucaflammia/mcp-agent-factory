@@ -86,24 +86,24 @@ Inside `redis-cli` (interactive), type these Redis commands:
 
 ```
 # List all keys for a tenant
-KEYS *your-tenant*
+KEYS *demo-tenant*
 
 # Daily quota counter (resets at UTC midnight)
-GET quota:your-tenant:daily:2026-11-22
+GET quota:demo-tenant:daily:2026-11-22
 
 # Hourly quota counter
-GET quota:your-tenant:hourly:2026-11-22-14
+GET quota:demo-tenant:hourly:2026-11-22-14
 
 # Rate limiter token bucket (remaining tokens + last refill timestamp)
-GET ratelimit:your-tenant:bucket
+GET ratelimit:demo-tenant:bucket
 ```
 
 Or as one-liner shell commands (outside `redis-cli`):
 
 ```bash
-redis-cli KEYS '*your-tenant*'
-redis-cli GET "quota:your-tenant:daily:$(date -u +%Y-%m-%d)"
-redis-cli GET "ratelimit:your-tenant:bucket"
+redis-cli KEYS '*demo-tenant*'
+redis-cli GET "quota:demo-tenant:daily:$(date -u +%Y-%m-%d)"
+redis-cli GET "ratelimit:demo-tenant:bucket"
 ```
 
 ### Inspect RAG-08 audit log entries (24h TTL)
@@ -112,17 +112,17 @@ Inside `redis-cli`:
 
 ```
 # List audit log keys for a tenant (kv: prefix)
-KEYS kv:audit:your-tenant:*
+KEYS kv:audit:demo-tenant:*
 
 # Read a specific audit entry (JSON)
-GET kv:audit:your-tenant:1700000000000
+GET kv:audit:demo-tenant:1700000000000
 ```
 
 Or as one-liner shell commands:
 
 ```bash
-redis-cli KEYS 'kv:audit:your-tenant:*'
-redis-cli GET "$(redis-cli KEYS 'kv:audit:your-tenant:*' | head -1)"
+redis-cli KEYS 'kv:audit:demo-tenant:*'
+redis-cli GET "$(redis-cli KEYS 'kv:audit:demo-tenant:*' | head -1)"
 ```
 
 > **Note:** Do not run `redis-cli` commands inside `redis-cli`. The `redis-cli` prompt (`127.0.0.1:6379>`)
@@ -133,7 +133,7 @@ redis-cli GET "$(redis-cli KEYS 'kv:audit:your-tenant:*' | head -1)"
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/query/stats/your-tenant
+  http://localhost:8000/query/stats/demo-tenant
 ```
 
 ---
@@ -217,13 +217,13 @@ LIMIT 20;
 -- Filter by tenant
 SELECT tenant, question, cost_tokens, "timestamp"
 FROM query_audit_log
-WHERE tenant = 'your-tenant'
+WHERE tenant = 'demo-tenant'
 ORDER BY "timestamp" DESC;
 
 -- Date-range filter (matches the API export endpoint)
 SELECT *
 FROM query_audit_log
-WHERE tenant = 'your-tenant'
+WHERE tenant = 'demo-tenant'
   AND "timestamp" >= '2026-11-01'
   AND "timestamp" <  '2026-11-23';
 
@@ -244,20 +244,20 @@ active quota window and rate limiter state:
 
 ```bash
 # Shell one-liners (outside redis-cli)
-redis-cli KEYS 'quota:your-tenant:*'
-redis-cli GET "quota:your-tenant:daily:$(date -u +%Y-%m-%d)"
-redis-cli GET "ratelimit:your-tenant:bucket"
+redis-cli KEYS 'quota:demo-tenant:*'
+redis-cli GET "quota:demo-tenant:daily:$(date -u +%Y-%m-%d)"
+redis-cli GET "ratelimit:demo-tenant:bucket"
 
 # TTL remaining on today's daily quota counter
-redis-cli TTL "quota:your-tenant:daily:$(date -u +%Y-%m-%d)"
+redis-cli TTL "quota:demo-tenant:daily:$(date -u +%Y-%m-%d)"
 ```
 
 Inside `redis-cli` (interactive):
 
 ```
-KEYS quota:your-tenant:*
-GET quota:your-tenant:daily:2026-11-22
-GET ratelimit:your-tenant:bucket
+KEYS quota:demo-tenant:*
+GET quota:demo-tenant:daily:2026-11-22
+GET ratelimit:demo-tenant:bucket
 ```
 
 ### Export audit logs via API (JSON or CSV)
@@ -265,12 +265,12 @@ GET ratelimit:your-tenant:bucket
 ```bash
 # JSON (default)
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8000/query/audit/your-tenant?start=2026-11-01&end=2026-11-22"
+  "http://localhost:8000/query/audit/demo-tenant?start=2026-11-01&end=2026-11-22"
 
 # CSV
 curl -H "Authorization: Bearer $TOKEN" \
      -H "Accept: text/csv" \
-  "http://localhost:8000/query/audit/your-tenant?start=2026-11-01&end=2026-11-22"
+  "http://localhost:8000/query/audit/demo-tenant?start=2026-11-01&end=2026-11-22"
 ```
 
 ### Verify cost-based metrics via Prometheus
