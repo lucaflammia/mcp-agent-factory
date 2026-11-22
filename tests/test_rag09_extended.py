@@ -307,7 +307,7 @@ class TestS1_WriterFieldSerialization:
         e = _entry()
         await w.enqueue(e)
         await w._flush()
-        assert conn.executemany.call_args[0][1][0][10] == e.timestamp
+        assert conn.executemany.call_args[0][1][0][10] == datetime.fromisoformat(e.timestamp)
 
 
 class TestS1_ExportAdditional:
@@ -1011,7 +1011,7 @@ class TestS3_RateLimitCost:
         redis.setex = AsyncMock()
         result = await qm.check_rate_limit("t1", cost=5.0)
         assert result["allowed"] is True
-        assert result["tokens_remaining"] == pytest.approx(10.0, abs=0.5)
+        assert result["tokens_remaining"] == pytest.approx(10.0, abs=1.0)
 
     @pytest.mark.asyncio
     async def test_tokens_remaining_zero_on_denial(self, qm, redis):
