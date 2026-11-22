@@ -47,11 +47,7 @@ Admin endpoints (`/admin/quota/*`, `/admin/quotas`) require a Bearer token with 
 
 **Option A — Dev mode (local only)**
 
-Set `MCP_DEV_MODE=1` in `.env`. Auth checks are bypassed; pass any placeholder:
-
-```bash
-export TOKEN="dev"
-```
+`MCP_DEV_MODE=1` bypasses auth for the MCP JSON-RPC endpoint and tool calls, but **admin HTTP endpoints (`/admin/quota/*`, `/admin/quotas`) still require a valid JWT** — `make_verify_token` enforces this unconditionally. Use Option B below to get a token even in dev mode.
 
 **Option B — Self-sign with Python (no auth server needed)**
 
