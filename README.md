@@ -290,6 +290,22 @@ embedder = LocalEmbedder()  # all-MiniLM-L6-v2, 384-dim
 
 4. `InMemoryVectorStore` remains available for unit tests — no test changes needed.
 
+### Ingesting documents
+
+Always pass `DATABASE_URL` (or `--database-url`) when ingesting into pgvector.
+Without it the pipeline silently falls back to `InMemoryVectorStore` and data is lost on process exit.
+
+```bash
+# From the host (outside Docker), point at the mapped port
+DATABASE_URL=postgresql://mcp:mcp-dev-password@localhost:5432/knowledge \
+python -m mcp_agent_factory.knowledge.ingest \
+  --source data/samples/finance_q3_2024.pdf \
+  --tenant demo-tenant
+
+# Verify chunks were written to the right owner
+psql $DATABASE_URL -c "SELECT owner_id, COUNT(*) FROM chunks GROUP BY owner_id;"
+```
+
 ## 4-Layer Execution Pipeline
 
 | Layer | Framework | Module | Purpose |
