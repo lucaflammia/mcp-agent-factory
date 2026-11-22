@@ -27,10 +27,12 @@ psql $DATABASE_URL -f migrations/003_rag_source_id.sql
 ### Run ingestion twice, expect no duplicates
 
 ```bash
-# First ingest
+# First ingest (DATABASE_URL required — omitting it uses an in-memory store that is discarded on exit)
+DATABASE_URL=postgresql://mcp:mcp-dev-password@localhost:5432/knowledge \
 python -m mcp_agent_factory.knowledge.ingest --source data/samples/finance_q3_2024.pdf
 
 # Second ingest of same file — must be a no-op (same content_hash)
+DATABASE_URL=postgresql://mcp:mcp-dev-password@localhost:5432/knowledge \
 python -m mcp_agent_factory.knowledge.ingest --source data/samples/finance_q3_2024.pdf
 ```
 
@@ -237,6 +239,7 @@ curl -s http://localhost:8000/metrics | grep rag_index_chunk_count
 
 If the line stays at 0, ingest the sample document first:
 ```bash
+DATABASE_URL=postgresql://mcp:mcp-dev-password@localhost:5432/knowledge \
 python -m mcp_agent_factory.knowledge.ingest \
   --source data/samples/finance_q3_2024.pdf \
   --tenant default
