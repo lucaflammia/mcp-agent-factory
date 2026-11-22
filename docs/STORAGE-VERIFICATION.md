@@ -82,7 +82,9 @@ redis-cli -h localhost -p 6379
 
 ### Inspect quota counters
 
-```bash
+Inside `redis-cli` (interactive), type these Redis commands:
+
+```
 # List all keys for a tenant
 KEYS *your-tenant*
 
@@ -93,18 +95,39 @@ GET quota:your-tenant:daily:2026-11-22
 GET quota:your-tenant:hourly:2026-11-22-14
 
 # Rate limiter token bucket (remaining tokens + last refill timestamp)
-GET ratelimit:your-tenant
+GET ratelimit:your-tenant:bucket
+```
+
+Or as one-liner shell commands (outside `redis-cli`):
+
+```bash
+redis-cli KEYS '*your-tenant*'
+redis-cli GET "quota:your-tenant:daily:$(date -u +%Y-%m-%d)"
+redis-cli GET "ratelimit:your-tenant:bucket"
 ```
 
 ### Inspect RAG-08 audit log entries (24h TTL)
 
-```bash
-# List audit log keys for a tenant
-KEYS audit:your-tenant:*
+Inside `redis-cli`:
+
+```
+# List audit log keys for a tenant (kv: prefix)
+KEYS kv:audit:your-tenant:*
 
 # Read a specific audit entry (JSON)
-GET audit:your-tenant:1700000000000
+GET kv:audit:your-tenant:1700000000000
 ```
+
+Or as one-liner shell commands:
+
+```bash
+redis-cli KEYS 'kv:audit:your-tenant:*'
+redis-cli GET "$(redis-cli KEYS 'kv:audit:your-tenant:*' | head -1)"
+```
+
+> **Note:** Do not run `redis-cli` commands inside `redis-cli`. The `redis-cli` prompt (`127.0.0.1:6379>`)
+> only accepts Redis commands (`GET`, `KEYS`, `TTL`, …). Shell syntax like `$(...)` or piping only works
+> outside `redis-cli` in your terminal shell.
 
 ### Real-time stats via API
 
@@ -214,19 +237,27 @@ FROM query_audit_log
 GROUP BY tenant;
 ```
 
-### Verify timezone configuration (Redis)
+### Verify timezone-aware quota state (Redis)
 
-Tenant timezone settings are persisted in Redis alongside quota config:
+Quota counters use UTC-date keys; there is no separate `tenant_config` key. Verify the
+active quota window and rate limiter state:
 
 ```bash
-# Docker Compose
-docker compose exec redis redis-cli
+# Shell one-liners (outside redis-cli)
+redis-cli KEYS 'quota:your-tenant:*'
+redis-cli GET "quota:your-tenant:daily:$(date -u +%Y-%m-%d)"
+redis-cli GET "ratelimit:your-tenant:bucket"
 
-# Check tenant config (stored as JSON hash or string depending on implementation)
-GET tenant_config:your-tenant
+# TTL remaining on today's daily quota counter
+redis-cli TTL "quota:your-tenant:daily:$(date -u +%Y-%m-%d)"
+```
 
-# All tenant config keys
-KEYS tenant_config:*
+Inside `redis-cli` (interactive):
+
+```
+KEYS quota:your-tenant:*
+GET quota:your-tenant:daily:2026-11-22
+GET ratelimit:your-tenant:bucket
 ```
 
 ### Export audit logs via API (JSON or CSV)
