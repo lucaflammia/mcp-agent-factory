@@ -169,32 +169,32 @@ WHERE inhparent = 'query_audit_log'::regclass;
 
 ```sql
 -- Most recent 20 entries across all tenants
-SELECT tenant_id, query_text, cost_tokens, timestamp
+SELECT tenant, question, cost_tokens, "timestamp"
 FROM query_audit_log
-ORDER BY timestamp DESC
+ORDER BY "timestamp" DESC
 LIMIT 20;
 
 -- Filter by tenant
-SELECT tenant_id, query_text, cost_tokens, timestamp
+SELECT tenant, question, cost_tokens, "timestamp"
 FROM query_audit_log
-WHERE tenant_id = 'your-tenant'
-ORDER BY timestamp DESC;
+WHERE tenant = 'your-tenant'
+ORDER BY "timestamp" DESC;
 
 -- Date-range filter (matches the API export endpoint)
 SELECT *
 FROM query_audit_log
-WHERE tenant_id = 'your-tenant'
-  AND timestamp >= '2026-11-01'
-  AND timestamp <  '2026-11-23';
+WHERE tenant = 'your-tenant'
+  AND "timestamp" >= '2026-11-01'
+  AND "timestamp" <  '2026-11-23';
 
 -- Cost distribution
 SELECT
-  tenant_id,
+  tenant,
   COUNT(*) AS queries,
   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_tokens) AS p50,
   PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY cost_tokens) AS p99
 FROM query_audit_log
-GROUP BY tenant_id;
+GROUP BY tenant;
 ```
 
 ### Verify timezone configuration (Redis)
