@@ -355,6 +355,10 @@ class QueryManager:
             max_buffer=audit_max_buffer,
         )
 
+    def set_pg_pool(self, pg_pool: Any) -> None:
+        """Inject an asyncpg pool after construction (called from lifespan)."""
+        self._pg_writer._pool = pg_pool
+
     def start(self) -> None:
         """Start background flush loop. Call from lifespan startup."""
         self._pg_writer.start()

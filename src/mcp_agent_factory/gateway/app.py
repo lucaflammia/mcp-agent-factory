@@ -199,7 +199,16 @@ async def _gateway_lifespan(app: FastAPI):
 			_cg.set(len(_vector_store._store))
 	except Exception as _exc:
 		logger.warning('{"event":"chunk_gauge_init_failed","detail":"%s"}', _exc)
-	# Start async audit writer (RAG-09 S1)
+	# Start async audit writer (RAG-09 S1) — create asyncpg pool if configured
+	_audit_db_url = os.getenv("AUDIT_DB_URL")
+	if _audit_db_url:
+		try:
+			import asyncpg  # type: ignore[import]
+			_pg_pool = await asyncpg.create_pool(_audit_db_url)
+			_query_manager.set_pg_pool(_pg_pool)
+			logger.debug(json.dumps({"event": "audit_pg_pool_created"}))
+		except Exception as _pg_exc:
+			logger.warning(json.dumps({"event": "audit_pg_pool_failed", "detail": str(_pg_exc)}))
 	_query_manager.start()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
@@ -209,6 +218,8 @@ async def _gateway_lifespan(app: FastAPI):
 		await _event_log.stop()
 	# Flush remaining audit entries (RAG-09 S1)
 	await _query_manager.stop()
+	if _audit_db_url and _query_manager._pg_writer._pool is not None:
+		await _query_manager._pg_writer._pool.close()
 	logger.debug(json.dumps({"event": "shutdown"}))
 
 

@@ -138,6 +138,23 @@ PostgreSQL holds the permanent audit history.
 >
 > You only need to run this once. Subsequent runs are safe (all statements are `IF NOT EXISTS`).
 
+> **Prerequisite — set `AUDIT_DB_URL` in `.env`.** The gateway only connects to PostgreSQL when
+> this variable is present. Without it the `AsyncAuditWriter` holds a `None` pool and silently
+> skips all writes (audit data stays Redis-only with a 24 h TTL).
+>
+> Add this line to your `.env` (matches the `pgvector` service in `docker-compose.yml`):
+>
+> ```bash
+> AUDIT_DB_URL=postgresql://mcp:mcp-dev-password@localhost:5432/knowledge
+> ```
+>
+> Then restart the gateway so it picks up the new variable:
+>
+> ```bash
+> docker compose restart gateway
+> # or if running locally: restart uvicorn / the gateway process
+> ```
+
 ### Connect to PostgreSQL
 
 ```bash
