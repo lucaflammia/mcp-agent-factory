@@ -786,7 +786,7 @@ async def list_quotas(
 async def export_audit_log(
 	tenant: str,
 	start: str = Query(..., description="Start date YYYY-MM-DD"),
-	end: str = Query(..., description="End date YYYY-MM-DD (exclusive)"),
+	end: str = Query(..., description="End date YYYY-MM-DD (inclusive)"),
 	fmt: str = Query("json", description="Export format: json or csv"),
 ) -> Any:
 	"""Export durable audit logs from PostgreSQL for a date range (RAG-09 S1).
@@ -796,8 +796,10 @@ async def export_audit_log(
 	from datetime import timezone as _tz
 
 	try:  # noqa: SIM105
+		from datetime import timedelta
 		start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=_tz.utc)
-		end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+		# end is inclusive: advance to start of next day so the SQL `< end_dt` captures all of end day
+		end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=_tz.utc) + timedelta(days=1)
 	except ValueError as exc:
 		raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}") from exc
 
