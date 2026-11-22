@@ -43,7 +43,7 @@ expose `5432` and `6379`), or when running services natively outside Docker.
 
 | Scenario | Command |
 |----------|---------|
-| Containers running, no host port needed | `docker compose exec postgres psql ...` |
+| Containers running, no host port needed | `docker compose exec pgvector psql ...` |
 | Containers running, host port exposed | Either works |
 | Services running natively on host | `psql ...` / `redis-cli ...` |
 | CI pipeline (service containers) | `psql ...` with the service's host/port |
@@ -119,6 +119,24 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 RAG-09 adds durable audit log persistence to PostgreSQL. Redis still holds real-time quota counters;
 PostgreSQL holds the permanent audit history.
+
+> **Prerequisite — run the migration first.** The `query_audit_log` and `tenant_config` tables are
+> created by migration `004_audit_log_partition.sql`. Run it once before any verification steps:
+>
+> ```bash
+> # Docker Compose (recommended)
+> docker compose exec pgvector psql -U mcp -d knowledge \
+>   -f /migrations/004_audit_log_partition.sql
+>
+> # Or pipe from the host
+> docker compose exec -T pgvector psql -U mcp -d knowledge \
+>   < migrations/004_audit_log_partition.sql
+>
+> # Direct connection
+> psql -h localhost -U mcp -d knowledge < migrations/004_audit_log_partition.sql
+> ```
+>
+> You only need to run this once. Subsequent runs are safe (all statements are `IF NOT EXISTS`).
 
 ### Connect to PostgreSQL
 
