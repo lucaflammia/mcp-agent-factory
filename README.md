@@ -58,6 +58,20 @@ PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 
 ## RAG Pipeline
 
+Production-grade retrieval-augmented generation pipeline with multi-tenant isolation, durable audit logging, cost-based rate limiting, and timezone-aware quotas.
+
+> **Full feature history, API references, and test counts by sub-issue:** [`docs/RAG/RAG-CHANGELOG.md`](docs/RAG/RAG-CHANGELOG.md)
+
+| Sub-issue | Feature | Docs |
+|-----------|---------|------|
+| RAG-03 | Guarded retrieval — tenant isolation, ACL filters, cross-encoder reranking, MMR diversification | — |
+| RAG-04 | Validated generation — Pydantic schema enforcement, citation validation, retry/refusal semantics | — |
+| RAG-05 | Embedder versioning — dual-write cutover, mismatch detection, config-only rollback | [`docs/RAG/RAG-05-EMBEDDER-VERSIONING.md`](docs/RAG/RAG-05-EMBEDDER-VERSIONING.md) |
+| RAG-06 | Eval gates + operations — golden-set CI gate, Grafana dashboards, backup/restore, RTBF, compaction | [`docs/RAG/RAG-06-EVALUATION-GATES-AND-OPERATIONS.md`](docs/RAG/RAG-06-EVALUATION-GATES-AND-OPERATIONS.md) |
+| RAG-07 | Vector visualization — 5 Grafana panels (chunk count, refusal rate, score distribution, top-1 score) | [`docs/RAG/RAG-07-VERIFICATION-GUIDE.md`](docs/RAG/RAG-07-VERIFICATION-GUIDE.md) |
+| RAG-08 | Query management — per-tenant token-bucket rate limits, UTC quotas, Redis audit log (24h TTL) | [`docs/QUERY_MANAGEMENT.md`](docs/QUERY_MANAGEMENT.md) |
+| RAG-09 | Query management enhancements — PostgreSQL durable audit, timezone-aware quotas, cost-based limiting | [`docs/QUERY_MANAGEMENT.md`](docs/QUERY_MANAGEMENT.md) · [`docs/RAG/QUERY-MANAGEMENT-QUICKSTART.md`](docs/RAG/QUERY-MANAGEMENT-QUICKSTART.md) |
+
 ### Before/after retrieval benchmark (EVAL-02 dataset, 32 labelled queries)
 
 | Configuration | recall@5 | MRR | p95 latency | Cost/query |
@@ -88,6 +102,22 @@ embedder = LocalEmbedder()  # all-MiniLM-L6-v2, 384-dim
 ```
 
 4. `InMemoryVectorStore` remains available for unit tests — no test changes needed.
+
+### Ingesting documents
+
+Always pass `DATABASE_URL` (or `--database-url`) when ingesting into pgvector.
+Without it the pipeline silently falls back to `InMemoryVectorStore` and data is lost on process exit.
+
+```bash
+# From the host (outside Docker), point at the mapped port
+DATABASE_URL=postgresql://mcp:mcp-dev-password@localhost:5432/knowledge \
+python -m mcp_agent_factory.knowledge.ingest \
+  --source data/samples/finance_q3_2024.pdf \
+  --tenant demo-tenant
+
+# Verify chunks were written to the right owner
+psql $DATABASE_URL -c "SELECT owner_id, COUNT(*) FROM chunks GROUP BY owner_id;"
+```
 
 ## 4-Layer Execution Pipeline
 
@@ -272,7 +302,7 @@ curl -s -X POST http://localhost:8000/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  | python3 -m json.tool
+  | python -m json.tool
 ```
 
 ## Gateway Endpoints
@@ -479,6 +509,7 @@ for full test evidence.
 - [Milestone History](docs/milestones.md) — development log from M001 through v1.0.0
 - [Demo Walkthrough](docs/demo-walkthrough.md) — live demo guide
 - [Security Audit](docs/security_audit.md) — security review
+- [Query Management](docs/QUERY_MANAGEMENT.md) — rate limiting, quotas, timezone-aware windows, cost-based limiting, and durable audit logs
 - [Hermes MCP Server Config](examples/hermes-mcp-server.json) — INT-01 auth modes, scoping, known deviations
 
 ## License

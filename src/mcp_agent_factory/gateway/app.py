@@ -23,7 +23,9 @@ import json
 import logging
 import os
 import sys
+import time
 import uuid
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -33,7 +35,7 @@ from typing import Any
 
 import httpx
 from authlib.jose import OctKey
-from fastapi import Depends, FastAPI, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse as _JSONResponse
 from pydantic import BaseModel, ValidationError
 from sse_starlette.sse import EventSourceResponse
@@ -51,6 +53,8 @@ from mcp_agent_factory.knowledge import (
     StubEmbedder,
     query_knowledge_base,
 )
+from mcp_agent_factory.knowledge.generation import GenerationHandler
+from mcp_agent_factory.knowledge.query_handler import DefaultFilterResolver, GuardedQueryHandler
 from mcp_agent_factory.kv.store import RedisKVStore
 from mcp_agent_factory.messaging.bus import AgentMessage, MessageBus
 from mcp_agent_factory.messaging.sse_router import create_sse_router
@@ -59,6 +63,13 @@ from mcp_agent_factory.server_http import TOOLS, MCPRequest, MCPResponse
 from mcp_agent_factory.session.manager import RedisSessionManager
 
 from .fleet import fleet_router, set_fleet_redis, start_fleet_workers, stop_fleet_workers
+from .query_management import (
+    QueryManager,
+    RateLimitConfig,
+    TenantConfig,
+    calculate_query_cost,
+    is_valid_timezone,
+)
 from .router import AnthropicHandler, OllamaHandler, UnifiedRouter
 from .sampling import SamplingHandler, SamplingResult, StubSamplingClient
 from .service_layer import InternalServiceLayer
@@ -179,12 +190,36 @@ async def _gateway_lifespan(app: FastAPI):
 	set_fleet_redis(_redis_client, enabled=_jobs_enabled)
 	if _has_redis:
 		await start_fleet_workers()
+	# Populate chunk-count gauge — runs inside lifespan so DB is confirmed ready.
+	try:
+		from mcp_agent_factory.knowledge.query_handler import _chunk_count as _cg
+		if hasattr(_vector_store, "status"):
+			_cg.set(_vector_store.status().get("chunk_count", 0))
+		elif hasattr(_vector_store, "_store"):
+			_cg.set(len(_vector_store._store))
+	except Exception as _exc:
+		logger.warning('{"event":"chunk_gauge_init_failed","detail":"%s"}', _exc)
+	# Start async audit writer (RAG-09 S1) — create asyncpg pool if configured
+	_audit_db_url = os.getenv("AUDIT_DB_URL")
+	if _audit_db_url:
+		try:
+			import asyncpg  # type: ignore[import]
+			_pg_pool = await asyncpg.create_pool(_audit_db_url)
+			_query_manager.set_pg_pool(_pg_pool)
+			logger.debug(json.dumps({"event": "audit_pg_pool_created"}))
+		except Exception as _pg_exc:
+			logger.warning(json.dumps({"event": "audit_pg_pool_failed", "detail": str(_pg_exc)}))
+	_query_manager.start()
 	logger.debug(json.dumps({"event": "startup", "privacy": "egress_disabled"}))
 	yield
 	if _has_redis:
 		await stop_fleet_workers()
 	if os.getenv("KAFKA_BOOTSTRAP_SERVERS") and hasattr(_event_log, "stop"):
 		await _event_log.stop()
+	# Flush remaining audit entries (RAG-09 S1)
+	await _query_manager.stop()
+	if _audit_db_url and _query_manager._pg_writer._pool is not None:
+		await _query_manager._pg_writer._pool.close()
 	logger.debug(json.dumps({"event": "shutdown"}))
 
 
@@ -209,15 +244,34 @@ _vector_store = _make_vector_store()
 _embedder: LocalEmbedder = LocalEmbedder()
 _event_log = _make_event_log()
 
-# KV topics: comma-separated KV_TOPICS env var, defaults to "default"
+# KV topics: comma-separated KV_TOPICS env var, defaults to "default", always includes "audit"
 _kv_topics: list[str] = [
     t.strip() for t in os.getenv("KV_TOPICS", "default").split(",") if t.strip()
 ]
+if "audit" not in _kv_topics:
+    _kv_topics.append("audit")
 _kv_store: RedisKVStore = RedisKVStore(_redis_client, topics=_kv_topics)
 
 _unified_router: UnifiedRouter = UnifiedRouter(
     handlers=[AnthropicHandler(), OllamaHandler()],
     event_log=_event_log,
+)
+
+_query_manager: QueryManager = QueryManager(
+    kv_store=_kv_store,
+    redis_client=_redis_client,
+    config=RateLimitConfig(
+        tokens_per_second=float(os.getenv("RATE_LIMIT_QPS", "10.0")),
+        burst_size=int(os.getenv("RATE_LIMIT_BURST", "20")),
+        daily_quota=int(os.getenv("QUOTA_DAILY", "100000")),
+        hourly_quota=int(os.getenv("QUOTA_HOURLY", "10000")),
+        cost_top_k_per_unit=float(os.getenv("COST_TOP_K_PER_UNIT", "0.1")),
+        cost_latency_ms_per_100=float(os.getenv("COST_LATENCY_MS_PER_100", "0.1")),
+        cost_refusal_penalty=float(os.getenv("COST_REFUSAL_PENALTY", "0.5")),
+        cost_retry_penalty=float(os.getenv("COST_RETRY_PENALTY", "0.25")),
+    ),
+    audit_flush_interval=float(os.getenv("AUDIT_FLUSH_INTERVAL", "10.0")),
+    audit_max_buffer=int(os.getenv("AUDIT_MAX_BUFFER", "1000")),
 )
 
 _service_layer: InternalServiceLayer = InternalServiceLayer(
@@ -485,6 +539,279 @@ class SamplingBody(BaseModel):
 @gateway_app.post("/sampling", response_model=SamplingResult)
 async def sampling_endpoint(body: SamplingBody) -> SamplingResult:
 	return await sampling_handler.handle(body.prompt)
+
+
+class QueryBody(BaseModel):
+	question: str
+	tenant: str
+	top_k: int = 5
+
+
+class QueryResponse(BaseModel):
+	answer: str
+	refused: bool
+	refusal_reason: str | None = None
+	citations: list[str] = []
+
+
+@gateway_app.post("/query", response_model=QueryResponse)
+async def query_endpoint(body: QueryBody) -> QueryResponse:
+	"""RAG query endpoint — retrieves chunks then generates a cited answer.
+
+	Enforces rate limiting and quotas, then logs to audit trail.
+	"""
+	# Pre-compute estimated cost from top_k (retrieval latency not yet known)
+	# Full cost is recalculated after retrieval and used for the audit log.
+	_estimated_cost = calculate_query_cost(
+		top_k=body.top_k,
+		retrieval_ms=0.0,  # unknown pre-retrieval
+		refused=False,
+		cfg=_query_manager.config,
+	)
+
+	# Rate limit check (deducts estimated cost — RAG-09 S3)
+	rate_limit = await _query_manager.check_rate_limit(body.tenant, cost=_estimated_cost)
+	if not rate_limit["allowed"]:
+		raise HTTPException(
+			status_code=429,
+			detail=f"Rate limit exceeded. Retry after {rate_limit['retry_after_seconds']:.1f}s",
+			headers={"Retry-After": str(int(rate_limit["retry_after_seconds"]))},
+		)
+
+	# Daily quota check
+	quota = await _query_manager.check_quota(body.tenant, quota_type="daily")
+	if not quota["allowed"]:
+		raise HTTPException(
+			status_code=429,
+			detail=f"Daily quota exceeded ({quota['used']}/{quota['limit']}). Resets in {quota['reset_in_seconds']:.0f}s",
+		)
+
+	if _vector_store is None or _embedder is None:
+		raise HTTPException(status_code=503, detail="Vector store or embedder not initialised")
+	vector_store = _vector_store
+	embedder = _embedder
+
+	handler = GuardedQueryHandler(
+		vector_store=vector_store,
+		embedder=embedder,
+		filter_resolver=DefaultFilterResolver(),
+	)
+	auth_context = {"tenant": body.tenant, "acl": [], "embedder_id": None}
+
+	# Measure retrieval latency
+	retrieval_start = time.time()
+	try:
+		chunks = handler.retrieve(query_text=body.question, auth_context=auth_context, top_k=body.top_k)
+	except Exception as exc:
+		logger.warning('{"event":"rag_retrieval_error","detail":"%s"}', exc)
+		chunks = []
+	retrieval_latency = (time.time() - retrieval_start) * 1000  # ms
+
+	gen = GenerationHandler()
+
+	async def _llm_call(prompt: str) -> str:  # noqa: RUF029
+		# No LLM configured — synthesise a minimal valid answer from retrieved chunks.
+		import json as _json
+		_MIN_SCORE = 0.3
+		if not chunks:
+			return '{"answer":"","cited_chunk_ids":[],"refused":true,"refusal_reason":"No relevant information found."}'
+		top = chunks[0]
+		# Extract score — tuples are (text, score), objects may have .score
+		if isinstance(top, tuple):
+			score = top[1] if len(top) > 1 else 0.0
+			text = top[0]
+			chunk_id = "chunk-1"
+		else:
+			score = getattr(top, "score", 1.0)
+			text = getattr(top, "text", str(top))
+			chunk_id = getattr(top, "chunk_id", "chunk-1")
+		if score < _MIN_SCORE:
+			return '{"answer":"","cited_chunk_ids":[],"refused":true,"refusal_reason":"No relevant information found."}'
+		return _json.dumps({
+			"answer": text[:500],
+			"cited_chunk_ids": [chunk_id],
+			"refused": False,
+			"refusal_reason": None,
+		})
+
+	# Measure generation latency
+	generation_start = time.time()
+	answer = await gen.generate(
+		query=body.question,
+		retrieved_chunks=chunks,
+		llm_call=_llm_call,
+		provider="internal",
+	)
+	generation_latency = (time.time() - generation_start) * 1000  # ms
+
+	# Extract top score for logging
+	top_score = None
+	if chunks:
+		top = chunks[0]
+		if isinstance(top, tuple):
+			top_score = top[1] if len(top) > 1 else None
+		else:
+			top_score = getattr(top, "score", None)
+
+	# Calculate actual query cost post-retrieval (RAG-09 S3)
+	actual_cost = calculate_query_cost(
+		top_k=body.top_k,
+		retrieval_ms=retrieval_latency,
+		refused=answer.refused,
+		cfg=_query_manager.config,
+	)
+
+	# Prometheus cost histogram (RAG-09 S3)
+	try:
+		from mcp_agent_factory.knowledge.query_handler import _query_cost_histogram as _qch
+		_qch.observe(actual_cost)
+	except Exception:
+		pass
+
+	# Log to audit trail
+	await _query_manager.log_query(
+		tenant=body.tenant,
+		question=body.question,
+		top_k=body.top_k,
+		result_count=len(chunks),
+		top_score=top_score,
+		refused=answer.refused,
+		refusal_reason=answer.refusal_reason,
+		retrieval_latency_ms=retrieval_latency,
+		generation_latency_ms=generation_latency,
+		cost_tokens=actual_cost,
+	)
+
+	return QueryResponse(
+		answer=answer.answer,
+		refused=answer.refused,
+		refusal_reason=answer.refusal_reason,
+		citations=answer.cited_chunk_ids,
+	)
+
+
+# ---------------------------------------------------------------------------
+# Query Management Endpoints — monitoring and quota administration
+# ---------------------------------------------------------------------------
+
+
+@gateway_app.get("/query/stats/{tenant}")
+async def get_query_stats(tenant: str) -> dict:
+	"""Get aggregated query stats for a tenant (last 24h)."""
+	stats = await _query_manager.get_tenant_stats(tenant)
+	return stats
+
+
+class QuotaUpdate(BaseModel):
+	"""Update quota for a tenant (RAG-08 + RAG-09 S2 timezone field)."""
+
+	daily_limit: int | None = None
+	hourly_limit: int | None = None
+	tokens_per_second: float | None = None
+	timezone: str | None = None  # RAG-09 S2
+
+
+@gateway_app.post("/admin/quota/{tenant}")
+async def update_quota(
+	tenant: str,
+	update: QuotaUpdate,
+	_claims: dict | None = Depends(make_verify_token("tools:orchestrate", optional=False)),
+) -> dict:
+	"""Update rate limiting, quota, and timezone for a tenant (requires tools:orchestrate scope)."""
+	# RAG-09 S2: validate and store timezone
+	if update.timezone is not None:
+		if not is_valid_timezone(update.timezone):
+			raise HTTPException(status_code=400, detail=f"Invalid timezone: {update.timezone!r}")
+		cfg = _query_manager.get_tenant_config(tenant)
+		cfg = TenantConfig(
+			tenant=tenant,
+			timezone=update.timezone,
+			daily_quota=update.daily_limit or cfg.daily_quota,
+			hourly_quota=update.hourly_limit or cfg.hourly_quota,
+			tokens_per_second=update.tokens_per_second or cfg.tokens_per_second,
+			burst_size=cfg.burst_size,
+		)
+		_query_manager.set_tenant_config(cfg)
+	else:
+		if update.daily_limit is not None:
+			_query_manager.config.daily_quota = update.daily_limit
+		if update.hourly_limit is not None:
+			_query_manager.config.hourly_quota = update.hourly_limit
+		if update.tokens_per_second is not None:
+			_query_manager.config.tokens_per_second = update.tokens_per_second
+
+	tz = _query_manager.get_tenant_config(tenant).timezone
+	# Calculate reset time for display
+	from .query_management import _quota_reset_seconds
+	reset_in = _quota_reset_seconds("daily", tz)
+	hours_until_reset = round(reset_in / 3600, 1)
+
+	return {
+		"tenant": tenant,
+		"daily_quota": _query_manager.config.daily_quota,
+		"hourly_quota": _query_manager.config.hourly_quota,
+		"tokens_per_second": _query_manager.config.tokens_per_second,
+		"timezone": tz,
+		"resets_in_hours": hours_until_reset,
+	}
+
+
+@gateway_app.get("/admin/quotas")
+async def list_quotas(
+	_claims: dict | None = Depends(make_verify_token("tools:orchestrate", optional=False)),
+) -> dict:
+	"""List current rate limiting and quota configuration (requires tools:orchestrate scope)."""
+	from .query_management import _quota_reset_seconds
+	tenants_info = {}
+	for tenant, cfg in _query_manager._tenant_configs.items():
+		reset_in = _quota_reset_seconds("daily", cfg.timezone)
+		tenants_info[tenant] = {
+			"timezone": cfg.timezone,
+			"daily_quota": cfg.daily_quota,
+			"hourly_quota": cfg.hourly_quota,
+			"resets_in_hours": round(reset_in / 3600, 1),
+		}
+	return {
+		"default": {
+			"daily_quota": _query_manager.config.daily_quota,
+			"hourly_quota": _query_manager.config.hourly_quota,
+			"tokens_per_second": _query_manager.config.tokens_per_second,
+			"burst_size": _query_manager.config.burst_size,
+		},
+		"tenants": tenants_info,
+	}
+
+
+@gateway_app.get("/query/audit/{tenant}")
+async def export_audit_log(
+	tenant: str,
+	start: str = Query(..., description="Start date YYYY-MM-DD"),
+	end: str = Query(..., description="End date YYYY-MM-DD (inclusive)"),
+	fmt: str = Query("json", description="Export format: json or csv"),
+) -> Any:
+	"""Export durable audit logs from PostgreSQL for a date range (RAG-09 S1).
+
+	Requires bearer token with tools:orchestrate scope.
+	"""
+	from datetime import timezone as _tz
+
+	try:  # noqa: SIM105
+		from datetime import timedelta
+		start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+		# end is inclusive: advance to start of next day so the SQL `< end_dt` captures all of end day
+		end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=_tz.utc) + timedelta(days=1)
+	except ValueError as exc:
+		raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}") from exc
+
+	if fmt not in ("json", "csv"):
+		raise HTTPException(status_code=400, detail="fmt must be 'json' or 'csv'")
+
+	data = await _query_manager.export_audit(tenant, start_dt, end_dt, fmt=fmt)  # type: ignore[arg-type]
+
+	if fmt == "csv":
+		from fastapi.responses import PlainTextResponse
+		return PlainTextResponse(content=data, media_type="text/csv")
+	return _JSONResponse(content=json.loads(data))
 
 
 # ---------------------------------------------------------------------------

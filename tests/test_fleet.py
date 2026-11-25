@@ -149,6 +149,10 @@ class TestBatchSubmit:
         assert resp.status_code == 404
 
     def test_batch_poll_reflects_partial_completion(self, client, inject_fake_redis):
+        # Stop the background worker so it doesn't race with planted statuses
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_fleet.stop_fleet_workers())
+
         # Submit 3-job batch
         submit_resp = client.post("/mcp/jobs/batch", json={
             "tasks": [
@@ -162,7 +166,6 @@ class TestBatchSubmit:
         job_ids = body["job_ids"]
 
         # Mark 1 done, 1 failed, 1 still pending
-        loop = asyncio.get_event_loop()
         loop.run_until_complete(_plant_job(inject_fake_redis, job_ids[0], "done", result={}))
         loop.run_until_complete(_plant_job(inject_fake_redis, job_ids[1], "failed", error="boom"))
 
@@ -178,6 +181,9 @@ class TestBatchSubmit:
 
     def test_single_failing_task_does_not_block_siblings(self, client, inject_fake_redis):
         """A failed job must not affect the status of sibling jobs."""
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_fleet.stop_fleet_workers())
+
         submit_resp = client.post("/mcp/jobs/batch", json={
             "tasks": [
                 {"method": "agents/analyze", "params": {}},
@@ -188,7 +194,6 @@ class TestBatchSubmit:
         batch_id = body["batch_id"]
         job_ids = body["job_ids"]
 
-        loop = asyncio.get_event_loop()
         loop.run_until_complete(_plant_job(inject_fake_redis, job_ids[0], "failed", error="err"))
         loop.run_until_complete(_plant_job(inject_fake_redis, job_ids[1], "done", result={"ok": True}))
 

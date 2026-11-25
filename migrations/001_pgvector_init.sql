@@ -32,5 +32,11 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding
 CREATE INDEX IF NOT EXISTS idx_chunks_ts ON chunks USING GIN (ts);
 
 -- Unique constraint so upsert (ON CONFLICT) works correctly.
-ALTER TABLE chunks
-    ADD CONSTRAINT IF NOT EXISTS uq_chunks_owner_chunk UNIQUE (owner_id, chunk_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_chunks_owner_chunk'
+    ) THEN
+        ALTER TABLE chunks ADD CONSTRAINT uq_chunks_owner_chunk UNIQUE (owner_id, chunk_id);
+    END IF;
+END $$;

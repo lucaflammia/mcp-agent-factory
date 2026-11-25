@@ -225,6 +225,170 @@ SkillAsset → SkillCompiler.compile_all()
 The offline boundary is enforced: DSPy compilation and GEPA evolution never run
 in the request path. Results are written as hot-reloadable JSON skill assets.
 
+## Knowledge Layer: RAG-03 Guarded Retrieval ✅
+
+Query-time tenant isolation is a precondition, not post-processing. The `GuardedQueryHandler` enforces mandatory filter resolution, embedder validation, and configurable diversification:
+
+```
+auth_context (tenant, acl, embedder_id)
+    │
+    ▼
+[1] Resolve & validate filters
+    │ → tenant required (not empty)
+    │ → acl and date filters collected
+    │ → embedder_id stored (version mismatch will be caught)
+    ▼
+[2] Embed query
+    │ → same embedder as ingestion
+    ▼
+[3] ANN search with mandatory filters
+    │ → search_with_filters(tenant, acl_labels, date_start, date_end, embedder_id)
+    │ → top-k = rerank_k × 2 (default 20 candidates)
+    ▼
+[4] Cross-encoder reranking (if available)
+    │ → rerank(query_text, candidates, top_k=10)
+    ▼
+[5] MMR diversification
+    │ → mmr_diversify(top_10, top_k=5, lambda_param=0.5)
+    │ → balances relevance (lambda=0.5) with diversity (1-lambda=0.5)
+    ▼
+results (top-5, diversity-aware)
+```
+
+**OTel instrumentation:** Each stage emits a child span with attributes:
+- `query_handler.resolve_filters` — `filter.tenant`, `filter.acl_count`, `filter.date_start`, `filter.date_end`
+- `query_handler.embed_query` — `query.embedding_dim`
+- `query_handler.ann_search` — `ann.result_count`
+- `query_handler.rerank` — `rerank.result_count`
+- `query_handler.mmr` — `mmr.result_count`
+- `query_handler.retrieve` (parent) — `final.result_count`
+
+**Acceptance criteria verification:**
+1. ✅ Cross-tenant leakage test — 3 tests confirm tenant A never retrieves tenant B chunks
+2. ✅ Query without resolved tenant rejected — 3 validation tests (missing, empty, whitespace tenant)
+3. ✅ Embedder ID mismatch detection — embedder_id passed to `search_with_filters()` (PgVectorStore implements check)
+4. ✅ Top-100 → rerank 10 → MMR 5 configurable — all three k parameters tunable
+5. ✅ HyDE off by default — not implemented (deferred to RAG-06 eval gates)
+6. ✅ OTel spans cover all stages with filter attributes recorded
+
+**Test coverage:** 59 tests in `tests/test_rag03_guarded_retrieval.py` covering isolation, validation, MMR, date filters, and end-to-end integration.
+
+## Knowledge Layer: RAG-04 Validated Generation with Citation Checks ✅
+
+Structured generation with mandatory citation validation — citation hallucinations are rejected or retried.
+
+```
+retrieved_chunks (from RAG-03)
+    │ (ChunkResult: text, score, chunk_id)
+    ▼
+[1] Format context with chunk ID tags
+    │ → [chunk-1] text 1
+    │ → [chunk-2] text 2
+    │ → [chunk-3] text 3
+    ▼
+[2] Assemble prompt with refusal clause
+    │ → "if context does not contain the answer, refuse"
+    │ → requires citations in JSON response
+    ▼
+[3] LLM generation (structured output)
+    │ → schema: {answer, cited_chunk_ids[], refused, refusal_reason}
+    ▼
+[4] Citation validation
+    │ → check: cited_chunk_ids ⊆ retrieved_chunk_ids
+    │ → if invalid: retry (attempt 1 → attempt 2)
+    │ → if still invalid: return refusal
+    ▼
+[5] Telemetry & feedback hook
+    │ → OTel span: generation.generate (provider, query_length, retrieved_count)
+    │ → Prometheus: citation_validation_failures_total, generation_retries_total, generation_refusals_total
+    ▼
+RagAnswer (validated)
+```
+
+**Provider-independent enforcement:**
+All LLM providers behind the unified router (Anthropic, OpenAI, Ollama, Bedrock) validate answers against the identical `RagAnswer` Pydantic schema. No provider-specific hacks.
+
+**Refusal semantics:**
+- Empty retrieval (score < 0.3) → immediate refusal (no generation attempt)
+- Validation failure on attempt 1 → retry once
+- Validation failure on attempt 2 → refusal with reason "Could not generate a reliable answer"
+- Explicit refusal by LLM (refused=True) → accepted as-is, no retry
+
+**OTel instrumentation:**
+- `generation.generate` (parent span) — attributes: `query_length`, `retrieved_count`, `provider`, `refused_reason`, `success`, `success_on_retry`
+- `generation.validate_answer` (child span) — attributes: `output_length`, `retrieved_count`, `retrieved_ids_count`, `is_valid`, `validation_error`, `cited_count`
+
+**Acceptance criteria verification:**
+1. ✅ AC1: Answer citing non-existent chunk ID is rejected — 6 tests cover valid/invalid citation scenarios
+2. ✅ AC2: Retry once on validation failure, then refusal — 3 tests verify retry logic and terminal refusal
+3. ✅ AC3: Empty retrieval results in refusal — `should_refuse(retrieved_chunks)` checks score and length
+4. ✅ AC4: Schema enforced identically across providers — single `RagAnswer` Pydantic model used by all
+5. ✅ AC5: Citation failures, retries, refusals counted — Prometheus counters with labels for reason/provider
+6. ✅ AC6: Unit tests cover valid answers, invalid citations, malformed output, refusal paths — 39 tests
+
+**Test coverage:** 39 tests in `tests/test_rag04_validated_generation.py` covering:
+- RagAnswer model validation
+- Citation validation (valid, invalid, multi-invalid, no citations)
+- Malformed JSON handling
+- Empty retrieval
+- Retry and refusal logic
+- Telemetry tracking
+- Provider-independent schema enforcement
+- Prompt template structure
+
+## Knowledge Layer: RAG-05 Embedder Versioning and Dual-Write Cutover ✅
+
+Safe upgrades between embedding models — multiple versions coexist without mixing at query time.
+
+```
+Ingestion (dual-write phase)
+    │
+    ├─► embedder_v1.embed(chunk) ──► upsert(owner_id, chunk_id, embedder_id="model@v1")
+    └─► embedder_v2.embed(chunk) ──► upsert(owner_id, chunk_id, embedder_id="model@v2")
+              │
+              └─ content_hash dedup: skip if (owner_id, chunk_id, embedder_id) already stored
+
+Query path
+    │
+    └─► search_with_filters(tenant, acl, date, embedder_id="model@v1")
+              │
+              ├─ if embedder_id matches stored vectors → return results
+              └─ if embedder_id absent in index → raise explicit "version mismatch" error
+```
+
+**Version isolation:** Every chunk stores `embedder_id` (model name + version) as part of the composite key `(owner_id, chunk_id, embedder_id)`. Queries declare their embedder version; the store filters strictly — a query for `model@v2` never touches `model@v1` vectors.
+
+**Cutover procedure:**
+1. Deploy new embedder; ingestion calls `dual_write()` to write both versions in parallel.
+2. Run `backfill()` over existing chunks — skips any `(owner_id, chunk_id, embedder_id)` triple already present.
+3. Evaluate the new version against the golden set (RAG-06); compare metrics to baseline.
+4. If parity or better, switch query context `embedder_id` to new version (config change only).
+5. Keep old version for a grace period, then delete.
+
+**Rollback:** Revert `embedder_id` in query configuration — no re-ingest required. Old vectors remain intact until explicitly deleted.
+
+**Key files:**
+- `src/mcp_agent_factory/knowledge/vector_store.py` — versioned key, `chunk_exists()`, mismatch error
+- `src/mcp_agent_factory/knowledge/ingest.py` — `dual_write()`, `backfill()` with content-hash dedup
+- `migrations/002_rag05_embedder_versioning.sql` — schema extension: `embedder_id`, `content_hash` columns
+- `docs/RAG/RAG-05-EMBEDDER-VERSIONING.md` — full procedure + quarterly review checklist
+
+**Acceptance criteria verification:**
+1. ✅ AC1: Two embedder versions coexist without mixing — composite key enforces version isolation; mismatch raises explicit error
+2. ✅ AC2: Cutover executes end-to-end on test corpus — `dual_write()` tested with concurrent version writes and query switching
+3. ✅ AC3: Rollback by configuration only — switching `embedder_id` in query context reverts without re-ingest
+4. ✅ AC4: Backfill skips existing `content_hash` — `chunk_exists(owner_id, chunk_id, embedder_id)` checked before re-embedding
+5. ✅ AC5: Procedure and checklist documented — `docs/RAG/RAG-05-EMBEDDER-VERSIONING.md` (procedure + quarterly review)
+
+**Test coverage:** 11 tests in `tests/test_rag05_embedder_versioning.py` covering:
+- Two versions stored independently, searches respect version
+- Explicit mismatch error when requested version absent
+- Cross-tenant isolation per version
+- Dual-write stores both versions; query switches cleanly
+- Golden set evaluation on new version
+- Rollback by config change
+- Backfill deduplication on content hash
+
 ## Async Fleet Runtime
 
 The async fleet runtime runs alongside the synchronous pipeline without changing any existing routes. Two execution backends are supported, selected by the `STATE_MACHINE_ARN` environment variable.

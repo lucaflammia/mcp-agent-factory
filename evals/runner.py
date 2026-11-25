@@ -221,6 +221,16 @@ def run_calibration() -> dict[str, Any]:
   return agreement
 
 
+def golden_set_version() -> str:
+  """Return a stable version hash for the versioned golden set files."""
+  import hashlib
+  h = hashlib.sha256()
+  for name in sorted(DATASETS_DIR.glob("*.jsonl")):
+    h.update(name.name.encode())
+    h.update(name.read_bytes())
+  return h.hexdigest()[:12]
+
+
 def build_report(
   dataset_results: dict[str, list[dict[str, Any]]],
   tag: str,
@@ -233,6 +243,7 @@ def build_report(
     "meta": {
       "tag": tag,
       "git_sha": git_sha_full(),
+      "golden_set_version": golden_set_version(),
       "timestamp": datetime.now(timezone.utc).isoformat(),
       "elapsed_seconds": round(elapsed_s, 2),
     },
@@ -376,7 +387,73 @@ def run_eval(
   with open(output_path, "w") as f:
     json.dump(report, f, indent=2)
 
+  _push_eval_metrics_to_gateway(report)
+
   return report
+
+
+def _push_eval_metrics_to_gateway(report: dict) -> None:
+  """Push eval metrics to Prometheus pushgateway if available."""
+  import os
+  pushgateway_url = os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://localhost:9091")
+  try:
+    from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+  except ImportError:
+    return
+
+  registry = CollectorRegistry()
+
+  def g(name, doc, value, labels=None):
+    gauge = Gauge(name, doc, list(labels.keys()) if labels else [], registry=registry)
+    if labels:
+      gauge.labels(**labels).set(value)
+    else:
+      gauge.set(value)
+
+  # Golden set version as numeric hash (last 8 hex chars → int)
+  gsv = report.get("meta", {}).get("golden_set_version", "0")
+  try:
+    gsv_int = int(gsv[:8], 16)
+  except (ValueError, TypeError):
+    gsv_int = 0
+  g("rag_eval_golden_set_version", "Golden set version hash (numeric)", gsv_int)
+
+  # Last run timestamp
+  ts_str = report.get("meta", {}).get("timestamp", "")
+  try:
+    from datetime import datetime, timezone
+    ts = datetime.fromisoformat(ts_str).timestamp()
+  except Exception:
+    ts = time.time()
+  g("rag_eval_last_run_timestamp_seconds", "Unix timestamp of last eval run", ts)
+
+  # Overall pass rates
+  summary = report.get("summary", {})
+  current_pass = summary.get("overall_pass_rate", {}).get("proportion", 0.0)
+  g("rag_eval_current_pass_rate", "Current eval pass rate", current_pass)
+
+  # Baseline pass rate from baseline.json
+  baseline_path = RESULTS_DIR / "baseline.json"
+  if baseline_path.exists():
+    try:
+      baseline_data = json.loads(baseline_path.read_text())
+      baseline_pass = baseline_data.get("summary", {}).get("overall_pass_rate", {}).get("proportion", 0.0)
+      g("rag_eval_baseline_pass_rate", "Baseline eval pass rate", baseline_pass)
+    except Exception:
+      pass
+
+  # Retrieval metrics from rag_qa dataset
+  rag_ds = report.get("datasets", {}).get("rag_qa", {})
+  ret = rag_ds.get("retrieval_metrics", {})
+  if ret:
+    g("rag_retrieval_recall_1", "Recall@1 from eval", ret.get("recall@1", 0.0))
+    g("rag_retrieval_mrr", "Mean Reciprocal Rank from eval", ret.get("mrr", 0.0))
+    g("rag_retrieval_ndcg_10", "nDCG@10 from eval", ret.get("ndcg@10", 0.0))
+
+  try:
+    push_to_gateway(pushgateway_url, job="rag_eval", registry=registry)
+  except Exception as exc:
+    logger.warning(f"Could not push eval metrics to Prometheus pushgateway: {exc}")
 
 
 def main() -> None:
