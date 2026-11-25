@@ -269,8 +269,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 # CSV
 curl -H "Authorization: Bearer $TOKEN" \
-     -H "Accept: text/csv" \
-  "http://localhost:8000/query/audit/demo-tenant?start=2026-11-01&end=2026-11-22"
+  "http://localhost:8000/query/audit/demo-tenant?start=2026-11-01&end=2026-11-22&fmt=csv"
 ```
 
 ### Verify cost-based metrics via Prometheus

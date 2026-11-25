@@ -30,7 +30,7 @@ QUOTA_HOURLY=10000       # queries per hour per tenant (default 10k)
 KV_TOPICS=default,audit  # "audit" topic required
 
 # RAG-09 S1: PostgreSQL durable audit
-PG_DSN=postgresql://user:pass@host/db   # unset = Redis-only
+AUDIT_DB_URL=postgresql://user:pass@host/db   # unset = Redis-only
 AUDIT_FLUSH_INTERVAL=10.0               # seconds between flushes
 AUDIT_MAX_BUFFER=1000                   # max entries before forced flush
 
@@ -244,7 +244,7 @@ python -m pytest tests/test_query_management.py tests/test_rag09*.py -v
 - Ensure the timezone is set via `POST /admin/quota/{tenant}` with `timezone` field
 
 **Audit export empty**
-- Confirm `PG_DSN` is set and PostgreSQL is reachable
+- Confirm `AUDIT_DB_URL` is set and PostgreSQL is reachable
 - Check `AUDIT_FLUSH_INTERVAL` — data may still be in the buffer
 - Run `GET /query/audit/{tenant}?start=...&end=...` with the correct date range
 
