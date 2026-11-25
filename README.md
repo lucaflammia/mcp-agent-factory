@@ -489,7 +489,7 @@ curl -s -X POST http://localhost:8000/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  | python3 -m json.tool
+  | python -m json.tool
 ```
 
 ## Gateway Endpoints

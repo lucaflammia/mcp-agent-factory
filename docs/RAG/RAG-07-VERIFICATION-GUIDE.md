@@ -316,9 +316,14 @@ for i in $(seq 1 10); do
     -H 'Content-Type: application/json' \
     -d "{\"question\": \"out-of-scope $i\", \"tenant\": \"default\"}" > /dev/null
 done
-# Check if the RagRefusalSpike alert is firing
-curl -s http://localhost:9090/api/v1/alerts | python -m json.tool | grep -A3 "refusal"
+# Wait ~15s for Prometheus to scrape, then check if RagRefusalSpike is firing.
+# IMPORTANT: run this within 5 minutes of the queries above — the alert uses a 5m window.
+sleep 15
+curl -s http://localhost:9090/api/v1/alerts | python -m json.tool | grep -i -A5 "refusal"
 ```
+
+> **Troubleshooting — empty alert output:** If the grep returns nothing, check that the queries were fired recently (within the last 5 minutes). The alert uses `increase(rag_refusals_total[5m]) > 5`, which requires at least two Prometheus scrapes capturing the counter going up. Run the query loop again and check immediately after the `sleep 15`.
+
 
 ---
 
@@ -329,7 +334,7 @@ curl -s http://localhost:9090/api/v1/alerts | python -m json.tool | grep -A3 "re
 **What to verify:**
 ```bash
 curl -s 'http://localhost:9090/api/v1/query?query=rag_retrieval_score_bucket' \
-  | python3 -m json.tool | head -30
+  | python -m json.tool | head -30
 ```
 
 If the panel shows "No data", confirm Prometheus is scraping the gateway:
