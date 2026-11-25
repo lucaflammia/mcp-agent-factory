@@ -255,7 +255,7 @@ Shows the fraction of queries where retrieval returned **no chunks at all** (`re
 
 **What to verify:**
 ```bash
-curl -s http://localhost:8000/metrics | grep rag_empty_results_total
+curl -s http://localhost:8000/metrics | grep rag_query_empty_results_total
 ```
 
 A non-zero value means some queries returned no chunks. Expected to be low for financial domain queries against the sample index.
@@ -268,7 +268,7 @@ Shows the fraction of queries the model refused to answer over time. A rising tr
 
 **What to verify:**
 ```bash
-curl -s http://localhost:8000/metrics | grep rag_refusals_total
+curl -s http://localhost:8000/metrics | grep rag_generation_refusal_total
 ```
 
 Refusals occur when the best matching chunk scores below the minimum threshold (0.3). Out-of-scope queries like "weather forecast" will be refused.
@@ -302,9 +302,9 @@ Expected shape — `answer` is populated, `citations` is a non-empty array of ch
 After this call, check that `rag_refusals_total` did **not** increment while `rag_retrieval_score_bucket` updated:
 
 ```bash
-curl -s http://localhost:8000/metrics | grep -E 'rag_refusals_total|rag_top1_score'
+curl -s http://localhost:8000/metrics | grep -E 'rag_generation_refusal_total|rag_top1_score'
 # rag_top1_score{tenant="default"} 0.69
-# rag_refusals_total{tenant="default"} 0  (unchanged from before)
+# rag_generation_refusal_total{tenant="default"} 0  (unchanged from before)
 ```
 
 This confirms the refusal rate stays below 100% when the index contains relevant content.
@@ -339,7 +339,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=rag_retrieval_score_bucket' \
 
 If the panel shows "No data", confirm Prometheus is scraping the gateway:
 ```bash
-curl -s 'http://localhost:9090/api/v1/targets' | python -m json.tool | grep -A5 '"gateway"'
+curl -s 'http://localhost:9090/api/v1/targets' | python -m json.tool | grep -B2 '"mcp-gateway"'
 ```
 
 The target health must be `"health": "up"`.

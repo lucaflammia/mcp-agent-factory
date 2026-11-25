@@ -58,6 +58,8 @@ PKCE S256, RFC 8414 discovery, RFC 7591 dynamic client registration.
 
 ## RAG Pipeline
 
+> Full sub-issue history, feature tables, and test counts: **[`docs/RAG/RAG-CHANGELOG.md`](docs/RAG/RAG-CHANGELOG.md)**
+
 ### RAG-03: Guarded Retrieval ✅
 
 Tenant isolation is enforced at the query handler layer, not post-hoc. All queries must include:
@@ -246,7 +248,7 @@ Prometheus metric: `rag_query_cost_tokens` (histogram with cost buckets).
 **Configuration** (`.env`):
 ```bash
 # PostgreSQL durable audit
-PG_DSN=postgresql://user:pass@host/db
+AUDIT_DB_URL=postgresql://user:pass@host/db
 AUDIT_FLUSH_INTERVAL=10.0
 AUDIT_MAX_BUFFER=1000
 

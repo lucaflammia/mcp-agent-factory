@@ -144,7 +144,7 @@ python -m evals.compare baseline <SHA> --json
 ```bash
 # 1. Create backup (point-in-time)
 python -c "
-from src.mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
+from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 import datetime
 
 store = InMemoryVectorStore()
@@ -162,7 +162,7 @@ print(f'Backup: {meta}')
 
 # 2. Restore from backup (test environment)
 python -c "
-from src.mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
+from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 
 store = InMemoryVectorStore()
 result = store.restore('backups/rag-prod-1731686400.json')
@@ -172,7 +172,7 @@ print(f'Restored: {result}')
 
 # 3. Verify data integrity
 python -c "
-from src.mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
+from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 import numpy as np
 
 # Restore and query
@@ -209,7 +209,7 @@ print(f'Tenant-a: {len(results)} results')
 
 # 2. Delete by data subject
 python -c "
-from src.mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
+from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 
 store = InMemoryVectorStore()
 # (Load from persistent store in production)
@@ -223,7 +223,7 @@ print(f'Deleted {count} chunks for {data_subject_id}')
 
 # 3. Verify deletion (AC6)
 python -c "
-from src.mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
+from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore
 import numpy as np
 
 store = InMemoryVectorStore()
@@ -263,7 +263,7 @@ print('✓ Deletion verified: no results contain data subject ID')
 # Cron job (e.g., in production cluster)
 0 2 * * 1 cd /app && python -c "
 import logging
-from src.mcp_agent_factory.knowledge.vector_store import PgVectorStore
+from mcp_agent_factory.knowledge.vector_store import PgVectorStore
 
 logging.basicConfig(level=logging.INFO)
 
@@ -321,7 +321,7 @@ git push origin main
 # — Check logs for completion
 
 # 5. Monthly backup drill (manual)
-python -c "from src.mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore; ..."
+python -c "from mcp_agent_factory.knowledge.vector_store import InMemoryVectorStore; ..."
 ```
 
 ---
@@ -332,5 +332,5 @@ python -c "from src.mcp_agent_factory.knowledge.vector_store import InMemoryVect
 - **Baseline comparison:** `evals/compare.py`
 - **CI workflow:** `.github/workflows/ci.yml` → `eval` job
 - **Grafana dashboard:** `observability/grafana/dashboards/rag-metrics.json`
-- **Vector store ops:** `src/mcp_agent_factory/knowledge/vector_store.py` (backup, restore, delete_by_data_subject, compact)
+- **Vector store ops:** `src/mcp_agent_factory/knowledge/vector_store.py` — `backup`, `restore`, `delete_by_data_subject`, `compact`
 - **Related:** RAG-02 (idempotent ingestion), RAG-03 (guarded retrieval), RAG-05 (embedder versioning)
