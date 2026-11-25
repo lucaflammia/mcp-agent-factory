@@ -437,7 +437,7 @@ async def get_batch(batch_id: str) -> BatchStatus:
     for jid in job_ids:
         job = await _read_job(jid)
         if job is None:
-            status = JobStatus(job_id=jid, status="failed", error="job record missing")
+            status = JobStatus(job_id=jid, status="pending")
         else:
             if _sfn_client and job.get("execution_arn"):
                 job = await _sfn_refresh_job(job)
