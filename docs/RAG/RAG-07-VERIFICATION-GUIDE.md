@@ -299,7 +299,7 @@ Expected shape — `answer` is populated, `citations` is a non-empty array of ch
 
 > **Note:** Without a real LLM configured, the gateway returns the raw text of the top-ranked chunk as the answer. With an LLM, `answer` will be a synthesised natural-language response grounded in the retrieved chunks.
 
-After this call, check that `rag_refusals_total` did **not** increment while `rag_retrieval_score_bucket` updated:
+After this call, check that `rag_generation_refusal_total` did **not** increment while `rag_retrieval_score_bucket` updated:
 
 ```bash
 curl -s http://localhost:8000/metrics | grep -E 'rag_generation_refusal_total|rag_top1_score'
@@ -322,7 +322,7 @@ sleep 15
 curl -s http://localhost:9090/api/v1/alerts | python -m json.tool | grep -i -A5 "refusal"
 ```
 
-> **Troubleshooting — empty alert output:** If the grep returns nothing, check that the queries were fired recently (within the last 5 minutes). The alert uses `increase(rag_refusals_total[5m]) > 5`, which requires at least two Prometheus scrapes capturing the counter going up. Run the query loop again and check immediately after the `sleep 15`.
+> **Troubleshooting — empty alert output:** If the grep returns nothing, check that the queries were fired recently (within the last 5 minutes). The alert uses `increase(rag_generation_refusal_total[5m]) > 5`, which requires at least two Prometheus scrapes capturing the counter going up. Run the query loop again and check immediately after the `sleep 15`.
 
 
 ---
